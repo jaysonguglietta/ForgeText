@@ -1,0 +1,39 @@
+name: ForgeText
+options:
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: 6.0
+    MACOSX_DEPLOYMENT_TARGET: 14.0
+targets:
+  ForgeText:
+    type: application
+    platform: macOS
+    sources:
+      - path: ForgeText
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jaysonguglietta.ForgeText
+        PRODUCT_NAME: ForgeText
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: ForgeText/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_EMIT_LOC_STRINGS: NO
+    scheme:
+      gatherCoverageData: true
+      testTargets:
+        - ForgeTextTests
+
+  ForgeTextTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: ForgeTextTests
+    dependencies:
+      - target: ForgeText
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jaysonguglietta.ForgeTextTests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic

@@ -1,0 +1,173 @@
+import AppKit
+
+enum EditorTheme: String, CaseIterable, Identifiable, Codable {
+    case forge
+    case blueprint
+    case vellum
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .forge:
+            return "Forge"
+        case .blueprint:
+            return "Blueprint"
+        case .vellum:
+            return "Vellum"
+        }
+    }
+
+    var backgroundColor: NSColor {
+        switch self {
+        case .forge:
+            return NSColor(calibratedRed: 0.11, green: 0.13, blue: 0.17, alpha: 1)
+        case .blueprint:
+            return NSColor(calibratedRed: 0.08, green: 0.15, blue: 0.22, alpha: 1)
+        case .vellum:
+            return NSColor(calibratedRed: 0.95, green: 0.93, blue: 0.89, alpha: 1)
+        }
+    }
+
+    var textColor: NSColor {
+        switch self {
+        case .forge, .blueprint:
+            return NSColor(calibratedRed: 0.93, green: 0.93, blue: 0.93, alpha: 1)
+        case .vellum:
+            return NSColor(calibratedRed: 0.18, green: 0.18, blue: 0.17, alpha: 1)
+        }
+    }
+
+    var secondaryTextColor: NSColor {
+        switch self {
+        case .forge:
+            return NSColor(calibratedRed: 0.62, green: 0.66, blue: 0.71, alpha: 1)
+        case .blueprint:
+            return NSColor(calibratedRed: 0.59, green: 0.74, blue: 0.86, alpha: 1)
+        case .vellum:
+            return NSColor(calibratedRed: 0.46, green: 0.42, blue: 0.37, alpha: 1)
+        }
+    }
+
+    var gutterBackgroundColor: NSColor {
+        switch self {
+        case .forge:
+            return NSColor(calibratedRed: 0.08, green: 0.09, blue: 0.12, alpha: 1)
+        case .blueprint:
+            return NSColor(calibratedRed: 0.05, green: 0.11, blue: 0.17, alpha: 1)
+        case .vellum:
+            return NSColor(calibratedRed: 0.90, green: 0.88, blue: 0.84, alpha: 1)
+        }
+    }
+
+    var gutterTextColor: NSColor {
+        secondaryTextColor
+    }
+
+    var accentColor: NSColor {
+        switch self {
+        case .forge:
+            return NSColor(calibratedRed: 1.0, green: 0.42, blue: 0.24, alpha: 1)
+        case .blueprint:
+            return NSColor(calibratedRed: 0.36, green: 0.78, blue: 0.95, alpha: 1)
+        case .vellum:
+            return NSColor(calibratedRed: 0.70, green: 0.31, blue: 0.16, alpha: 1)
+        }
+    }
+
+    var badgeBackgroundColor: NSColor {
+        accentColor.withAlphaComponent(0.14)
+    }
+
+    var selectionColor: NSColor {
+        accentColor.withAlphaComponent(self == .vellum ? 0.25 : 0.33)
+    }
+
+    var borderColor: NSColor {
+        secondaryTextColor.withAlphaComponent(0.22)
+    }
+
+    var keywordColor: NSColor {
+        switch self {
+        case .forge:
+            return NSColor(calibratedRed: 0.97, green: 0.76, blue: 0.39, alpha: 1)
+        case .blueprint:
+            return NSColor(calibratedRed: 0.54, green: 0.84, blue: 1.0, alpha: 1)
+        case .vellum:
+            return NSColor(calibratedRed: 0.53, green: 0.27, blue: 0.13, alpha: 1)
+        }
+    }
+
+    var stringColor: NSColor {
+        switch self {
+        case .forge:
+            return NSColor(calibratedRed: 0.53, green: 0.87, blue: 0.62, alpha: 1)
+        case .blueprint:
+            return NSColor(calibratedRed: 0.61, green: 0.92, blue: 0.82, alpha: 1)
+        case .vellum:
+            return NSColor(calibratedRed: 0.23, green: 0.45, blue: 0.27, alpha: 1)
+        }
+    }
+
+    var commentColor: NSColor {
+        secondaryTextColor.withAlphaComponent(0.88)
+    }
+
+    var numberColor: NSColor {
+        switch self {
+        case .forge:
+            return NSColor(calibratedRed: 0.91, green: 0.50, blue: 0.70, alpha: 1)
+        case .blueprint:
+            return NSColor(calibratedRed: 0.94, green: 0.62, blue: 0.77, alpha: 1)
+        case .vellum:
+            return NSColor(calibratedRed: 0.61, green: 0.15, blue: 0.35, alpha: 1)
+        }
+    }
+
+    var linkColor: NSColor {
+        switch self {
+        case .forge:
+            return NSColor(calibratedRed: 0.48, green: 0.75, blue: 1.0, alpha: 1)
+        case .blueprint:
+            return NSColor(calibratedRed: 0.75, green: 0.90, blue: 1.0, alpha: 1)
+        case .vellum:
+            return NSColor(calibratedRed: 0.15, green: 0.35, blue: 0.61, alpha: 1)
+        }
+    }
+
+    var warningColor: NSColor {
+        switch self {
+        case .forge, .vellum:
+            return NSColor.systemOrange
+        case .blueprint:
+            return NSColor.systemYellow
+        }
+    }
+
+    var currentSearchHighlightColor: NSColor {
+        accentColor.withAlphaComponent(0.68)
+    }
+
+    var searchHighlightColor: NSColor {
+        accentColor.withAlphaComponent(0.28)
+    }
+
+    var badgeTextColor: NSColor {
+        switch self {
+        case .vellum:
+            return NSColor(calibratedRed: 0.31, green: 0.19, blue: 0.12, alpha: 1)
+        case .forge, .blueprint:
+            return accentColor
+        }
+    }
+}
+
+struct AppSettings: Codable {
+    var theme: EditorTheme = .forge
+    var wrapLines = false
+    var autosaveToDisk = true
+    var fontSize: Double = 14
+    var showsOutline = true
+    var showsBreadcrumbs = true
+    var savedLogFilters: [SavedLogFilter] = []
+}

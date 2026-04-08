@@ -1,99 +1,162 @@
 # ForgeText
 
-ForgeText is a native macOS text editor starter focused on being a strong foundation for a more capable editor. It uses `NSTextView` under SwiftUI so we get mature macOS text behavior from the start instead of fighting the limits of the basic `TextEditor` control.
+ForgeText is a native macOS text editor built for serious text work: plain text, code, logs, config files, structured data, and operational documents that need both raw editing and thoughtful inspection.
 
-## What is included
+The app uses `NSTextView` under SwiftUI for mature macOS editing behavior, but the current shell is intentionally styled like a late-90s web workbench: beveled panels, bright portal accents, monospaced chrome, and a retro control surface wrapped around a native editor core.
 
-- Native macOS app scaffold generated with XcodeGen
-- AppKit-backed editing surface with undo, multi-document tabs, and a document sidebar
-- Open, save, save as, close, and revert-to-saved flows
-- Dirty-state protection before destructive actions
-- Encoding detection for common text encodings
-- Line-ending detection and preservation on save
-- Line number gutter and a status bar with cursor metrics
-- Find and replace, go-to-line, and a command palette
-- Theme switching, language modes, and lightweight syntax highlighting
-- Recent files, session restore, autosave recovery, and external file-change detection
-- Structured file viewers for CSV tables, JSON trees, and log exploration
-- Scripted app icon generation for the ForgeText brand
+## Current capabilities
+
+### Core editing
+
+- AppKit-backed editor surface with undo, line numbers, status metrics, and theme-aware typing
+- Multi-document tabs plus a document sidebar
+- New, open, save, save as, close, revert-to-saved, and dirty-state protection flows
+- Find/replace, regex search, go-to-line, project search, and a command palette
+- Language detection, lightweight syntax highlighting, comment toggling, indentation helpers, and bracket matching
+- Theme switching, wrap toggle, font sizing, breadcrumbs, outline panel, and split-pane workspace modes
+
+### File reliability
+
+- Encoding detection and preservation for common text encodings
+- BOM handling and line-ending detection/preservation
+- Autosave recovery, session restore, and crash-recovery snapshots
+- External file-change detection with reload/keep-mine flows
+- Safer large-file handling, read-only previews, and binary hex fallback
+- Archive browsing and follow-mode handling for log-style files
+
+### Structured views
+
+- CSV and delimited files as table views
+- JSON as a tree view
+- Logs as a log explorer
+- Config-oriented structured inspection support in the workbench model
+- Fast toggles between structured views and raw text
+
+### macOS workflows
+
+- Finder/open-document handling for supported file types
+- Local release build/install workflow for `/Applications`
+- Terminal handoff, workspace sessions, recent files, and recent remote locations
+
+## Retro UI direction
+
+The current ForgeText shell intentionally leans into a "late-90s web app for power users" vibe:
+
+- beveled panels instead of glassy cards
+- cyan, magenta, gold, and cream portal colors
+- monospaced chrome and labels
+- striped rules, inset form fields, and loud utility surfaces
+- a playful retro wrapper around a modern native Mac editor engine
+
+This is not a temporary joke skin. It is now part of the product direction for the local workbench UI.
 
 ## Project layout
 
 - `project.yml`: XcodeGen project definition
-- `ForgeText/`: app source
-- `ForgeTextTests/`: unit tests for file codec behavior
+- `ForgeText/`: application source
+- `ForgeTextTests/`: unit tests
+- `Scripts/`: helper scripts for app icon generation, local release builds, and utility tasks
+- `docs/`: product and UI planning docs
 
-## Getting started
+## Build and run
 
-1. Generate the project:
+1. Generate the Xcode project:
 
    ```bash
    xcodegen generate
    ```
 
-2. Generate the app icon assets:
-
-   ```bash
-   swift -module-cache-path .build/ModuleCache Scripts/generate_app_icon.swift
-   ```
-
-3. Open the app in Xcode:
+2. Open it in Xcode:
 
    ```bash
    open ForgeText.xcodeproj
    ```
 
-4. Or build from the terminal:
+3. Or build from the terminal with the full Xcode toolchain:
 
    ```bash
    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-   xcodebuild -project ForgeText.xcodeproj -scheme ForgeText -derivedDataPath DerivedData build
+   xcodebuild \
+     -project ForgeText.xcodeproj \
+     -scheme ForgeText \
+     -derivedDataPath DerivedData \
+     build
+   ```
+
+4. If you want to refresh generated app icon assets:
+
+   ```bash
+   swift -module-cache-path .build/ModuleCache Scripts/generate_app_icon.swift
    ```
 
 ## Local install for your Mac
 
-If you just want ForgeText installed on your own Mac, you can skip DMGs, notarization, and sharing-related steps.
+If ForgeText is just for your own Mac, you do not need a DMG, notarization, or distribution packaging.
 
-Build a cleaner local `Release` app with:
+Build a local `Release` app with:
 
 ```bash
 ./Scripts/build_local_release.sh
 ```
 
-That produces:
-
-```text
-DerivedData/Build/Products/Release/ForgeText.app
-```
-
-If you want the script to copy it into `/Applications` for you:
+Install it into `/Applications` with:
 
 ```bash
 ./Scripts/build_local_release.sh --install
 ```
 
-If you want it to build, install, and then launch:
+Build, install, and launch in one step with:
 
 ```bash
 ./Scripts/build_local_release.sh --install --open
 ```
 
+This produces a shareable local app bundle at:
+
+```text
+DerivedData/Build/Products/Release/ForgeText.app
+```
+
 Notes:
 
-- This is for local use on your own Mac.
-- It does not create a DMG.
-- It does not notarize or prepare the app for public distribution.
-- You can still open [ForgeText.app](/Users/jaysonguglietta/SynologyDrive/Drive/apps/texteditor/DerivedData/Build/Products/Release/ForgeText.app) directly after the build.
+- This workflow is for local use on your own Mac.
+- It skips DMG packaging and Apple notarization.
+- The installed app lives at `/Applications/ForgeText.app` when `--install` is used.
 
-## Good next steps
+## Testing
 
-- Add split editing or multi-window workflows
-- Add richer file-aware viewers for YAML, TOML, env files, and archives
-- Add symbol outline, breadcrumbs, and split-pane workbench polish
-- Add privileged-save and remote editing workflows for system engineers
-- Add an extension or plugin story once the core model is stable
+Build verification from the terminal:
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+xcodebuild \
+  -project ForgeText.xcodeproj \
+  -scheme ForgeText \
+  -derivedDataPath DerivedData \
+  build
+```
+
+Run tests:
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+xcodebuild \
+  -project ForgeText.xcodeproj \
+  -scheme ForgeText \
+  -derivedDataPath DerivedData \
+  test
+```
+
+## Current product focus
+
+ForgeText is already beyond a starter app. The next meaningful pushes are about depth and polish:
+
+- richer structured viewers for YAML, TOML, env files, and archives
+- stronger system-engineer workflows like privileged save and remote editing
+- higher-end table, log, and compare tooling
+- accessibility, packaging, updater flow, and release hardening
 
 ## Product docs
 
-- `docs/ROADMAP.md`: production roadmap for system-engineer workflows
-- `docs/UI_WORKBENCH_PLAN.md`: UI and workbench direction for ForgeText
+- [ROADMAP.md](/Users/jaysonguglietta/SynologyDrive/Drive/apps/texteditor/docs/ROADMAP.md): product roadmap and release priorities
+- [UI_WORKBENCH_PLAN.md](/Users/jaysonguglietta/SynologyDrive/Drive/apps/texteditor/docs/UI_WORKBENCH_PLAN.md): UI direction and workbench plan

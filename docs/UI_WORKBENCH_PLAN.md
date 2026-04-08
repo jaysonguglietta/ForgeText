@@ -1,6 +1,18 @@
 # ForgeText UI Workbench Plan
 
-ForgeText should feel calm, high-signal, and intentional. The app is at its best when it helps engineers recognize structure quickly, switch modes without friction, and keep one mental model across text editing and structured inspection.
+ForgeText should feel high-signal, memorable, and unmistakably native, even while the shell borrows visual language from late-90s web software. The app is at its best when it helps engineers recognize structure quickly, switch modes without friction, and keep one mental model across text editing and structured inspection.
+
+## Current UI baseline
+
+The current shipped shell already includes:
+
+- a retro-web chrome system with beveled panels, bright portal colors, and monospaced control surfaces
+- a left-rail document and workspace sidebar
+- a header that surfaces mode, language, theme, pane layout, and document actions
+- breadcrumbs, outline rail, structured-view toggles, and mode-aware banners
+- matching retro treatment across the main sheets like command palette, search, sessions, and shortcuts
+
+That baseline should be treated as the new visual system, not as disposable placeholder styling.
 
 ## Core workbench principles
 
@@ -8,14 +20,23 @@ ForgeText should feel calm, high-signal, and intentional. The app is at its best
 - Structured viewers should feel like alternate lenses on the same file, not separate tools with their own navigation rules.
 - Status information should stay compact and meaningful: counts, file format, warnings, and mode-specific metrics.
 - The sidebar should grow into a workbench rail with recent files, symbols, saved searches, and project utilities.
+- The retro look should support utility, not block it. Novelty should live in the chrome while reading and editing stay legible.
 
 ## Near-term UI improvements
 
-- Add breadcrumbs and symbol outline for code and config files.
-- Add split panes with synchronized scrolling for compare and dual-context editing.
+- Add synchronized split panes for compare and dual-context editing.
 - Add pinned documents and better grouping for logs, configs, and scratch buffers.
 - Add richer table interactions: sort, filter, freeze columns, hide columns, and copy cell/row actions.
 - Add mode-aware empty and error states that explain what ForgeText is doing and how to get back to raw text.
+- Add stronger visual treatment for active pane focus, compare mode, and read-only states.
+
+## Retro-shell guardrails
+
+- Keep headings and controls bold and playful, but keep document content areas focused and readable.
+- Prefer high-contrast cream, cyan, teal, pink, and gold accents over default macOS gray-on-gray surfaces.
+- Use monospaced labels and compact utility phrasing for the shell.
+- Avoid fake nostalgia that hurts usability. No blinking content, low-contrast text, or noisy backgrounds behind the editor surface.
+- Structured viewers should look like they belong to the same portal-era workbench, even when they diverge in layout.
 
 ## Structured view direction
 

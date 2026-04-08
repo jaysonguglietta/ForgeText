@@ -14,7 +14,8 @@ struct FindReplaceBar: View {
                         set: { appState.updateFindQuery($0) }
                     )
                 )
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .retroTextField()
                 .onSubmit {
                     appState.findNextMatch()
                 }
@@ -26,7 +27,8 @@ struct FindReplaceBar: View {
                         set: { appState.updateReplacementQuery($0) }
                     )
                 )
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .retroTextField()
                 .onSubmit {
                     appState.replaceCurrentMatch()
                 }
@@ -37,6 +39,7 @@ struct FindReplaceBar: View {
                 ))
                 .toggleStyle(.button)
                 .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .tint(RetroPalette.chromePink)
 
                 Toggle(".*", isOn: Binding(
                     get: { document.findState.usesRegularExpression },
@@ -44,6 +47,7 @@ struct FindReplaceBar: View {
                 ))
                 .toggleStyle(.button)
                 .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .tint(RetroPalette.chromeTeal)
 
                 Spacer(minLength: 0)
 
@@ -52,46 +56,51 @@ struct FindReplaceBar: View {
                 } label: {
                     Image(systemName: "chevron.up")
                 }
+                .buttonStyle(RetroActionButtonStyle(tone: .secondary))
 
                 Button {
                     appState.findNextMatch()
                 } label: {
                     Image(systemName: "chevron.down")
                 }
+                .buttonStyle(RetroActionButtonStyle(tone: .secondary))
 
                 Button("Replace") {
                     appState.replaceCurrentMatch()
                 }
                 .disabled(document.findState.matchRanges.isEmpty)
+                .buttonStyle(RetroActionButtonStyle(tone: .primary))
 
                 Button("Replace All") {
                     appState.replaceAllMatches()
                 }
                 .disabled(document.findState.matchRanges.isEmpty)
+                .buttonStyle(RetroActionButtonStyle(tone: .accent))
 
                 Button {
                     appState.hideFindReplace()
                 } label: {
                     Image(systemName: "xmark")
                 }
+                .buttonStyle(RetroActionButtonStyle(tone: .secondary))
             }
 
             HStack {
                 Text(document.findState.summary)
-                    .font(.caption)
-                    .foregroundStyle(document.findState.errorMessage == nil ? Color.secondary : Color.red)
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundStyle(document.findState.errorMessage == nil ? RetroPalette.link : RetroPalette.danger)
 
                 Spacer(minLength: 0)
 
                 if document.isLargeFileMode {
                     Text("Large file mode keeps highlighting lightweight.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(RetroPalette.visited)
                 }
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromeTeal)
     }
 }

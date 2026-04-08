@@ -20,28 +20,41 @@ struct KeyboardShortcutsView: View {
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Keyboard Shortcuts")
-                    .font(.system(size: 20, weight: .bold, design: .rounded))
-                Spacer()
-                Button("Done") {
-                    dismiss()
-                }
-            }
+        ZStack {
+            RetroBackdropView()
 
-            List(shortcuts, id: \.0) { item in
+            VStack(alignment: .leading, spacing: 16) {
                 HStack {
-                    Text(item.0)
+                    Text("Keyboard Shortcuts")
+                        .font(.system(size: 20, weight: .black, design: .monospaced))
+                        .foregroundStyle(RetroPalette.ink)
                     Spacer()
-                    Text(item.1)
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                    Button("Done") {
+                        dismiss()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
                 }
+
+                List(shortcuts, id: \.0) { item in
+                    HStack {
+                        Text(item.0)
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .foregroundStyle(RetroPalette.ink)
+                        Spacer()
+                        Text(item.1)
+                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(RetroPalette.link)
+                    }
+                    .listRowBackground(RetroPalette.panelFillMuted)
+                }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(RetroPalette.panelFillMuted)
             }
-            .listStyle(.inset)
+            .padding(18)
+            .frame(minWidth: 520, minHeight: 360)
+            .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
+            .padding(18)
         }
-        .padding(18)
-        .frame(minWidth: 520, minHeight: 360)
     }
 }

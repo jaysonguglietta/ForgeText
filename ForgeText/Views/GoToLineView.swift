@@ -6,35 +6,45 @@ struct GoToLineView: View {
     @State private var lineText = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Go To Line")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
+        ZStack {
+            RetroBackdropView()
 
-            Text("Jump directly to a line number in the current document.")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Go To Line")
+                    .font(.system(size: 22, weight: .black, design: .monospaced))
+                    .foregroundStyle(RetroPalette.ink)
 
-            TextField("Line number", text: $lineText)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit {
-                    submit()
+                Text("Jump directly to a line number in the current document.")
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
+
+                TextField("Line number", text: $lineText)
+                    .textFieldStyle(.plain)
+                    .retroTextField()
+                    .onSubmit {
+                        submit()
+                    }
+
+                HStack {
+                    Spacer()
+
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+
+                    Button("Go") {
+                        submit()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .accent))
+                    .keyboardShortcut(.defaultAction)
                 }
-
-            HStack {
-                Spacer()
-
-                Button("Cancel") {
-                    dismiss()
-                }
-
-                Button("Go") {
-                    submit()
-                }
-                .keyboardShortcut(.defaultAction)
             }
+            .padding(20)
+            .frame(minWidth: 360)
+            .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
+            .padding(18)
         }
-        .padding(20)
-        .frame(minWidth: 360)
     }
 
     private func submit() {

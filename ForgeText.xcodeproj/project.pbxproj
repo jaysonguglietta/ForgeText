@@ -12,6 +12,7 @@
 		0EC690C3A856C3242348DC06 /* FindState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8FA182F57DD2F452B520616 /* FindState.swift */; };
 		0ED769ED0F4AEBA46EF3910F /* EditorBehaviorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DBFB3486EFF5F18E4BD6C4E /* EditorBehaviorTests.swift */; };
 		195EB580AA97DCA477DD66E9 /* WorkspaceSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 789768933CF34A533B580A76 /* WorkspaceSearchService.swift */; };
+		2062ED550F84FDBC4DACDE02 /* RetroChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = B08DC2DA3FC27961709766C1 /* RetroChrome.swift */; };
 		233893382DF9FBFF81ED310B /* LogExplorerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F47B8900632E2B594B598B1 /* LogExplorerView.swift */; };
 		2ABBA1B980ED34E6DCE794E1 /* WorkspaceSessionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F477D2D3D0B6B613FCF617D8 /* WorkspaceSessionsView.swift */; };
 		2CF8E27490C90FEBD91C84E7 /* DelimitedTextTableService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 364F03A4ED6FB6845D909A0C /* DelimitedTextTableService.swift */; };
@@ -126,6 +127,7 @@
 		A750791250C20CD659B05AA4 /* EditorBehavior.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorBehavior.swift; sourceTree = "<group>"; };
 		A8FA182F57DD2F452B520616 /* FindState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FindState.swift; sourceTree = "<group>"; };
 		AE74E26FBD4130ACB7E1EE08 /* ArchiveBrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveBrowserView.swift; sourceTree = "<group>"; };
+		B08DC2DA3FC27961709766C1 /* RetroChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RetroChrome.swift; sourceTree = "<group>"; };
 		B8ABEAFAA43B2793CE02784C /* ProductionReadinessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionReadinessTests.swift; sourceTree = "<group>"; };
 		BC7112141821CBF300559E4E /* DelimitedTextTableServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DelimitedTextTableServiceTests.swift; sourceTree = "<group>"; };
 		C05DE779BDB5A9CD1A8B65DD /* PrivilegedFileService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivilegedFileService.swift; sourceTree = "<group>"; };
@@ -200,6 +202,7 @@
 				54D110538BA385375848B15F /* OutlinePanelView.swift */,
 				C92ED6C4724D5D04007F6CBC /* ProjectSearchView.swift */,
 				0708F0E65E3E0D392B56ECA4 /* RemoteOpenView.swift */,
+				B08DC2DA3FC27961709766C1 /* RetroChrome.swift */,
 				1A2C61D159B578B418C99EE7 /* StatusBarView.swift */,
 				F477D2D3D0B6B613FCF617D8 /* WorkspaceSessionsView.swift */,
 			);
@@ -391,6 +394,7 @@
 				E093C85C936D7071579DFD26 /* ProjectSearchView.swift in Sources */,
 				4394A3AA80574DC50251664A /* RemoteFileService.swift in Sources */,
 				72A42CC3D4EBBB6844C7A9B9 /* RemoteOpenView.swift in Sources */,
+				2062ED550F84FDBC4DACDE02 /* RetroChrome.swift in Sources */,
 				FD43620611BFCF78DA707ADC /* StatusBarView.swift in Sources */,
 				D9AADDB512873C48AF55D8F5 /* StructuredConfigService.swift in Sources */,
 				F01ABA3CD22A3B5FA391FC94 /* SyntaxHighlighter.swift in Sources */,

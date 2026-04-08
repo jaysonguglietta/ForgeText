@@ -14,6 +14,7 @@ struct ContentView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
+        .background(RetroBackdropView())
         .sheet(isPresented: $appState.showingCommandPalette) {
             CommandPaletteView(appState: appState)
         }
@@ -64,149 +65,157 @@ private struct DocumentSidebarView: View {
     @ObservedObject var appState: AppState
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                HStack(spacing: 12) {
-                    BrandMarkView(size: 38)
+        ZStack {
+            RetroBackdropView()
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("ForgeText")
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
-                        Text("Robust text editing for macOS")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    HStack(spacing: 12) {
+                        BrandMarkView(size: 42)
 
-                LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3),
-                    spacing: 10
-                ) {
-                    sidebarAction(
-                        "New",
-                        systemImage: "plus.square",
-                        subtitle: "Document",
-                        action: appState.newDocument
-                    )
-                    sidebarAction(
-                        "Open",
-                        systemImage: "folder",
-                        subtitle: "Files",
-                        action: appState.openDocument
-                    )
-                    sidebarAction(
-                        "Command",
-                        systemImage: "command",
-                        subtitle: "Palette",
-                        action: { appState.showingCommandPalette = true }
-                    )
-                }
-
-                sidebarSection("Open Documents") {
-                    ForEach(appState.documents) { document in
-                        DocumentSidebarRow(
-                            document: document,
-                            isSelected: appState.selectedDocumentID == document.id,
-                            onSelect: { appState.selectDocument(document.id) },
-                            onClose: { appState.closeDocument(id: document.id) }
-                        )
-                    }
-                }
-
-                sidebarSection("Recent Files") {
-                    if appState.recentFiles.isEmpty {
-                        Text("Recent files will appear here after you open or save documents.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    } else {
-                        ForEach(appState.recentFiles, id: \.path) { url in
-                            Button {
-                                appState.openDocuments(at: [url])
-                            } label: {
-                                fileCard(
-                                    title: url.lastPathComponent,
-                                    subtitle: url.path(percentEncoded: false),
-                                    symbolName: "clock.arrow.circlepath"
-                                )
-                            }
-                            .buttonStyle(.plain)
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("ForgeText")
+                                .font(.system(size: 24, weight: .black, design: .monospaced))
+                                .tracking(1.0)
+                                .foregroundStyle(RetroPalette.ink)
+                            Text("native text editor :: webclass of '99")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundStyle(RetroPalette.link)
                         }
                     }
-                }
+                    .padding(14)
+                    .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
 
-                if !appState.recentRemoteLocations.isEmpty {
-                    sidebarSection("Recent Remote") {
-                        ForEach(appState.recentRemoteLocations, id: \.spec) { reference in
-                            Button {
-                                appState.remoteLocationDraft = reference.spec
-                                appState.openRemoteDocument()
-                            } label: {
-                                fileCard(
-                                    title: reference.displayName,
-                                    subtitle: reference.pathDescription,
-                                    symbolName: "network"
-                                )
-                            }
-                            .buttonStyle(.plain)
+                    LazyVGrid(
+                        columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3),
+                        spacing: 10
+                    ) {
+                        sidebarAction(
+                            "New",
+                            systemImage: "plus.square",
+                            subtitle: "Document",
+                            action: appState.newDocument
+                        )
+                        sidebarAction(
+                            "Open",
+                            systemImage: "folder",
+                            subtitle: "Files",
+                            action: appState.openDocument
+                        )
+                        sidebarAction(
+                            "Command",
+                            systemImage: "command",
+                            subtitle: "Palette",
+                            action: { appState.showingCommandPalette = true }
+                        )
+                    }
+
+                    sidebarSection("Open Documents") {
+                        ForEach(appState.documents) { document in
+                            DocumentSidebarRow(
+                                document: document,
+                                isSelected: appState.selectedDocumentID == document.id,
+                                onSelect: { appState.selectDocument(document.id) },
+                                onClose: { appState.closeDocument(id: document.id) }
+                            )
                         }
                     }
+
+                    sidebarSection("Recent Files") {
+                        if appState.recentFiles.isEmpty {
+                            Text("Recent files will appear here after you open or save documents.")
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .foregroundStyle(RetroPalette.visited)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            ForEach(appState.recentFiles, id: \.path) { url in
+                                Button {
+                                    appState.openDocuments(at: [url])
+                                } label: {
+                                    fileCard(
+                                        title: url.lastPathComponent,
+                                        subtitle: url.path(percentEncoded: false),
+                                        symbolName: "clock.arrow.circlepath"
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+
+                    if !appState.recentRemoteLocations.isEmpty {
+                        sidebarSection("Recent Remote") {
+                            ForEach(appState.recentRemoteLocations, id: \.spec) { reference in
+                                Button {
+                                    appState.remoteLocationDraft = reference.spec
+                                    appState.openRemoteDocument()
+                                } label: {
+                                    fileCard(
+                                        title: reference.displayName,
+                                        subtitle: reference.pathDescription,
+                                        symbolName: "network"
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+
+                    sidebarSection("Workspace") {
+                        Button {
+                            appState.chooseWorkspaceRoot()
+                        } label: {
+                            fileCard(
+                                title: appState.projectSearchState.rootURL?.lastPathComponent ?? "Choose Folder",
+                                subtitle: appState.projectSearchState.rootURL?.path(percentEncoded: false) ?? "Set a project root for folder search and terminal tools.",
+                                symbolName: "folder.badge.gearshape"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Choose workspace root folder")
+
+                        Button {
+                            appState.openRemotePanel()
+                        } label: {
+                            fileCard(
+                                title: "Open Remote File",
+                                subtitle: "Use SSH-style locations like user@host:/path/to/file",
+                                symbolName: "network"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open a remote file")
+
+                        Button {
+                            appState.showWorkspaceSessionsPanel()
+                        } label: {
+                            fileCard(
+                                title: "Workspace Sessions",
+                                subtitle: "Save and reopen grouped files, remotes, and workspace settings",
+                                symbolName: "square.stack.3d.up"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open workspace sessions")
+
+                        Button {
+                            appState.showingKeyboardShortcuts = true
+                        } label: {
+                            fileCard(
+                                title: "Keyboard Shortcuts",
+                                subtitle: "Quick reference for editor navigation and text commands",
+                                symbolName: "keyboard"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Show keyboard shortcuts")
+                    }
                 }
-
-                sidebarSection("Workspace") {
-                    Button {
-                        appState.chooseWorkspaceRoot()
-                    } label: {
-                        fileCard(
-                            title: appState.projectSearchState.rootURL?.lastPathComponent ?? "Choose Folder",
-                            subtitle: appState.projectSearchState.rootURL?.path(percentEncoded: false) ?? "Set a project root for folder search and terminal tools.",
-                            symbolName: "folder.badge.gearshape"
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Choose workspace root folder")
-
-                    Button {
-                        appState.openRemotePanel()
-                    } label: {
-                        fileCard(
-                            title: "Open Remote File",
-                            subtitle: "Use SSH-style locations like user@host:/path/to/file",
-                            symbolName: "network"
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Open a remote file")
-
-                    Button {
-                        appState.showWorkspaceSessionsPanel()
-                    } label: {
-                        fileCard(
-                            title: "Workspace Sessions",
-                            subtitle: "Save and reopen grouped files, remotes, and workspace settings",
-                            symbolName: "square.stack.3d.up"
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Open workspace sessions")
-
-                    Button {
-                        appState.showingKeyboardShortcuts = true
-                    } label: {
-                        fileCard(
-                            title: "Keyboard Shortcuts",
-                            subtitle: "Quick reference for editor navigation and text commands",
-                            symbolName: "keyboard"
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Show keyboard shortcuts")
-                }
+                .padding(18)
             }
-            .padding(18)
         }
         .frame(minWidth: 280)
-        .background(Color(nsColor: .underPageBackgroundColor))
+        .background(RetroBackdropView())
     }
 
     private func sidebarAction(
@@ -220,19 +229,16 @@ private struct DocumentSidebarView: View {
                 Image(systemName: systemImage)
                     .font(.system(size: 16, weight: .semibold))
                     .frame(width: 34, height: 34)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(Color.accentColor.opacity(0.12))
-                    )
+                    .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromePink)
 
                 VStack(spacing: 2) {
                     Text(title)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.primary)
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .foregroundStyle(RetroPalette.ink)
 
                     Text(subtitle)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(RetroPalette.link)
                 }
                 .multilineTextAlignment(.center)
                 .lineLimit(1)
@@ -240,10 +246,7 @@ private struct DocumentSidebarView: View {
             .frame(maxWidth: .infinity, minHeight: 92)
             .padding(.horizontal, 8)
             .padding(.vertical, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-            )
+            .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromeBlue)
         }
         .buttonStyle(.plain)
     }
@@ -251,33 +254,32 @@ private struct DocumentSidebarView: View {
     private func fileCard(title: String, subtitle: String, symbolName: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: symbolName)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(RetroPalette.chromePink)
                 .frame(width: 18)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .foregroundStyle(.primary)
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundStyle(RetroPalette.ink)
                     .lineLimit(1)
                 Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
                     .lineLimit(2)
             }
 
             Spacer(minLength: 0)
         }
         .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
-        )
+        .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeTeal)
     }
 
     private func sidebarSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title.uppercased())
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                RetroCapsuleLabel(text: title, accent: RetroPalette.chromePink)
+                RetroRule()
+            }
             content()
         }
     }
@@ -292,25 +294,24 @@ private struct DocumentSidebarRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: documentIconName)
-                .foregroundStyle(isSelected ? .primary : .secondary)
+                .foregroundStyle(isSelected ? RetroPalette.chromePink : RetroPalette.link)
                 .frame(width: 18)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(document.displayName)
-                        .foregroundStyle(.primary)
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .foregroundStyle(RetroPalette.ink)
                         .lineLimit(1)
 
                     if document.isDirty {
-                        Circle()
-                            .fill(Color.orange)
-                            .frame(width: 7, height: 7)
+                        RetroCapsuleLabel(text: "edit", accent: RetroPalette.warning)
                     }
                 }
 
                 Text(document.pathDescription)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
                     .lineLimit(1)
             }
 
@@ -319,18 +320,16 @@ private struct DocumentSidebarRow: View {
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.secondary)
                     .padding(6)
-                    .background(Circle().fill(Color.primary.opacity(0.08)))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(RetroActionButtonStyle(tone: .secondary))
         }
         .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.14) : Color(nsColor: .controlBackgroundColor).opacity(0.45))
+        .retroPanel(
+            fill: isSelected ? RetroPalette.chromeCyan.opacity(0.35) : RetroPalette.panelFillMuted,
+            accent: isSelected ? RetroPalette.chromePink : RetroPalette.chromeTeal
         )
-        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
     }
 
@@ -385,72 +384,77 @@ private struct DocumentWorkspaceView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            DocumentTabStripView(appState: appState)
-            Divider()
-            header
+        ZStack {
+            RetroBackdropView()
 
-            if appState.settings.showsBreadcrumbs, !breadcrumbTrail.isEmpty {
-                Divider()
-                breadcrumbBar
-            }
+            VStack(spacing: 0) {
+                DocumentTabStripView(appState: appState)
+                RetroRule()
+                header
 
-            if document.hasExternalChanges || document.fileMissingOnDisk {
-                statusBanner(
-                    title: document.fileMissingOnDisk ? "File Missing on Disk" : "External Changes Detected",
-                    message: document.fileMissingOnDisk
-                        ? "The file is no longer available at its saved path. You can keep editing and save elsewhere."
-                        : "This document changed outside ForgeText. Reload it or keep your current version.",
-                    accent: document.fileMissingOnDisk ? .red : .orange
-                ) {
-                    Button("Compare") {
-                        appState.showCompareAgainstSaved()
-                    }
-
-                    if !document.fileMissingOnDisk {
-                        Button("Reload") {
-                            appState.reloadFromExternalChange()
-                        }
-                    }
-
-                    Button("Keep Mine") {
-                        appState.keepCurrentVersionAfterExternalChange()
-                    }
+                if appState.settings.showsBreadcrumbs, !breadcrumbTrail.isEmpty {
+                    RetroRule()
+                    breadcrumbBar
                 }
-            }
 
-            if document.isPartialPreview || document.presentationMode == .binaryHex || document.followModeEnabled || document.presentationMode == .archiveBrowser {
-                statusBanner(
-                    title: bannerTitle,
-                    message: bannerMessage,
-                    accent: bannerAccent
-                ) {
-                    if document.fileURL != nil {
-                        Button(document.followModeEnabled ? "Disable Follow" : "Enable Follow") {
-                            appState.toggleFollowMode()
+                if document.hasExternalChanges || document.fileMissingOnDisk {
+                    statusBanner(
+                        title: document.fileMissingOnDisk ? "File Missing on Disk" : "External Changes Detected",
+                        message: document.fileMissingOnDisk
+                            ? "The file is no longer available at its saved path. You can keep editing and save elsewhere."
+                            : "This document changed outside ForgeText. Reload it or keep your current version.",
+                        accent: document.fileMissingOnDisk ? RetroPalette.danger : RetroPalette.warning
+                    ) {
+                        Button("Compare") {
+                            appState.showCompareAgainstSaved()
                         }
-                    }
 
-                    if document.fileURL != nil {
-                        Button("Open in Terminal") {
-                            appState.openSelectedDocumentInTerminal()
+                        if !document.fileMissingOnDisk {
+                            Button("Reload") {
+                                appState.reloadFromExternalChange()
+                            }
+                        }
+
+                        Button("Keep Mine") {
+                            appState.keepCurrentVersionAfterExternalChange()
                         }
                     }
                 }
+
+                if document.isPartialPreview || document.presentationMode == .binaryHex || document.followModeEnabled || document.presentationMode == .archiveBrowser {
+                    statusBanner(
+                        title: bannerTitle,
+                        message: bannerMessage,
+                        accent: bannerAccent
+                    ) {
+                        if document.fileURL != nil {
+                            Button(document.followModeEnabled ? "Disable Follow" : "Enable Follow") {
+                                appState.toggleFollowMode()
+                            }
+                        }
+
+                        if document.fileURL != nil {
+                            Button("Open in Terminal") {
+                                appState.openSelectedDocumentInTerminal()
+                            }
+                        }
+                    }
+                }
+
+                if document.findState.isPresented, !document.presentationMode.isStructured {
+                    RetroRule()
+                    FindReplaceBar(appState: appState, document: document)
+                }
+
+                RetroRule()
+
+                workspaceArea
+
+                RetroRule()
+
+                StatusBarView(document: document, metrics: metrics, settings: appState.settings)
             }
-
-            if document.findState.isPresented, !document.presentationMode.isStructured {
-                Divider()
-                FindReplaceBar(appState: appState, document: document)
-            }
-
-            Divider()
-
-            workspaceArea
-
-            Divider()
-
-            StatusBarView(document: document, metrics: metrics, settings: appState.settings)
+            .padding(10)
         }
         .background(backgroundColor)
         .toolbar {
@@ -507,23 +511,24 @@ private struct DocumentWorkspaceView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Text(document.displayName)
-                        .font(.system(size: 21, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color(nsColor: appState.settings.theme.textColor))
+                        .font(.system(size: 22, weight: .black, design: .monospaced))
+                        .tracking(0.8)
+                        .foregroundStyle(RetroPalette.ink)
 
                     if document.isRemote {
-                        headerBadge("Remote", color: .cyan)
+                        headerBadge("Remote", color: RetroPalette.chromeCyan)
                     }
 
                     if document.isDirty {
-                        headerBadge("Edited", color: .orange)
+                        headerBadge("Edited", color: RetroPalette.warning)
                     }
 
                     if document.hasRecoveredDraft {
-                        headerBadge("Recovered", color: .green)
+                        headerBadge("Recovered", color: RetroPalette.success)
                     }
 
                     if document.isLargeFileMode {
-                        headerBadge("Large File", color: .yellow)
+                        headerBadge("Large File", color: RetroPalette.chromeGold)
                     }
 
                     if let structuredBadge {
@@ -532,8 +537,8 @@ private struct DocumentWorkspaceView: View {
                 }
 
                 Text(document.pathDescription)
-                    .font(.caption)
-                    .foregroundStyle(Color(nsColor: appState.settings.theme.secondaryTextColor))
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
                     .textSelection(.enabled)
             }
 
@@ -678,7 +683,7 @@ private struct DocumentWorkspaceView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
-        .background(backgroundColor)
+        .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
     }
 
     private var breadcrumbBar: some View {
@@ -688,24 +693,21 @@ private struct DocumentWorkspaceView: View {
                     if index > 0 {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(Color(nsColor: appState.settings.theme.secondaryTextColor))
+                            .foregroundStyle(RetroPalette.chromePink)
                     }
 
                     Text(crumb)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color(nsColor: appState.settings.theme.secondaryTextColor))
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(RetroPalette.ink)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 5)
-                        .background(
-                            Capsule()
-                                .fill(Color(nsColor: appState.settings.theme.gutterBackgroundColor))
-                        )
+                        .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromeTeal)
                 }
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 10)
         }
-        .background(backgroundColor)
+        .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
     }
 
     private var workspaceArea: some View {
@@ -823,23 +825,23 @@ private struct DocumentWorkspaceView: View {
             if let title {
                 HStack(spacing: 10) {
                     Label(title, systemImage: renderedMode.symbolName)
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Color(nsColor: appState.settings.theme.secondaryTextColor))
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .foregroundStyle(RetroPalette.ink)
 
                     Spacer(minLength: 0)
 
                     if !isSelectedDocument {
                         Text(renderedDocument.pathDescription)
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color(nsColor: appState.settings.theme.secondaryTextColor))
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(RetroPalette.link)
                             .lineLimit(1)
                     }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
-                .background(Color(nsColor: appState.settings.theme.gutterBackgroundColor))
+                .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeTeal)
 
-                Divider()
+                RetroRule()
             }
 
             documentSurface(for: renderedDocument)
@@ -962,27 +964,16 @@ private struct DocumentWorkspaceView: View {
     }
 
     private func headerBadge(_ text: String, color: Color) -> some View {
-        Text(text)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(color)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(
-                Capsule()
-                    .fill(color.opacity(0.14))
-            )
+        RetroCapsuleLabel(text: text, accent: color)
     }
 
     private func headerControl(_ text: String, systemImage: String) -> some View {
         Label(text, systemImage: systemImage)
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(Color(nsColor: appState.settings.theme.textColor))
+            .font(.system(size: 12, weight: .bold, design: .monospaced))
+            .foregroundStyle(RetroPalette.ink)
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(nsColor: appState.settings.theme.gutterBackgroundColor))
-            )
+            .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromeBlue)
     }
 
     private var structuredBadge: (text: String, color: Color)? {
@@ -1017,18 +1008,15 @@ private struct DocumentWorkspaceView: View {
         @ViewBuilder actions: () -> Actions
     ) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Circle()
-                .fill(accent)
-                .frame(width: 11, height: 11)
-                .padding(.top, 4)
+            RetroCapsuleLabel(text: "alert", accent: accent)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Color(nsColor: appState.settings.theme.textColor))
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .foregroundStyle(RetroPalette.ink)
                 Text(message)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Color(nsColor: appState.settings.theme.secondaryTextColor))
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
             }
 
             Spacer(minLength: 0)
@@ -1036,11 +1024,11 @@ private struct DocumentWorkspaceView: View {
             HStack(spacing: 8) {
                 actions()
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(RetroActionButtonStyle(tone: .secondary))
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
-        .background(accent.opacity(0.08))
+        .retroPanel(fill: RetroPalette.panelFill, accent: accent)
     }
 }
 
@@ -1048,37 +1036,44 @@ private struct EmptyWorkspaceView: View {
     @ObservedObject var appState: AppState
 
     var body: some View {
-        VStack(spacing: 20) {
-            BrandMarkView(size: 84)
+        ZStack {
+            RetroBackdropView()
 
-            VStack(spacing: 8) {
-                Text("ForgeText")
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
-                Text("A native editor for plain text, code, logs, configs, archives, and whatever else lands on your Mac.")
-                    .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 460)
+            VStack(spacing: 20) {
+                BrandMarkView(size: 84)
+
+                VStack(spacing: 8) {
+                    Text("ForgeText")
+                        .font(.system(size: 32, weight: .black, design: .monospaced))
+                        .tracking(1.2)
+                        .foregroundStyle(RetroPalette.ink)
+                    Text("A native editor for plain text, code, logs, configs, archives, and whatever else lands on your Mac.")
+                        .font(.system(size: 14, weight: .medium, design: .monospaced))
+                        .foregroundStyle(RetroPalette.link)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 500)
+                }
+
+                HStack(spacing: 12) {
+                    Button("New Document") {
+                        appState.newDocument()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .accent))
+
+                    Button("Open Files") {
+                        appState.openDocument()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .primary))
+
+                    Button("Open Remote") {
+                        appState.openRemotePanel()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+                }
             }
-
-            HStack(spacing: 12) {
-                Button("New Document") {
-                    appState.newDocument()
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button("Open Files") {
-                    appState.openDocument()
-                }
-                .buttonStyle(.bordered)
-
-                Button("Open Remote") {
-                    appState.openRemotePanel()
-                }
-                .buttonStyle(.bordered)
-            }
+            .padding(28)
+            .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .underPageBackgroundColor))
     }
 }

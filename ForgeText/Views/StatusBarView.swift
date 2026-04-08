@@ -101,24 +101,21 @@ struct StatusBarView: View {
 
             if let statusSummary = document.statusSummary {
                 Text(statusSummary)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(RetroPalette.link)
                     .lineLimit(1)
             }
         }
         .font(.system(size: 11, weight: .medium, design: .monospaced))
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromeBlue)
     }
 
     private func statusPill(_ text: String) -> some View {
         Text(text)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(RetroPalette.ink)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(
-                Capsule()
-                    .fill(Color(nsColor: .controlBackgroundColor))
-            )
+            .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromeTeal)
     }
 }

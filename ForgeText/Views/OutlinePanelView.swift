@@ -14,16 +14,16 @@ struct OutlinePanelView: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Outline")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(Color(nsColor: theme.secondaryTextColor))
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundStyle(RetroPalette.ink)
                 Spacer()
                 Text("\(outline.count)")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color(nsColor: theme.secondaryTextColor))
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
-            .background(Color(nsColor: theme.gutterBackgroundColor))
+            .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeTeal)
 
             if outline.isEmpty {
                 ContentUnavailableView(
@@ -44,14 +44,14 @@ struct OutlinePanelView: View {
 
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(item.title)
-                                    .font(.system(size: 12, weight: currentLine >= item.lineNumber ? .semibold : .regular))
-                                    .foregroundStyle(Color(nsColor: theme.textColor))
+                                    .font(.system(size: 12, weight: currentLine >= item.lineNumber ? .bold : .medium, design: .monospaced))
+                                    .foregroundStyle(RetroPalette.ink)
                                     .lineLimit(1)
 
                                 if let detail = item.detail, !detail.isEmpty {
                                     Text(detail)
-                                        .font(.caption)
-                                        .foregroundStyle(Color(nsColor: theme.secondaryTextColor))
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(RetroPalette.link)
                                         .lineLimit(1)
                                 }
                             }
@@ -60,18 +60,19 @@ struct OutlinePanelView: View {
 
                             Text("Ln \(item.lineNumber)")
                                 .font(.system(size: 10, weight: .bold, design: .monospaced))
-                                .foregroundStyle(Color(nsColor: theme.secondaryTextColor))
+                                .foregroundStyle(RetroPalette.visited)
                         }
                     }
                     .buttonStyle(.plain)
-                    .listRowBackground(Color(nsColor: theme.backgroundColor))
+                    .listRowBackground(RetroPalette.panelFill)
                     .accessibilityLabel("Jump to outline item \(item.title)")
                 }
-                .listStyle(.inset)
+                .listStyle(.plain)
                 .scrollContentBackground(.hidden)
-                .background(Color(nsColor: theme.backgroundColor))
+                .background(RetroPalette.panelFill)
             }
         }
+        .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromeBlue)
         .frame(minWidth: 220, idealWidth: 260, maxWidth: 320)
     }
 }

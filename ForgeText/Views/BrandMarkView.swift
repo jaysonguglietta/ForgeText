@@ -5,31 +5,42 @@ struct BrandMarkView: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
+            Rectangle()
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color(red: 0.12, green: 0.14, blue: 0.18),
-                            Color(red: 0.22, green: 0.25, blue: 0.30),
+                            RetroPalette.chromeBlue,
+                            RetroPalette.chromeTeal,
+                            RetroPalette.chromeCyan,
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
                 )
 
-            RoundedRectangle(cornerRadius: size * 0.24, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            Rectangle()
+                .stroke(RetroPalette.chromeGold, lineWidth: 1)
+
+            VStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    Rectangle().fill(RetroPalette.chromeGold)
+                    Rectangle().fill(RetroPalette.chromePink)
+                    Rectangle().fill(RetroPalette.chromeGold)
+                }
+                .frame(height: size * 0.08)
+                Spacer(minLength: 0)
+            }
 
             pageShape
-                .fill(Color(red: 0.96, green: 0.93, blue: 0.88))
-                .shadow(color: .black.opacity(0.15), radius: size * 0.05, x: 0, y: size * 0.02)
+                .fill(Color(red: 0.98, green: 0.96, blue: 0.88))
+                .shadow(color: .black.opacity(0.18), radius: 0, x: size * 0.04, y: size * 0.04)
 
             caretShape
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color(red: 1.0, green: 0.50, blue: 0.27),
-                            Color(red: 0.96, green: 0.28, blue: 0.16),
+                            RetroPalette.chromePink,
+                            RetroPalette.chromeGold,
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -37,7 +48,7 @@ struct BrandMarkView: View {
                 )
 
             Rectangle()
-                .fill(Color(red: 1.0, green: 0.50, blue: 0.27))
+                .fill(RetroPalette.chromePink)
                 .frame(width: size * 0.17, height: size * 0.09)
                 .offset(x: -size * 0.03, y: -size * 0.1)
         }
@@ -92,4 +103,3 @@ struct BrandMarkView: View {
         }
     }
 }
-

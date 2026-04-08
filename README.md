@@ -29,14 +29,30 @@ The app uses `NSTextView` under SwiftUI for mature macOS editing behavior, but t
 - CSV and delimited files as table views
 - JSON as a tree view
 - Logs as a log explorer
-- Config-oriented structured inspection support in the workbench model
+- YAML, TOML, `.env`, and related config files through the structured config inspector
+- HTTP request files as a runnable request workbench with response inspection
 - Fast toggles between structured views and raw text
 
 ### macOS workflows
 
 - Finder/open-document handling for supported file types
 - Local release build/install workflow for `/Applications`
+- Workspace explorer with favorites and file filtering
+- Embedded terminal console inside ForgeText
 - Terminal handoff, workspace sessions, recent files, and recent remote locations
+- Remote file open, remote grep, and remote command execution over SSH-style connections
+
+### IDE and plugin features
+
+- Built-in plugin manager with enable/disable controls for first-party IDE extensions
+- External plugin manifest loading from workspace and user plugin folders
+- Plugin-backed snippet library for JSON, Markdown, Swift, shell, Python, JavaScript, XML, SQL, CSS, and config files
+- Workspace task runner that detects SwiftPM, npm, Python, and Make-based build/test/lint commands
+- Lightweight diagnostics for malformed JSON/XML/CSV/config/HTTP files plus TODO/FIXME markers
+- Secret-aware warnings for private keys, bearer tokens, and likely credentials
+- Git-aware status pills, branch switching, stage-current-file, compare-with-HEAD, and diff-gutter markers
+- Inline editor insight bar for current-line diagnostics and Git blame context
+- Format-document support for JSON, XML, HTTP, and toolchain-backed language formatting when available
 
 ## Retro UI direction
 
@@ -151,9 +167,9 @@ xcodebuild \
 
 ForgeText is already beyond a starter app. The next meaningful pushes are about depth and polish:
 
-- richer structured viewers for YAML, TOML, env files, and archives
-- stronger system-engineer workflows like privileged save and remote editing
-- higher-end table, log, and compare tooling
+- parser-backed language packs and deeper formatter/linter integrations
+- stronger system-engineer workflows like privileged save and richer remote editing
+- higher-end table, log, compare, explorer, and diagnostics tooling
 - accessibility, packaging, updater flow, and release hardening
 
 ## Product docs

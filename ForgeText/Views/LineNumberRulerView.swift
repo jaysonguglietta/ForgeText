@@ -8,6 +8,11 @@ final class LineNumberRulerView: NSRulerView {
             needsDisplay = true
         }
     }
+    var lineDecorations: [EditorLineDecoration] = [] {
+        didSet {
+            needsDisplay = true
+        }
+    }
 
     private let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .regular)
 
@@ -61,6 +66,7 @@ final class LineNumberRulerView: NSRulerView {
             let lineRange = text.lineRange(for: NSRange(location: lineStart, length: 0))
             let glyphIndex = layoutManager.glyphIndexForCharacter(at: lineRange.location)
             let lineRect = layoutManager.lineFragmentRect(forGlyphAt: glyphIndex, effectiveRange: nil)
+            drawMarker(for: lineNumber, lineRect: lineRect, origin: origin, in: gutterRect)
             drawLineNumber(lineNumber, atY: lineRect.minY + origin.y + 1, in: gutterRect)
 
             lineStart = NSMaxRange(lineRange)
@@ -146,6 +152,44 @@ final class LineNumberRulerView: NSRulerView {
         )
 
         label.draw(in: labelRect, withAttributes: attributes)
+    }
+
+    private func drawMarker(for lineNumber: Int, lineRect: NSRect, origin: NSPoint, in rect: NSRect) {
+        let visibleDecorations = lineDecorations.filter { $0.lineNumber == lineNumber }
+        guard !visibleDecorations.isEmpty else {
+            return
+        }
+
+        let accentColor = markerColor(for: visibleDecorations)
+        accentColor.setFill()
+        let markerRect = NSRect(
+            x: rect.minX + 3,
+            y: lineRect.minY + origin.y + 3,
+            width: 5,
+            height: max(10, lineRect.height - 6)
+        )
+
+        NSBezierPath(roundedRect: markerRect, xRadius: 2, yRadius: 2).fill()
+    }
+
+    private func markerColor(for decorations: [EditorLineDecoration]) -> NSColor {
+        if decorations.contains(where: { $0.kind == .diagnosticError }) {
+            return .systemRed
+        }
+
+        if decorations.contains(where: { $0.kind == .diagnosticWarning }) {
+            return theme.warningColor
+        }
+
+        if decorations.contains(where: { $0.kind == .gitAdded }) {
+            return .systemGreen
+        }
+
+        if decorations.contains(where: { $0.kind == .gitChanged }) {
+            return theme.accentColor
+        }
+
+        return theme.linkColor
     }
 
     private func lineNumber(at characterIndex: Int, in text: NSString) -> Int {

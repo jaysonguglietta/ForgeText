@@ -39,12 +39,14 @@ struct EditorContainerView: NSViewRepresentable {
 
     let theme: EditorTheme
     let language: DocumentLanguage
+    let sourceURL: URL?
     let wrapLines: Bool
     let fontSize: CGFloat
     let findState: FindState
     let largeFileMode: Bool
     let isEditable: Bool
     let focusRequestToken: UUID
+    let lineDecorations: [EditorLineDecoration]
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -75,6 +77,7 @@ struct EditorContainerView: NSViewRepresentable {
         )
         textView.delegate = context.coordinator
         textView.documentLanguage = language
+        textView.completionSourceURL = sourceURL
         textView.isRichText = false
         textView.importsGraphics = false
         textView.usesFontPanel = false
@@ -106,6 +109,7 @@ struct EditorContainerView: NSViewRepresentable {
         scrollView.preferredFirstResponder = textView
 
         let rulerView = LineNumberRulerView(scrollView: scrollView, textView: textView, theme: theme)
+        rulerView.lineDecorations = lineDecorations
         scrollView.verticalRulerView = rulerView
         scrollView.hasVerticalRuler = true
         scrollView.rulersVisible = true
@@ -119,7 +123,8 @@ struct EditorContainerView: NSViewRepresentable {
             language: language,
             fontSize: fontSize,
             findState: findState,
-            largeFileMode: largeFileMode
+            largeFileMode: largeFileMode,
+            lineDecorations: lineDecorations
         )
         context.coordinator.lastFocusRequestToken = focusRequestToken
         scrollView.attemptInitialFocus()
@@ -134,9 +139,11 @@ struct EditorContainerView: NSViewRepresentable {
 
         context.coordinator.parent = self
         textView.documentLanguage = language
+        textView.completionSourceURL = sourceURL
         textView.isEditable = isEditable
         configureLayout(for: textView, in: scrollView)
         context.coordinator.rulerView?.theme = theme
+        context.coordinator.rulerView?.lineDecorations = lineDecorations
 
         let hadTextChange = (textView.string != text)
         if hadTextChange {
@@ -164,7 +171,8 @@ struct EditorContainerView: NSViewRepresentable {
             matchCount: findState.matchRanges.count,
             selectedLocation: clampedRange.location,
             selectedLength: clampedRange.length,
-            largeFileMode: largeFileMode
+            largeFileMode: largeFileMode,
+            lineDecorations: lineDecorations
         )
 
         if hadTextChange || context.coordinator.lastRenderState != renderState {
@@ -174,7 +182,8 @@ struct EditorContainerView: NSViewRepresentable {
                 language: language,
                 fontSize: fontSize,
                 findState: findState,
-                largeFileMode: largeFileMode
+                largeFileMode: largeFileMode,
+                lineDecorations: lineDecorations
             )
             context.coordinator.lastRenderState = renderState
             context.coordinator.rulerView?.needsDisplay = true
@@ -267,6 +276,7 @@ struct EditorContainerView: NSViewRepresentable {
             let selectedLocation: Int
             let selectedLength: Int
             let largeFileMode: Bool
+            let lineDecorations: [EditorLineDecoration]
         }
 
         var parent: EditorContainerView
@@ -295,7 +305,8 @@ struct EditorContainerView: NSViewRepresentable {
                 language: parent.language,
                 fontSize: parent.fontSize,
                 findState: parent.findState,
-                largeFileMode: parent.largeFileMode
+                largeFileMode: parent.largeFileMode,
+                lineDecorations: parent.lineDecorations
             )
             parent.configureLayout(for: textView, in: textView.enclosingScrollView ?? NSScrollView())
 

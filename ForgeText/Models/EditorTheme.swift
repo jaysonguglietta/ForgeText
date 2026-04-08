@@ -170,4 +170,36 @@ struct AppSettings: Codable {
     var showsOutline = true
     var showsBreadcrumbs = true
     var savedLogFilters: [SavedLogFilter] = []
+    var enabledPluginIDs: [String] = []
+    var showHiddenFilesInExplorer = false
+    var workspaceFavoritePaths: [String] = []
+
+    init() {}
+
+    private enum CodingKeys: String, CodingKey {
+        case theme
+        case wrapLines
+        case autosaveToDisk
+        case fontSize
+        case showsOutline
+        case showsBreadcrumbs
+        case savedLogFilters
+        case enabledPluginIDs
+        case showHiddenFilesInExplorer
+        case workspaceFavoritePaths
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        theme = try container.decodeIfPresent(EditorTheme.self, forKey: .theme) ?? .forge
+        wrapLines = try container.decodeIfPresent(Bool.self, forKey: .wrapLines) ?? false
+        autosaveToDisk = try container.decodeIfPresent(Bool.self, forKey: .autosaveToDisk) ?? true
+        fontSize = try container.decodeIfPresent(Double.self, forKey: .fontSize) ?? 14
+        showsOutline = try container.decodeIfPresent(Bool.self, forKey: .showsOutline) ?? true
+        showsBreadcrumbs = try container.decodeIfPresent(Bool.self, forKey: .showsBreadcrumbs) ?? true
+        savedLogFilters = try container.decodeIfPresent([SavedLogFilter].self, forKey: .savedLogFilters) ?? []
+        enabledPluginIDs = try container.decodeIfPresent([String].self, forKey: .enabledPluginIDs) ?? PluginHostService.defaultEnabledPluginIDs
+        showHiddenFilesInExplorer = try container.decodeIfPresent(Bool.self, forKey: .showHiddenFilesInExplorer) ?? false
+        workspaceFavoritePaths = try container.decodeIfPresent([String].self, forKey: .workspaceFavoritePaths) ?? []
+    }
 }

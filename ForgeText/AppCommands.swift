@@ -137,6 +137,18 @@ struct FileEditorCommands: Commands {
                 appState.compareSelectedDocumentWithFile()
             }
             .disabled(appState.selectedDocument == nil)
+
+            Divider()
+
+            Button("Compare with Git HEAD") {
+                appState.compareSelectedDocumentWithGitHead()
+            }
+            .disabled(appState.selectedDocument?.fileURL == nil)
+
+            Button("Stage Current File") {
+                appState.stageSelectedFileInGit()
+            }
+            .disabled(appState.selectedDocument?.fileURL == nil)
         }
 
         CommandMenu("View") {
@@ -247,6 +259,16 @@ struct FileEditorCommands: Commands {
             }
             .disabled(appState.selectedDocument == nil && appState.projectSearchState.rootURL == nil)
 
+            Button("Embedded Terminal") {
+                appState.showTerminalConsolePanel()
+            }
+
+            Divider()
+
+            Button("Refresh Workspace Explorer") {
+                appState.refreshWorkspaceExplorer()
+            }
+
             Divider()
 
             Button("Export Settings...") {
@@ -256,6 +278,62 @@ struct FileEditorCommands: Commands {
             Button("Import Settings...") {
                 appState.importSettings()
             }
+        }
+
+        CommandMenu("Plugins") {
+            Button("Plugin Manager") {
+                appState.showPluginManagerPanel()
+            }
+
+            Button("Snippet Library") {
+                appState.showSnippetLibraryPanel()
+            }
+            .disabled(appState.selectedDocument == nil)
+
+            Button("Task Runner") {
+                appState.showTaskRunnerPanel()
+            }
+
+            Button("Embedded Terminal") {
+                appState.showTerminalConsolePanel()
+            }
+
+            Divider()
+
+            Button("Format Document") {
+                appState.formatSelectedDocumentUsingPlugins()
+            }
+            .disabled(appState.selectedDocument == nil || !appState.canSave)
+
+            Button("Run Diagnostics") {
+                appState.runPluginDiagnostics()
+            }
+            .disabled(appState.selectedDocument == nil)
+
+            Divider()
+
+            Button("Run Build Task") {
+                appState.runPrimaryWorkspaceTask(.build)
+            }
+
+            Button("Run Test Task") {
+                appState.runPrimaryWorkspaceTask(.test)
+            }
+
+            Button("Run Lint Task") {
+                appState.runPrimaryWorkspaceTask(.lint)
+            }
+
+            Divider()
+
+            Button("Refresh Git Status") {
+                appState.refreshGitStatus()
+            }
+
+            Button("Compare with Git HEAD") {
+                appState.compareSelectedDocumentWithGitHead()
+            }
+            .disabled(appState.selectedDocument?.fileURL == nil)
         }
     }
 }

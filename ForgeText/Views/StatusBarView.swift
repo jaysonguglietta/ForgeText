@@ -4,6 +4,7 @@ struct StatusBarView: View {
     let document: EditorDocument
     let metrics: EditorMetrics
     let settings: AppSettings
+    let pluginStatusItems: [PluginStatusItem]
 
     private var csvTable: DelimitedTableDocument? {
         guard document.language == .csv else {
@@ -37,6 +38,14 @@ struct StatusBarView: View {
         }
 
         return LogExplorerService.parse(document.text)
+    }
+
+    private var httpRequestDocument: HTTPRequestDocument? {
+        guard document.language == .http else {
+            return nil
+        }
+
+        return HTTPRequestService.parse(document.text)
     }
 
     var body: some View {
@@ -97,6 +106,14 @@ struct StatusBarView: View {
                 }
             }
 
+            if let httpRequestDocument {
+                statusPill("\(httpRequestDocument.requests.count) requests")
+            }
+
+            ForEach(pluginStatusItems) { item in
+                statusPill(item.text, tone: item.tone)
+            }
+
             Spacer(minLength: 0)
 
             if let statusSummary = document.statusSummary {
@@ -111,11 +128,26 @@ struct StatusBarView: View {
         .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromeBlue)
     }
 
-    private func statusPill(_ text: String) -> some View {
+    private func statusPill(_ text: String, tone: PluginStatusTone = .neutral) -> some View {
         Text(text)
             .foregroundStyle(RetroPalette.ink)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromeTeal)
+            .retroInsetPanel(fill: RetroPalette.fieldFill, accent: accent(for: tone))
+    }
+
+    private func accent(for tone: PluginStatusTone) -> Color {
+        switch tone {
+        case .neutral:
+            return RetroPalette.chromeTeal
+        case .accent:
+            return RetroPalette.chromeBlue
+        case .success:
+            return RetroPalette.success
+        case .warning:
+            return RetroPalette.warning
+        case .danger:
+            return RetroPalette.danger
+        }
     }
 }

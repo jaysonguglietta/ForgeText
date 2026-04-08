@@ -24,6 +24,8 @@ enum DocumentOutlineService {
             return markdownOutline(text)
         case .json:
             return regexOutline(text, pattern: #"(?m)^(\s*)"([^"]+)"\s*:"#)
+        case .http:
+            return httpOutline(text)
         case .config:
             return configOutline(text, url: url)
         case .swift:
@@ -81,6 +83,50 @@ enum DocumentOutlineService {
         }
 
         return flattenConfigNodes(document.nodes, path: [])
+    }
+
+    private static func httpOutline(_ text: String) -> [OutlineItem] {
+        var items: [OutlineItem] = []
+        var lineNumber = 0
+        var pendingName: String?
+
+        text.enumerateLines { line, _ in
+            lineNumber += 1
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return
+            }
+
+            if trimmed.hasPrefix("###") {
+                pendingName = trimmed.replacingOccurrences(of: "###", with: "").trimmingCharacters(in: .whitespacesAndNewlines)
+                return
+            }
+
+            let tokens = trimmed.split(whereSeparator: \.isWhitespace)
+            guard let method = tokens.first else {
+                return
+            }
+
+            let uppercasedMethod = method.uppercased()
+            guard ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].contains(uppercasedMethod) else {
+                return
+            }
+
+            let title = pendingName?.isEmpty == false ? pendingName! : trimmed
+            items.append(
+                OutlineItem(
+                    id: "http-\(lineNumber)-\(title)",
+                    title: title,
+                    detail: trimmed,
+                    lineNumber: lineNumber,
+                    level: 0,
+                    path: [title]
+                )
+            )
+            pendingName = nil
+        }
+
+        return items
     }
 
     private static func flattenConfigNodes(_ nodes: [StructuredConfigNode], path: [String]) -> [OutlineItem] {

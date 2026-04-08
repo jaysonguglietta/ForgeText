@@ -9,10 +9,11 @@ enum DocumentPresentationMode: String, Codable {
     case logExplorer
     case structuredConfig
     case archiveBrowser
+    case httpRequest
 
     var isStructured: Bool {
         switch self {
-        case .structuredTable, .structuredJSON, .logExplorer, .structuredConfig, .archiveBrowser:
+        case .structuredTable, .structuredJSON, .logExplorer, .structuredConfig, .archiveBrowser, .httpRequest:
             return true
         case .editor, .readOnlyPreview, .binaryHex:
             return false
@@ -37,6 +38,8 @@ enum DocumentPresentationMode: String, Codable {
             return "Config Inspector"
         case .archiveBrowser:
             return "Archive Browser"
+        case .httpRequest:
+            return "HTTP Runner"
         }
     }
 
@@ -56,6 +59,8 @@ enum DocumentPresentationMode: String, Codable {
             return "slider.horizontal.below.square.filled.and.square"
         case .archiveBrowser:
             return "archivebox"
+        case .httpRequest:
+            return "network.badge.shield.half.filled"
         }
     }
 }
@@ -314,4 +319,120 @@ struct DocumentComparisonState: Identifiable {
     let rightTitle: String
     let lines: [DiffLine]
     let changedLineCount: Int
+}
+
+struct WorkspaceExplorerNode: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let url: URL
+    let isDirectory: Bool
+    let isHidden: Bool
+    let isFavorite: Bool
+    let children: [WorkspaceExplorerNode]
+
+    var childrenOrNil: [WorkspaceExplorerNode]? {
+        children.isEmpty ? nil : children
+    }
+
+    var subtitle: String {
+        url.path(percentEncoded: false)
+    }
+}
+
+struct WorkspaceExplorerState {
+    var filterQuery = ""
+    var includeHiddenFiles = false
+    var nodes: [WorkspaceExplorerNode] = []
+    var lastRefreshedAt: Date?
+    var statusMessage: String?
+}
+
+enum EditorLineDecorationKind: String, Codable, Hashable {
+    case gitChanged
+    case gitAdded
+    case diagnosticInfo
+    case diagnosticWarning
+    case diagnosticError
+}
+
+struct EditorLineDecoration: Identifiable, Hashable {
+    let id: String
+    let lineNumber: Int
+    let kind: EditorLineDecorationKind
+    let message: String?
+
+    init(lineNumber: Int, kind: EditorLineDecorationKind, message: String? = nil) {
+        self.id = "\(kind.rawValue)-\(lineNumber)-\(message ?? "")"
+        self.lineNumber = lineNumber
+        self.kind = kind
+        self.message = message
+    }
+}
+
+struct TerminalCommandRun: Identifiable, Hashable {
+    let id: UUID
+    let command: String
+    let workingDirectoryPath: String?
+    let startedAt: Date
+    var endedAt: Date?
+    var output: String
+    var status: PluginExecutionStatus
+    var exitCode: Int32?
+
+    init(
+        id: UUID = UUID(),
+        command: String,
+        workingDirectoryPath: String?,
+        startedAt: Date = Date(),
+        endedAt: Date? = nil,
+        output: String = "",
+        status: PluginExecutionStatus = .idle,
+        exitCode: Int32? = nil
+    ) {
+        self.id = id
+        self.command = command
+        self.workingDirectoryPath = workingDirectoryPath
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.output = output
+        self.status = status
+        self.exitCode = exitCode
+    }
+}
+
+struct EmbeddedTerminalPanelState {
+    var commandText = ""
+    var history: [String] = []
+    var lastRun: TerminalCommandRun?
+}
+
+struct RemoteSearchHit: Identifiable, Hashable {
+    let id = UUID()
+    let connection: String
+    let path: String
+    let lineNumber: Int
+    let lineText: String
+}
+
+struct RemoteWorkspaceState {
+    var searchRootPath = ""
+    var searchQuery = ""
+    var commandText = ""
+    var grepResults: [RemoteSearchHit] = []
+    var lastCommandOutput: String?
+    var lastCommandStatus: PluginExecutionStatus = .idle
+    var isRunningCommand = false
+    var isSearching = false
+    var statusMessage: String?
+}
+
+struct GitBlameInfo: Hashable {
+    let commitHash: String
+    let author: String
+    let summary: String
+    let authoredAt: Date?
+
+    var shortCommitHash: String {
+        String(commitHash.prefix(8))
+    }
 }

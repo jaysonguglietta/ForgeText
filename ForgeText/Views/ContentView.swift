@@ -33,6 +33,21 @@ struct ContentView: View {
         .sheet(isPresented: $appState.showingKeyboardShortcuts) {
             KeyboardShortcutsView()
         }
+        .sheet(isPresented: $appState.showingPluginManager) {
+            PluginManagerView(appState: appState)
+        }
+        .sheet(isPresented: $appState.showingSnippetLibrary) {
+            SnippetLibraryView(appState: appState)
+        }
+        .sheet(isPresented: $appState.showingTaskRunner) {
+            TaskRunnerView(appState: appState)
+        }
+        .sheet(isPresented: $appState.showingPluginDiagnostics) {
+            PluginDiagnosticsView(appState: appState)
+        }
+        .sheet(isPresented: $appState.showingTerminalConsole) {
+            TerminalConsoleView(appState: appState)
+        }
         .sheet(item: $appState.comparisonState) { comparisonState in
             CompareView(state: comparisonState)
         }
@@ -209,6 +224,58 @@ private struct DocumentSidebarView: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Show keyboard shortcuts")
+
+                        Button {
+                            appState.showTerminalConsolePanel()
+                        } label: {
+                            fileCard(
+                                title: "Embedded Terminal",
+                                subtitle: "Run shell commands without leaving ForgeText",
+                                symbolName: "terminal.fill"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open embedded terminal")
+                    }
+
+                    WorkspaceExplorerView(appState: appState)
+
+                    sidebarSection("Plugins") {
+                        Button {
+                            appState.showPluginManagerPanel()
+                        } label: {
+                            fileCard(
+                                title: "Plugin Manager",
+                                subtitle: "Enable built-in IDE plugins and inspect their capabilities",
+                                symbolName: "puzzlepiece.extension"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open plugin manager")
+
+                        Button {
+                            appState.showTaskRunnerPanel()
+                        } label: {
+                            fileCard(
+                                title: "Task Runner",
+                                subtitle: "Run workspace build, test, and lint commands from detected project files",
+                                symbolName: "play.square.stack"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open task runner")
+
+                        Button {
+                            appState.showSnippetLibraryPanel()
+                        } label: {
+                            fileCard(
+                                title: "Snippet Library",
+                                subtitle: "Insert format-aware snippets into the current document",
+                                symbolName: "text.badge.plus"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open snippet library")
                     }
                 }
                 .padding(18)
@@ -383,6 +450,26 @@ private struct DocumentWorkspaceView: View {
         appState.documents.filter { $0.id != document.id }
     }
 
+    private var completionSession: EditorCompletionSession? {
+        guard !document.isReadOnly, !document.presentationMode.isStructured else {
+            return nil
+        }
+
+        return appState.completionSession(for: document)
+    }
+
+    private var pluginStatusItems: [PluginStatusItem] {
+        appState.pluginStatusItems(for: document)
+    }
+
+    private var currentLineDiagnostics: [PluginDiagnostic] {
+        appState.inlineDiagnostics(for: document, lineNumber: currentLine)
+    }
+
+    private var currentLineBlame: GitBlameInfo? {
+        appState.gitBlame(for: document, lineNumber: currentLine)
+    }
+
     var body: some View {
         ZStack {
             RetroBackdropView()
@@ -446,13 +533,25 @@ private struct DocumentWorkspaceView: View {
                     FindReplaceBar(appState: appState, document: document)
                 }
 
+                if let completionSession {
+                    RetroRule()
+                    PredictionStripView(session: completionSession) { suggestion in
+                        appState.applyCompletion(suggestion, for: document.id)
+                    }
+                }
+
+                if !currentLineDiagnostics.isEmpty || currentLineBlame != nil {
+                    RetroRule()
+                    editorInsightBar
+                }
+
                 RetroRule()
 
                 workspaceArea
 
                 RetroRule()
 
-                StatusBarView(document: document, metrics: metrics, settings: appState.settings)
+                StatusBarView(document: document, metrics: metrics, settings: appState.settings, pluginStatusItems: pluginStatusItems)
             }
             .padding(10)
         }
@@ -499,6 +598,18 @@ private struct DocumentWorkspaceView: View {
                     appState.showingCommandPalette = true
                 } label: {
                     Label("Palette", systemImage: "command")
+                }
+
+                Button {
+                    appState.showTaskRunnerPanel()
+                } label: {
+                    Label("Tasks", systemImage: "play.square.stack")
+                }
+
+                Button {
+                    appState.showTerminalConsolePanel()
+                } label: {
+                    Label("Console", systemImage: "terminal.fill")
                 }
             }
         }
@@ -600,6 +711,35 @@ private struct DocumentWorkspaceView: View {
             .menuStyle(.borderlessButton)
 
             Menu {
+                if let gitRepositorySummary = appState.gitRepositorySummary {
+                    Menu("Git Branches") {
+                        ForEach(appState.availableGitBranches, id: \.self) { branch in
+                            Button(branch) {
+                                appState.switchGitBranch(branch)
+                            }
+                        }
+                    }
+
+                    Button("Refresh Git Status") {
+                        appState.refreshGitStatus()
+                    }
+
+                    Button("Compare with Git HEAD") {
+                        appState.compareSelectedDocumentWithGitHead()
+                    }
+                    .disabled(document.fileURL == nil)
+
+                    Button("Stage Current File") {
+                        appState.stageSelectedFileInGit()
+                    }
+                    .disabled(document.fileURL == nil)
+
+                    Divider()
+
+                    Button("Git branch: \(gitRepositorySummary.branchName)") {}
+                        .disabled(true)
+                }
+
                 Menu("Encoding") {
                     ForEach(String.Encoding.commonSaveEncodings, id: \.rawValue) { encoding in
                         Button(encoding.displayName) {
@@ -684,6 +824,43 @@ private struct DocumentWorkspaceView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
         .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
+    }
+
+    private var editorInsightBar: some View {
+        HStack(alignment: .top, spacing: 12) {
+            if let currentLineBlame {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Git Blame")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(RetroPalette.ink)
+
+                    Text("\(currentLineBlame.author) · \(currentLineBlame.shortCommitHash) · \(currentLineBlame.summary)")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(RetroPalette.link)
+                        .lineLimit(2)
+                }
+            }
+
+            if !currentLineDiagnostics.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Current Line Issues")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(RetroPalette.ink)
+
+                    ForEach(currentLineDiagnostics) { diagnostic in
+                        Text(diagnostic.message)
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(diagnostic.severity == .error ? RetroPalette.danger : RetroPalette.warning)
+                            .lineLimit(2)
+                    }
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeTeal)
     }
 
     private var breadcrumbBar: some View {
@@ -810,6 +987,8 @@ private struct DocumentWorkspaceView: View {
             return "Config Inspector"
         case .archiveBrowser:
             return "Archive Browser"
+        case .httpRequest:
+            return "HTTP Runner"
         }
     }
 
@@ -890,18 +1069,26 @@ private struct DocumentWorkspaceView: View {
                 document: document,
                 theme: appState.settings.theme
             )
+        case .httpRequest:
+            HTTPRequestView(
+                document: document,
+                theme: appState.settings.theme,
+                onShowRawText: appState.showRawTextView
+            )
         case .editor, .readOnlyPreview, .binaryHex:
             EditorContainerView(
                 text: appState.textBinding(for: document.id),
                 selectedRange: appState.selectionBinding(for: document.id),
                 theme: appState.settings.theme,
                 language: document.language,
+                sourceURL: document.sourceURL,
                 wrapLines: appState.settings.wrapLines,
                 fontSize: CGFloat(appState.settings.fontSize),
                 findState: document.findState,
                 largeFileMode: document.isLargeFileMode,
                 isEditable: !document.isReadOnly,
-                focusRequestToken: appState.editorFocusToken
+                focusRequestToken: appState.editorFocusToken,
+                lineDecorations: appState.lineDecorations(for: document)
             )
         }
     }
@@ -988,6 +1175,8 @@ private struct DocumentWorkspaceView: View {
             return ("Config", .green)
         case .archiveBrowser:
             return ("Archive", .indigo)
+        case .httpRequest:
+            return ("HTTP", .cyan)
         case .editor, .readOnlyPreview, .binaryHex:
             return nil
         }
@@ -1029,6 +1218,48 @@ private struct DocumentWorkspaceView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
         .retroPanel(fill: RetroPalette.panelFill, accent: accent)
+    }
+}
+
+private struct PredictionStripView: View {
+    let session: EditorCompletionSession
+    let onSelectSuggestion: (EditorCompletionSuggestion) -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Predictions")
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundStyle(RetroPalette.ink)
+
+                Text(session.prefix.isEmpty ? "Click to insert a format-aware suggestion" : "Tab accepts the first match")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(session.suggestions) { suggestion in
+                        Button {
+                            onSelectSuggestion(suggestion)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(suggestion.displayText)
+                                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                Text(suggestion.detail)
+                                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            }
+                            .frame(alignment: .leading)
+                        }
+                        .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+                    }
+                }
+                .padding(.vertical, 1)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromeTeal)
     }
 }
 

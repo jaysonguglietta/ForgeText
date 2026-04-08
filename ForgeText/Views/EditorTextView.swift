@@ -3,12 +3,17 @@ import AppKit
 @MainActor
 final class EditorTextView: NSTextView {
     var documentLanguage: DocumentLanguage = .plainText
+    var completionSourceURL: URL?
 
     override func insertNewline(_ sender: Any?) {
         apply(EditorBehavior.newlineMutation(in: string, selectedRange: selectedRange(), language: documentLanguage), actionName: "Insert Newline")
     }
 
     override func insertTab(_ sender: Any?) {
+        if acceptTopPredictionIfAvailable() {
+            return
+        }
+
         apply(EditorBehavior.tabMutation(in: string, selectedRange: selectedRange(), language: documentLanguage), actionName: "Indent")
     }
 
@@ -60,6 +65,24 @@ final class EditorTextView: NSTextView {
         }
 
         undoManager?.setActionName(actionName)
+    }
+
+    private func acceptTopPredictionIfAvailable() -> Bool {
+        guard let session = EditorCompletionService.session(
+            in: string,
+            selectedRange: selectedRange(),
+            language: documentLanguage,
+            sourceURL: completionSourceURL
+        ) else {
+            return false
+        }
+
+        guard !session.prefix.isEmpty, let suggestion = session.suggestions.first else {
+            return false
+        }
+
+        apply(EditorCompletionService.mutation(for: suggestion, in: session), actionName: "Accept Prediction")
+        return true
     }
 
     private func clamp(_ range: NSRange, upperBound: Int) -> NSRange {

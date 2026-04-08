@@ -20,19 +20,22 @@ ForgeText should aim to be the native macOS editor system engineers trust when t
 - Large-file previews, binary hex fallback, archive browsing, and follow-mode support.
 - Local install workflow for `/Applications`.
 - A full retro-web shell direction layered on top of the native editor core.
+- A built-in plugin layer with snippet, task-runner, diagnostics, formatting, and Git-aware IDE features.
+- Workspace explorer, embedded terminal, HTTP request runner, remote grep/command workflows, and external plugin manifests.
+- Inline diagnostics, diff-gutter markers, Git blame context, and secret-aware warnings for risky file contents.
 
 ## 1.0 priorities still open
 
 - Large-file mode with smarter streaming and tail behavior.
-- Structured viewers for JSON, logs, YAML, TOML, env files, and diff-heavy workflows.
-- Project search with preview, compare tools, and better workbench navigation.
+- Richer structured viewers for diff-heavy workflows, archive contents, and schema-aware configs.
+- Project search with preview, compare tools, and stronger multi-pane workbench navigation.
 - Safer writes for protected files, symlinks, and metadata-sensitive system files.
 - Packaging, notarization, updates, accessibility, and UI regression coverage.
 
 ## System engineer features to add next
 
 - Privileged save flow for protected files under `/etc`, `/Library`, and similar paths.
-- Remote SSH/SFTP editing with local UI and remote file operations.
+- Remote SSH/SFTP editing with richer local UI, remote file operations, and safer credential handling.
 - Compressed-file and archive browsing for `.gz`, `.tar`, and related operational assets.
 - Terminal/task integration for running checks and opening the current workspace in shell tools.
 - Log views with timestamp parsing, severity filters, field extraction, and follow mode.
@@ -43,9 +46,10 @@ ForgeText should aim to be the native macOS editor system engineers trust when t
 - Better diff and compare workflows for system config reviews.
 - Saved searches, pinned documents, and more session-oriented workbench behavior.
 - More file-aware empty states and better disclosure around read-only and preview modes.
+- Plugin-manager polish, richer task output handling, and deeper diagnostics panels.
 
 ## Longer-term bets
 
-- Extension hooks or scripts for user-defined transformations.
-- Parser-backed outlines and symbol navigation for more languages.
+- Plugin manifests for user-defined snippet packs, tasks, and formatter/linter integrations.
+- Parser-backed outlines, real LSP-style language packs, and symbol navigation for more languages.
 - Session workspaces and saved dashboards for common ops investigations.

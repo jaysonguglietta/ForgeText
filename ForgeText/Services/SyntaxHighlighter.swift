@@ -9,7 +9,8 @@ enum SyntaxHighlighter {
         language: DocumentLanguage,
         fontSize: CGFloat,
         findState: FindState,
-        largeFileMode: Bool
+        largeFileMode: Bool,
+        lineDecorations: [EditorLineDecoration] = []
     ) {
         guard let textStorage = textView.textStorage else {
             return
@@ -40,6 +41,8 @@ enum SyntaxHighlighter {
         if let currentMatchRange = findState.currentMatchRange {
             textStorage.addAttributes(palette.currentSearchMatch, range: currentMatchRange)
         }
+
+        applyLineDecorations(to: textStorage, text: text, palette: palette, decorations: lineDecorations)
 
         textStorage.endEditing()
 
@@ -79,6 +82,11 @@ enum SyntaxHighlighter {
             applyPattern(#""(?:[^"\\]|\\.)*"\s*:"# , attributes: palette.property, to: textStorage, text: text)
             applyKeywords(["true", "false", "null"], attributes: palette.keyword, to: textStorage, text: text)
             applyPattern(#"\b(?:-?(?:0x[0-9A-Fa-f]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?))\b"#, attributes: palette.number, to: textStorage, text: text)
+        case .http:
+            applyPattern(#"(?m)^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b"#, attributes: palette.keyword, to: textStorage, text: text)
+            applyPattern(#"https?://[^\s<>()]+"#, attributes: palette.link, to: textStorage, text: text)
+            applyPattern(#"(?m)^[A-Za-z-]+(?=:)"#, attributes: palette.property, to: textStorage, text: text)
+            applyPattern(#"(?m)^###.*$"#, attributes: palette.heading, to: textStorage, text: text)
         case .xml:
             applyPattern(#"<!--[\s\S]*?-->"#, attributes: palette.comment, to: textStorage, text: text)
             applyPattern(#"</?[A-Za-z][A-Za-z0-9:_-]*"#, attributes: palette.keyword, to: textStorage, text: text)
@@ -169,6 +177,48 @@ enum SyntaxHighlighter {
         }
     }
 
+    private static func applyLineDecorations(
+        to textStorage: NSTextStorage,
+        text: String,
+        palette: StylePalette,
+        decorations: [EditorLineDecoration]
+    ) {
+        guard !decorations.isEmpty else {
+            return
+        }
+
+        let nsText = text as NSString
+        for decoration in decorations {
+            let lineRange = lineRange(for: decoration.lineNumber, in: nsText)
+            guard lineRange.location != NSNotFound else {
+                continue
+            }
+
+            textStorage.addAttributes(palette.lineDecorationAttributes(for: decoration.kind), range: lineRange)
+        }
+    }
+
+    private static func lineRange(for lineNumber: Int, in text: NSString) -> NSRange {
+        guard lineNumber > 0 else {
+            return NSRange(location: NSNotFound, length: 0)
+        }
+
+        var currentLine = 1
+        var index = 0
+
+        while index < text.length {
+            let range = text.lineRange(for: NSRange(location: index, length: 0))
+            if currentLine == lineNumber {
+                return range
+            }
+
+            currentLine += 1
+            index = NSMaxRange(range)
+        }
+
+        return currentLine == lineNumber ? NSRange(location: text.length, length: 0) : NSRange(location: NSNotFound, length: 0)
+    }
+
     private struct StylePalette {
         let base: [NSAttributedString.Key: Any]
         let heading: [NSAttributedString.Key: Any]
@@ -183,6 +233,11 @@ enum SyntaxHighlighter {
         let bracketMatch: [NSAttributedString.Key: Any]
         let searchMatch: [NSAttributedString.Key: Any]
         let currentSearchMatch: [NSAttributedString.Key: Any]
+        let gitAddedBackground: NSColor
+        let gitChangedBackground: NSColor
+        let diagnosticInfoBackground: NSColor
+        let diagnosticWarningBackground: NSColor
+        let diagnosticErrorBackground: NSColor
 
         init(theme: EditorTheme, fontSize: CGFloat) {
             let baseFont = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
@@ -218,6 +273,29 @@ enum SyntaxHighlighter {
             currentSearchMatch = [
                 .backgroundColor: theme.currentSearchHighlightColor,
             ]
+            gitAddedBackground = NSColor.systemGreen.withAlphaComponent(theme == .vellum ? 0.12 : 0.14)
+            gitChangedBackground = theme.accentColor.withAlphaComponent(theme == .vellum ? 0.1 : 0.12)
+            diagnosticInfoBackground = theme.linkColor.withAlphaComponent(theme == .vellum ? 0.10 : 0.12)
+            diagnosticWarningBackground = theme.warningColor.withAlphaComponent(theme == .vellum ? 0.12 : 0.15)
+            diagnosticErrorBackground = NSColor.systemRed.withAlphaComponent(theme == .vellum ? 0.10 : 0.14)
+        }
+
+        func lineDecorationAttributes(for kind: EditorLineDecorationKind) -> [NSAttributedString.Key: Any] {
+            let backgroundColor: NSColor
+            switch kind {
+            case .gitChanged:
+                backgroundColor = gitChangedBackground
+            case .gitAdded:
+                backgroundColor = gitAddedBackground
+            case .diagnosticInfo:
+                backgroundColor = diagnosticInfoBackground
+            case .diagnosticWarning:
+                backgroundColor = diagnosticWarningBackground
+            case .diagnosticError:
+                backgroundColor = diagnosticErrorBackground
+            }
+
+            return [.backgroundColor: backgroundColor]
         }
     }
 

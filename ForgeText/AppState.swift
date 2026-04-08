@@ -20,6 +20,10 @@ final class AppState: ObservableObject {
         case openDocuments
         case openRemote
         case openRemoteSpec(String)
+        case showPluginManager
+        case showSnippetLibrary
+        case showTaskRunner
+        case showTerminalConsole
         case searchInFolder
         case saveDocument
         case savePrivileged
@@ -37,6 +41,16 @@ final class AppState: ObservableObject {
         case openInTerminal
         case prettyPrintJSON
         case minifyJSON
+        case formatDocument
+        case runPluginDiagnostics
+        case compareWithGitHead
+        case refreshGitStatus
+        case stageCurrentFileInGit
+        case switchGitBranch(String)
+        case refreshWorkspaceExplorer
+        case runPrimaryWorkspaceTask(PluginTaskRole)
+        case runWorkspaceTask(String)
+        case insertSnippet(String)
         case exportSettings
         case importSettings
         case toggleWrapLines
@@ -77,12 +91,25 @@ final class AppState: ObservableObject {
     @Published var showingRemoteOpen = false
     @Published var showingWorkspaceSessions = false
     @Published var showingKeyboardShortcuts = false
+    @Published var showingPluginManager = false
+    @Published var showingSnippetLibrary = false
+    @Published var showingTaskRunner = false
+    @Published var showingPluginDiagnostics = false
+    @Published var showingTerminalConsole = false
     @Published var editorFocusToken = UUID()
     @Published var projectSearchState = ProjectSearchState()
     @Published var comparisonState: DocumentComparisonState?
     @Published var remoteLocationDraft = ""
     @Published var secondaryPaneMode: WorkspaceSecondaryPaneMode = .off
     @Published var secondaryDocumentID: UUID?
+    @Published var pluginTaskState = PluginTaskPanelState()
+    @Published var pluginDiagnosticsState = PluginDiagnosticsPanelState()
+    @Published var gitRepositorySummary: GitRepositorySummary?
+    @Published var workspaceExplorerState = WorkspaceExplorerState()
+    @Published var terminalPanelState = EmbeddedTerminalPanelState()
+    @Published var remoteWorkspaceState = RemoteWorkspaceState()
+    @Published private var pluginCatalog: [EditorPlugin] = PluginHostService.builtInPlugins
+    @Published private var documentDiagnosticsByID: [UUID: [PluginDiagnostic]] = [:]
 
     private var pendingAction: PendingAction?
     private var autosaveTask: Task<Void, Never>?
@@ -91,13 +118,19 @@ final class AppState: ObservableObject {
     private var fileMonitorTimer: Timer?
     private var untitledCounter = 1
     private let hadUncleanShutdown: Bool
+    private var gitBlameCache: [String: GitBlameInfo] = [:]
 
     init() {
-        settings = AppSettingsStore.load()
+        var loadedSettings = AppSettingsStore.load()
+        if loadedSettings.enabledPluginIDs.isEmpty {
+            loadedSettings.enabledPluginIDs = PluginHostService.defaultEnabledPluginIDs
+        }
+        settings = loadedSettings
         workspaceSessions = WorkspaceSessionStore.load()
         hadUncleanShutdown = CrashRecoveryMonitor.markLaunch()
         restoreWorkspace()
         startFileMonitoring()
+        refreshPluginWorkspaceState()
 
         if hadUncleanShutdown, documents.contains(where: \.hasRecoveredDraft) {
             alertContext = AlertContext(
@@ -175,12 +208,99 @@ final class AppState: ObservableObject {
         return documents.first { $0.id == secondaryDocumentID }
     }
 
+    var installedPlugins: [EditorPlugin] {
+        pluginCatalog
+    }
+
+    var enabledPlugins: [EditorPlugin] {
+        let enabledIDs = PluginHostService.normalizedEnabledPluginIDs(from: settings, installedPlugins: pluginCatalog)
+        return pluginCatalog.filter { enabledIDs.contains($0.id) }
+    }
+
+    var selectedPluginTask: EditorPluginTask? {
+        guard let selectedTaskID = pluginTaskState.selectedTaskID else {
+            return pluginTaskState.tasks.first
+        }
+
+        return pluginTaskState.tasks.first(where: { $0.id == selectedTaskID }) ?? pluginTaskState.tasks.first
+    }
+
+    var activeWorkspaceURL: URL? {
+        projectSearchState.rootURL ?? selectedDocument?.fileURL?.deletingLastPathComponent()
+    }
+
+    var availableGitBranches: [String] {
+        GitService.branches(for: activeWorkspaceURL)
+    }
+
+    func inlineDiagnostics(for document: EditorDocument) -> [PluginDiagnostic] {
+        documentDiagnosticsByID[document.id] ?? []
+    }
+
+    func inlineDiagnostics(for document: EditorDocument, lineNumber: Int) -> [PluginDiagnostic] {
+        inlineDiagnostics(for: document).filter { $0.lineNumber == lineNumber }
+    }
+
+    func lineDecorations(for document: EditorDocument) -> [EditorLineDecoration] {
+        var decorations: [EditorLineDecoration] = []
+
+        if let fileURL = document.fileURL {
+            decorations = GitService.lineDecorations(for: fileURL, workspaceRoot: activeWorkspaceURL)
+        }
+
+        let diagnosticDecorations = inlineDiagnostics(for: document).compactMap { diagnostic -> EditorLineDecoration? in
+            guard let lineNumber = diagnostic.lineNumber else {
+                return nil
+            }
+
+            let kind: EditorLineDecorationKind
+            switch diagnostic.severity {
+            case .info:
+                kind = .diagnosticInfo
+            case .warning:
+                kind = .diagnosticWarning
+            case .error:
+                kind = .diagnosticError
+            }
+
+            return EditorLineDecoration(lineNumber: lineNumber, kind: kind, message: diagnostic.message)
+        }
+
+        decorations.append(contentsOf: diagnosticDecorations)
+        return decorations.sorted { lhs, rhs in
+            if lhs.lineNumber == rhs.lineNumber {
+                return lhs.kind.rawValue < rhs.kind.rawValue
+            }
+
+            return lhs.lineNumber < rhs.lineNumber
+        }
+    }
+
+    func gitBlame(for document: EditorDocument, lineNumber: Int) -> GitBlameInfo? {
+        guard !document.isDirty, let fileURL = document.fileURL else {
+            return nil
+        }
+
+        let cacheKey = "\(document.id.uuidString)-\(lineNumber)"
+        if let cached = gitBlameCache[cacheKey] {
+            return cached
+        }
+
+        let blame = GitService.blame(for: fileURL, lineNumber: lineNumber, workspaceRoot: activeWorkspaceURL)
+        if let blame {
+            gitBlameCache[cacheKey] = blame
+        }
+        return blame
+    }
+
     func newDocument() {
         let document = EditorDocument.untitled(named: nextUntitledName())
         documents.append(document)
         selectedDocumentID = document.id
         requestEditorFocus()
         scheduleSessionSave()
+        refreshPluginWorkspaceState()
+        refreshDocumentDiagnostics(for: document.id)
     }
 
     func openDocument() {
@@ -200,6 +320,15 @@ final class AppState: ObservableObject {
 
     func openRemotePanel() {
         remoteLocationDraft = selectedDocument?.remoteReference?.spec ?? recentRemoteLocations.first?.spec ?? ""
+        if remoteWorkspaceState.searchRootPath.isEmpty {
+            let selectedRemoteDirectory = selectedDocument?.remoteReference.flatMap { reference in
+                URL(fileURLWithPath: reference.path).deletingLastPathComponent().path
+            }
+            let draftedRemoteDirectory = RemoteFileReference.parse(remoteLocationDraft).map { reference in
+                URL(fileURLWithPath: reference.path).deletingLastPathComponent().path
+            }
+            remoteWorkspaceState.searchRootPath = selectedRemoteDirectory ?? draftedRemoteDirectory ?? "/"
+        }
         showingRemoteOpen = true
     }
 
@@ -225,6 +354,8 @@ final class AppState: ObservableObject {
                     self.recordRecentRemote(document.remoteReference)
                     self.requestEditorFocus()
                     self.scheduleSessionSave()
+                    self.refreshPluginWorkspaceState()
+                    self.refreshDocumentDiagnostics(for: document.id)
                 }
             } catch {
                 await MainActor.run {
@@ -252,6 +383,7 @@ final class AppState: ObservableObject {
                 documents.append(document)
                 recordRecentFile(standardizedURL)
                 selectedID = document.id
+                refreshDocumentDiagnostics(for: document.id)
             } catch {
                 present(error: error, title: "Couldn’t Open File")
             }
@@ -265,12 +397,14 @@ final class AppState: ObservableObject {
         }
 
         scheduleSessionSave()
+        refreshPluginWorkspaceState()
     }
 
     func selectDocument(_ id: UUID) {
         selectedDocumentID = id
         requestEditorFocus()
         scheduleSessionSave()
+        refreshPluginWorkspaceState()
     }
 
     func selectNextDocument() {
@@ -282,6 +416,7 @@ final class AppState: ObservableObject {
         selectedDocumentID = documents[nextIndex].id
         requestEditorFocus()
         scheduleSessionSave()
+        refreshPluginWorkspaceState()
     }
 
     func selectPreviousDocument() {
@@ -293,6 +428,7 @@ final class AppState: ObservableObject {
         selectedDocumentID = documents[previousIndex].id
         requestEditorFocus()
         scheduleSessionSave()
+        refreshPluginWorkspaceState()
     }
 
     func closeSelectedDocument() {
@@ -484,6 +620,7 @@ final class AppState: ObservableObject {
         AppSettingsStore.save(settings)
         scheduleSessionSave()
         showingWorkspaceSessions = false
+        refreshPluginWorkspaceState()
     }
 
     func saveCurrentLogFilter(name: String?, query: String, severity: LogSeverityFilterMode, start: String, end: String, grouping: LogGroupingMode) {
@@ -584,6 +721,7 @@ final class AppState: ObservableObject {
         }
 
         scheduleAutosave()
+        refreshDocumentDiagnostics(for: id)
     }
 
     func updateSelectedDocumentSelection(_ selectedRange: NSRange) {
@@ -620,6 +758,571 @@ final class AppState: ObservableObject {
             get: { self.document(withID: id)?.selectedRange ?? NSRange(location: 0, length: 0) },
             set: { self.updateDocumentSelection($0, for: id) }
         )
+    }
+
+    func completionSession(for document: EditorDocument) -> EditorCompletionSession? {
+        EditorCompletionService.session(
+            in: document.text,
+            selectedRange: document.selectedRange,
+            language: document.language,
+            sourceURL: document.sourceURL
+        )
+    }
+
+    func applyCompletion(_ suggestion: EditorCompletionSuggestion, for documentID: UUID) {
+        guard let document = document(withID: documentID) else {
+            return
+        }
+
+        guard let session = completionSession(for: document) else {
+            return
+        }
+
+        guard session.suggestions.contains(suggestion) else {
+            return
+        }
+
+        let mutation = EditorCompletionService.mutation(for: suggestion, in: session)
+        let replacementRange = NSRange(
+            location: min(max(mutation.replacementRange.location, 0), (document.text as NSString).length),
+            length: min(
+                max(mutation.replacementRange.length, 0),
+                (document.text as NSString).length - min(max(mutation.replacementRange.location, 0), (document.text as NSString).length)
+            )
+        )
+
+        updateDocument(id: documentID) { updatedDocument in
+            guard !updatedDocument.isReadOnly else {
+                return
+            }
+
+            updatedDocument.text = (updatedDocument.text as NSString).replacingCharacters(
+                in: replacementRange,
+                with: mutation.replacementText
+            )
+            updatedDocument.selectedRange = mutation.selectedRange
+            updatedDocument.refreshLanguageIfNeeded()
+            updatedDocument.syncDirtyState()
+            updatedDocument.statusMessage = "Inserted prediction"
+            recomputeFindState(for: &updatedDocument)
+        }
+
+        requestEditorFocus()
+        scheduleAutosave()
+        refreshDocumentDiagnostics(for: documentID)
+    }
+
+    func isPluginEnabled(_ pluginID: String) -> Bool {
+        PluginHostService.normalizedEnabledPluginIDs(from: settings, installedPlugins: pluginCatalog).contains(pluginID)
+    }
+
+    func togglePluginEnabled(_ pluginID: String) {
+        var enabledIDs = PluginHostService.normalizedEnabledPluginIDs(from: settings, installedPlugins: pluginCatalog)
+
+        if enabledIDs.contains(pluginID) {
+            enabledIDs.remove(pluginID)
+        } else {
+            enabledIDs.insert(pluginID)
+        }
+
+        settings.enabledPluginIDs = pluginCatalog.map(\.id).filter { enabledIDs.contains($0) }
+        AppSettingsStore.save(settings)
+        refreshPluginWorkspaceState()
+    }
+
+    func availableSnippets(matching query: String = "") -> [EditorPluginSnippet] {
+        guard let selectedDocument else {
+            return []
+        }
+
+        let snippets = PluginHostService.snippets(for: selectedDocument.language, using: settings, workspaceRoot: activeWorkspaceURL)
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedQuery.isEmpty else {
+            return snippets
+        }
+
+        return snippets.filter { snippet in
+            let candidate = [snippet.title, snippet.detail, snippet.previewText]
+                .joined(separator: " ")
+            return candidate.localizedCaseInsensitiveContains(trimmedQuery)
+        }
+    }
+
+    func showPluginManagerPanel() {
+        showingPluginManager = true
+    }
+
+    func showSnippetLibraryPanel() {
+        showingSnippetLibrary = true
+    }
+
+    func showTaskRunnerPanel() {
+        refreshPluginWorkspaceState()
+        showingTaskRunner = true
+    }
+
+    func showTerminalConsolePanel() {
+        if terminalPanelState.commandText.isEmpty {
+            terminalPanelState.commandText = EmbeddedTerminalService.suggestedCommands.first ?? ""
+        }
+
+        showingTerminalConsole = true
+    }
+
+    func runEmbeddedTerminalCommand(_ commandOverride: String? = nil) {
+        let command = (commandOverride ?? terminalPanelState.commandText).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty else {
+            alertContext = AlertContext(title: "Command Needed", message: "Enter a shell command to run in the embedded terminal.")
+            return
+        }
+
+        let workingDirectory = activeWorkspaceURL
+        terminalPanelState.commandText = command
+        terminalPanelState.lastRun = TerminalCommandRun(
+            command: command,
+            workingDirectoryPath: workingDirectory?.path,
+            startedAt: Date(),
+            output: "Running \(command)...",
+            status: .running
+        )
+        terminalPanelState.history.removeAll { $0 == command }
+        terminalPanelState.history.insert(command, at: 0)
+        terminalPanelState.history = Array(terminalPanelState.history.prefix(20))
+        showingTerminalConsole = true
+
+        Task.detached(priority: .userInitiated) {
+            let run = await EmbeddedTerminalService.run(command: command, currentDirectoryURL: workingDirectory)
+
+            await MainActor.run {
+                self.terminalPanelState.lastRun = run
+                if run.status == .failed {
+                    self.alertContext = AlertContext(
+                        title: "Command Failed",
+                        message: "The embedded terminal command exited unsuccessfully. Review the terminal output for details."
+                    )
+                }
+            }
+        }
+    }
+
+    func refreshWorkspaceExplorer() {
+        workspaceExplorerState.includeHiddenFiles = settings.showHiddenFilesInExplorer
+        workspaceExplorerState.nodes = WorkspaceExplorerService.loadTree(
+            rootURL: activeWorkspaceURL,
+            includeHiddenFiles: workspaceExplorerState.includeHiddenFiles,
+            favoritePaths: Set(settings.workspaceFavoritePaths)
+        )
+        workspaceExplorerState.lastRefreshedAt = Date()
+        workspaceExplorerState.statusMessage = workspaceExplorerState.nodes.isEmpty ? "Choose a workspace folder to browse files." : nil
+    }
+
+    func toggleWorkspaceFavorite(_ url: URL) {
+        let path = url.standardizedFileURL.path
+        if let index = settings.workspaceFavoritePaths.firstIndex(of: path) {
+            settings.workspaceFavoritePaths.remove(at: index)
+        } else {
+            settings.workspaceFavoritePaths.append(path)
+        }
+
+        AppSettingsStore.save(settings)
+        refreshWorkspaceExplorer()
+    }
+
+    func openWorkspaceExplorerNode(_ node: WorkspaceExplorerNode) {
+        if node.isDirectory {
+            projectSearchState.rootURL = node.url
+            refreshPluginWorkspaceState()
+            return
+        }
+
+        openDocuments(at: [node.url])
+    }
+
+    func runRemoteSearch() {
+        let connection = selectedDocument?.remoteReference?.connection
+            ?? RemoteFileReference.parse(remoteLocationDraft)?.connection
+            ?? recentRemoteLocations.first?.connection
+
+        guard let connection else {
+            alertContext = AlertContext(title: "Remote Connection Needed", message: "Choose or enter a remote connection before running grep.")
+            return
+        }
+
+        let rootPath = remoteWorkspaceState.searchRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = remoteWorkspaceState.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rootPath.isEmpty, !query.isEmpty else {
+            alertContext = AlertContext(title: "Remote Search Needs More Info", message: "Enter both a remote folder path and a search query.")
+            return
+        }
+
+        remoteWorkspaceState.isSearching = true
+        remoteWorkspaceState.statusMessage = "Searching \(connection):\(rootPath)"
+
+        Task.detached(priority: .userInitiated) {
+            do {
+                let results = try RemoteFileService.search(connection: connection, rootPath: rootPath, query: query)
+                await MainActor.run {
+                    self.remoteWorkspaceState.grepResults = results
+                    self.remoteWorkspaceState.isSearching = false
+                    self.remoteWorkspaceState.statusMessage = results.isEmpty ? "No remote matches found" : "\(results.count) remote matches"
+                }
+            } catch {
+                await MainActor.run {
+                    self.remoteWorkspaceState.isSearching = false
+                    self.present(error: error, title: "Couldn’t Search Remote Host")
+                }
+            }
+        }
+    }
+
+    func openRemoteSearchHit(_ hit: RemoteSearchHit) {
+        let spec = "\(hit.connection):\(hit.path)"
+        openRemoteDocument(spec: spec)
+
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            if let document = documents.first(where: { $0.remoteReference?.spec == spec }) {
+                goToLine(hit.lineNumber, in: document.id)
+            }
+        }
+    }
+
+    func runRemoteCommand() {
+        let connection = selectedDocument?.remoteReference?.connection
+            ?? RemoteFileReference.parse(remoteLocationDraft)?.connection
+            ?? recentRemoteLocations.first?.connection
+        let command = remoteWorkspaceState.commandText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard let connection, !command.isEmpty else {
+            alertContext = AlertContext(title: "Remote Command Needed", message: "Enter a remote connection and shell command to run.")
+            return
+        }
+
+        remoteWorkspaceState.isRunningCommand = true
+        remoteWorkspaceState.lastCommandStatus = .running
+        remoteWorkspaceState.lastCommandOutput = "Running \(command) on \(connection)..."
+
+        Task.detached(priority: .userInitiated) {
+            do {
+                let result = try RemoteFileService.run(connection: connection, command: command)
+                let stdout = String(data: result.stdout, encoding: .utf8) ?? ""
+                let stderr = String(data: result.stderr, encoding: .utf8) ?? ""
+                let output = [stdout, stderr]
+                    .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                    .joined(separator: stdout.isEmpty || stderr.isEmpty ? "" : "\n\n")
+
+                await MainActor.run {
+                    self.remoteWorkspaceState.isRunningCommand = false
+                    self.remoteWorkspaceState.lastCommandStatus = result.terminationStatus == 0 ? .succeeded : .failed
+                    self.remoteWorkspaceState.lastCommandOutput = output.isEmpty ? "Command finished without output." : output
+                }
+            } catch {
+                await MainActor.run {
+                    self.remoteWorkspaceState.isRunningCommand = false
+                    self.remoteWorkspaceState.lastCommandStatus = .failed
+                    self.remoteWorkspaceState.lastCommandOutput = error.localizedDescription
+                    self.present(error: error, title: "Couldn’t Run Remote Command")
+                }
+            }
+        }
+    }
+
+    func stageSelectedFileInGit() {
+        guard let document = selectedDocument, let fileURL = document.fileURL else {
+            return
+        }
+
+        do {
+            try GitService.stage(fileURL: fileURL, workspaceRoot: activeWorkspaceURL)
+            refreshPluginWorkspaceState()
+            updateDocument(id: document.id) { updatedDocument in
+                updatedDocument.statusMessage = "Staged in Git"
+            }
+        } catch {
+            present(error: error, title: "Couldn’t Stage File")
+        }
+    }
+
+    func switchGitBranch(_ branch: String) {
+        do {
+            try GitService.checkout(branch: branch, at: activeWorkspaceURL)
+            refreshPluginWorkspaceState()
+            alertContext = AlertContext(title: "Switched Branch", message: "ForgeText checked out \(branch).")
+        } catch {
+            present(error: error, title: "Couldn’t Switch Branch")
+        }
+    }
+
+    func selectPluginTask(_ id: String) {
+        pluginTaskState.selectedTaskID = id
+    }
+
+    func insertSnippet(_ snippet: EditorPluginSnippet) {
+        guard let selectedDocumentID, let document = selectedDocument else {
+            return
+        }
+
+        guard !document.isReadOnly else {
+            alertContext = AlertContext(title: "Read-Only Preview", message: "Snippets can only be inserted into editable documents.")
+            return
+        }
+
+        let selectedText: String
+        if document.selectedRange.length > 0 {
+            selectedText = (document.text as NSString).substring(with: document.selectedRange)
+        } else {
+            selectedText = ""
+        }
+
+        var body = snippet.body.replacingOccurrences(of: "$SELECTION", with: selectedText)
+        let markerRange = (body as NSString).range(of: "$0")
+        let cursorOffset: Int?
+
+        if markerRange.location != NSNotFound {
+            body = (body as NSString).replacingCharacters(in: markerRange, with: "")
+            cursorOffset = markerRange.location
+        } else {
+            cursorOffset = nil
+        }
+
+        updateDocument(id: selectedDocumentID) { updatedDocument in
+            guard !updatedDocument.isReadOnly else {
+                return
+            }
+
+            let text = updatedDocument.text as NSString
+            let safeRange = NSRange(
+                location: min(max(updatedDocument.selectedRange.location, 0), text.length),
+                length: min(max(updatedDocument.selectedRange.length, 0), text.length - min(max(updatedDocument.selectedRange.location, 0), text.length))
+            )
+            updatedDocument.text = text.replacingCharacters(in: safeRange, with: body)
+            let insertionPoint = safeRange.location + (cursorOffset ?? (body as NSString).length)
+            updatedDocument.selectedRange = NSRange(location: insertionPoint, length: 0)
+            updatedDocument.refreshLanguageIfNeeded()
+            updatedDocument.syncDirtyState()
+            updatedDocument.statusMessage = "Inserted snippet: \(snippet.title)"
+            recomputeFindState(for: &updatedDocument)
+        }
+
+        requestEditorFocus()
+        scheduleAutosave()
+        refreshDocumentDiagnostics(for: selectedDocumentID)
+    }
+
+    func insertSnippet(withID snippetID: String) {
+        guard let snippet = availableSnippets().first(where: { $0.id == snippetID }) else {
+            return
+        }
+
+        insertSnippet(snippet)
+    }
+
+    func runPluginDiagnostics() {
+        guard let selectedDocument else {
+            return
+        }
+
+        let diagnostics = documentDiagnosticsByID[selectedDocument.id] ?? PluginDiagnosticsService.diagnostics(for: selectedDocument)
+        documentDiagnosticsByID[selectedDocument.id] = diagnostics
+        pluginDiagnosticsState.diagnostics = diagnostics
+        pluginDiagnosticsState.documentID = selectedDocument.id
+        pluginDiagnosticsState.lastRunAt = Date()
+        pluginDiagnosticsState.statusMessage = diagnostics.isEmpty ? "No issues found" : "\(diagnostics.count) diagnostic\(diagnostics.count == 1 ? "" : "s")"
+        showingPluginDiagnostics = true
+    }
+
+    func jumpToDiagnostic(_ diagnostic: PluginDiagnostic) {
+        guard let lineNumber = diagnostic.lineNumber, let selectedDocumentID else {
+            return
+        }
+
+        showingPluginDiagnostics = false
+        goToLine(lineNumber, in: selectedDocumentID)
+    }
+
+    func formatSelectedDocumentUsingPlugins() {
+        guard let selectedDocumentID, let document = selectedDocument else {
+            return
+        }
+
+        guard !document.isReadOnly else {
+            alertContext = AlertContext(title: "Read-Only Preview", message: "This document can’t be reformatted because it is read-only.")
+            return
+        }
+
+        do {
+            let formattedText = try PluginFormattingService.format(document)
+
+            updateDocument(id: selectedDocumentID) { updatedDocument in
+                updatedDocument.text = formattedText
+                updatedDocument.selectedRange = NSRange(location: 0, length: 0)
+                updatedDocument.syncDirtyState()
+                updatedDocument.statusMessage = "Formatted document"
+                recomputeFindState(for: &updatedDocument)
+            }
+
+            scheduleAutosave()
+            refreshDocumentDiagnostics(for: selectedDocumentID)
+        } catch {
+            present(error: error, title: "Couldn’t Format Document")
+        }
+    }
+
+    func runPrimaryWorkspaceTask(_ role: PluginTaskRole) {
+        refreshPluginWorkspaceState()
+
+        guard let task = pluginTaskState.tasks.first(where: { $0.role == role }) else {
+            alertContext = AlertContext(
+                title: "Task Not Available",
+                message: "ForgeText could not find a \(role.displayName.lowercased()) task for the current workspace."
+            )
+            return
+        }
+
+        runWorkspaceTask(task)
+    }
+
+    func runWorkspaceTask(withID taskID: String) {
+        guard let task = pluginTaskState.tasks.first(where: { $0.id == taskID }) else {
+            return
+        }
+
+        runWorkspaceTask(task)
+    }
+
+    func refreshGitStatus() {
+        refreshPluginWorkspaceState()
+
+        if gitRepositorySummary == nil {
+            alertContext = AlertContext(
+                title: "No Git Repository",
+                message: "ForgeText couldn’t find a Git repository for the current workspace or document."
+            )
+        }
+    }
+
+    func compareSelectedDocumentWithGitHead() {
+        guard let document = selectedDocument, let fileURL = document.fileURL else {
+            alertContext = AlertContext(
+                title: "Compare with Git HEAD",
+                message: "Open a saved local file before comparing against Git."
+            )
+            return
+        }
+
+        do {
+            let headText = try GitService.headContents(for: fileURL, workspaceRoot: activeWorkspaceURL)
+            let lines = DocumentComparisonService.compare(left: document.text, right: headText)
+            comparisonState = DocumentComparisonState(
+                title: "Compare with Git HEAD",
+                leftTitle: document.displayName,
+                rightTitle: "HEAD",
+                lines: lines,
+                changedLineCount: lines.filter { $0.kind != .unchanged }.count
+            )
+        } catch {
+            present(error: error, title: "Couldn’t Compare with Git HEAD")
+        }
+    }
+
+    func pluginStatusItems(for document: EditorDocument) -> [PluginStatusItem] {
+        var items: [PluginStatusItem] = []
+
+        if isPluginEnabled("forge.workspace-tasks"), !pluginTaskState.tasks.isEmpty {
+            items.append(
+                PluginStatusItem(
+                    id: "tasks",
+                    text: "Tasks \(pluginTaskState.tasks.count)",
+                    symbolName: "play.square.stack",
+                    tone: .accent
+                )
+            )
+        }
+
+        if isPluginEnabled("forge.snippet-library") {
+            let snippetCount = PluginHostService.snippets(for: document.language, using: settings, workspaceRoot: activeWorkspaceURL).count
+            if snippetCount > 0 {
+                items.append(
+                    PluginStatusItem(
+                        id: "snippets-\(document.language.rawValue)",
+                        text: "Snippets \(snippetCount)",
+                        symbolName: "text.badge.plus",
+                        tone: .neutral
+                    )
+                )
+            }
+        }
+
+        let diagnosticCount = inlineDiagnostics(for: document).count
+        if diagnosticCount > 0 {
+            let hasErrors = inlineDiagnostics(for: document).contains { $0.severity == .error }
+            items.append(
+                PluginStatusItem(
+                    id: "diagnostics-\(document.id.uuidString)",
+                    text: "Issues \(diagnosticCount)",
+                    symbolName: hasErrors ? "xmark.octagon" : "exclamationmark.triangle",
+                    tone: hasErrors ? .danger : .warning
+                )
+            )
+        }
+
+        if isPluginEnabled("forge.git-tools"), let gitRepositorySummary {
+            items.append(
+                PluginStatusItem(
+                    id: "git-branch",
+                    text: gitRepositorySummary.branchName,
+                    symbolName: "point.topleft.down.curvedto.point.bottomright.up",
+                    tone: .neutral
+                )
+            )
+
+            if gitRepositorySummary.modifiedCount > 0 {
+                items.append(
+                    PluginStatusItem(
+                        id: "git-modified",
+                        text: "\(gitRepositorySummary.modifiedCount) modified",
+                        symbolName: "pencil.line",
+                        tone: .warning
+                    )
+                )
+            }
+
+            if gitRepositorySummary.stagedCount > 0 {
+                items.append(
+                    PluginStatusItem(
+                        id: "git-staged",
+                        text: "\(gitRepositorySummary.stagedCount) staged",
+                        symbolName: "tray.and.arrow.down",
+                        tone: .success
+                    )
+                )
+            }
+
+            if gitRepositorySummary.untrackedCount > 0 {
+                items.append(
+                    PluginStatusItem(
+                        id: "git-untracked",
+                        text: "\(gitRepositorySummary.untrackedCount) untracked",
+                        symbolName: "questionmark.folder",
+                        tone: .warning
+                    )
+                )
+            }
+
+            if gitRepositorySummary.conflictedCount > 0 {
+                items.append(
+                    PluginStatusItem(
+                        id: "git-conflicted",
+                        text: "\(gitRepositorySummary.conflictedCount) conflicted",
+                        symbolName: "exclamationmark.triangle",
+                        tone: .danger
+                    )
+                )
+            }
+        }
+
+        return items
     }
 
     func showFindReplace() {
@@ -732,6 +1435,7 @@ final class AppState: ObservableObject {
         }
 
         scheduleAutosave()
+        refreshDocumentDiagnostics(for: selectedDocumentID)
     }
 
     func replaceAllMatches() {
@@ -759,6 +1463,7 @@ final class AppState: ObservableObject {
         }
 
         scheduleAutosave()
+        refreshDocumentDiagnostics(for: selectedDocumentID)
     }
 
     func showGoToLine() {
@@ -793,6 +1498,7 @@ final class AppState: ObservableObject {
                 self?.projectSearchState.rootURL = url
                 self?.projectSearchState.statusMessage = "Search root set"
                 self?.scheduleSessionSave()
+                self?.refreshPluginWorkspaceState()
             }
         }
     }
@@ -1025,6 +1731,7 @@ final class AppState: ObservableObject {
             document.syncPresentationMode()
             document.statusMessage = "Language set to \(language.displayName)"
         }
+        refreshDocumentDiagnostics(for: selectedDocumentID)
     }
 
     func showStructuredView() {
@@ -1134,6 +1841,7 @@ final class AppState: ObservableObject {
                 Task { @MainActor in
                     self?.settings = importedSettings
                     AppSettingsStore.save(importedSettings)
+                    self?.refreshPluginWorkspaceState()
                 }
             } catch {
                 Task { @MainActor in
@@ -1163,6 +1871,11 @@ final class AppState: ObservableObject {
             PaletteItem(id: "new", title: "New Document", subtitle: "Create a fresh untitled document", symbolName: "plus.square", action: .newDocument),
             PaletteItem(id: "open", title: "Open Files", subtitle: "Choose files from disk", symbolName: "folder", action: .openDocuments),
             PaletteItem(id: "openRemote", title: "Open Remote File", subtitle: "Open a document over SSH", symbolName: "network", action: .openRemote),
+            PaletteItem(id: "plugins", title: "Plugin Manager", subtitle: "Enable built-in IDE plugins and review their capabilities", symbolName: "puzzlepiece.extension", action: .showPluginManager),
+            PaletteItem(id: "snippets", title: "Snippet Library", subtitle: "Browse and insert snippets for the active document", symbolName: "text.badge.plus", action: .showSnippetLibrary),
+            PaletteItem(id: "tasks", title: "Task Runner", subtitle: "Run workspace build, test, and lint tasks", symbolName: "play.square.stack", action: .showTaskRunner),
+            PaletteItem(id: "terminalConsole", title: "Embedded Terminal", subtitle: "Run workspace shell commands inside ForgeText", symbolName: "terminal.fill", action: .showTerminalConsole),
+            PaletteItem(id: "refreshExplorer", title: "Refresh Workspace Explorer", subtitle: "Reload the workspace file tree and favorites", symbolName: "folder.badge.gearshape", action: .refreshWorkspaceExplorer),
             PaletteItem(id: "searchFolder", title: "Search in Folder", subtitle: "Run a project-wide text search", symbolName: "magnifyingglass", action: .searchInFolder),
             PaletteItem(id: "save", title: "Save", subtitle: "Write the current document to disk", symbolName: "square.and.arrow.down", action: .saveDocument),
             PaletteItem(id: "savePrivileged", title: "Privileged Save", subtitle: "Save the current file with administrator privileges", symbolName: "lock.open.display", action: .savePrivileged),
@@ -1172,6 +1885,11 @@ final class AppState: ObservableObject {
             PaletteItem(id: "nextMatch", title: "Next Match", subtitle: "Jump to the next search result", symbolName: "arrow.down.circle", action: .nextMatch),
             PaletteItem(id: "prevMatch", title: "Previous Match", subtitle: "Jump to the previous search result", symbolName: "arrow.up.circle", action: .previousMatch),
             PaletteItem(id: "comment", title: "Toggle Comment", subtitle: "Comment or uncomment the current line or selection", symbolName: "text.badge.minus", action: .toggleComment),
+            PaletteItem(id: "formatDocument", title: "Format Document", subtitle: "Apply the built-in formatter for the current file type", symbolName: "wand.and.stars", action: .formatDocument),
+            PaletteItem(id: "diagnostics", title: "Run Diagnostics", subtitle: "Inspect the current document for structural issues", symbolName: "stethoscope", action: .runPluginDiagnostics),
+            PaletteItem(id: "refreshGit", title: "Refresh Git Status", subtitle: "Reload branch and working tree information", symbolName: "arrow.clockwise", action: .refreshGitStatus),
+            PaletteItem(id: "compareGitHead", title: "Compare with Git HEAD", subtitle: "Review the current file against the last commit", symbolName: "arrow.left.arrow.right.square", action: .compareWithGitHead),
+            PaletteItem(id: "stageGit", title: "Stage Current File", subtitle: "Add the active file to the Git index", symbolName: "tray.and.arrow.down", action: .stageCurrentFileInGit),
             PaletteItem(id: "compareSaved", title: "Compare with Saved", subtitle: "Review the current buffer against disk", symbolName: "square.split.2x1", action: .compareWithSaved),
             PaletteItem(id: "compareFile", title: "Compare with File", subtitle: "Choose another file and compare it", symbolName: "doc.on.doc", action: .compareWithFile),
             PaletteItem(id: "follow", title: "Toggle Follow Mode", subtitle: "Auto-reload changes from disk", symbolName: "arrow.triangle.2.circlepath", action: .toggleFollowMode),
@@ -1300,6 +2018,46 @@ final class AppState: ObservableObject {
             )
         }
 
+        items += enabledPlugins.flatMap(\.commands).map { command in
+            PaletteItem(
+                id: "plugin-command-\(command.id)",
+                title: command.title,
+                subtitle: command.subtitle,
+                symbolName: command.symbolName,
+                action: paletteAction(for: command.action)
+            )
+        }
+
+        items += pluginTaskState.tasks.map { task in
+            PaletteItem(
+                id: "plugin-task-\(task.id)",
+                title: task.title,
+                subtitle: task.subtitle,
+                symbolName: task.symbolName,
+                action: .runWorkspaceTask(task.id)
+            )
+        }
+
+        items += availableGitBranches.map { branch in
+            PaletteItem(
+                id: "git-branch-\(branch)",
+                title: "Switch to \(branch)",
+                subtitle: "Check out the \(branch) Git branch",
+                symbolName: "point.topleft.down.curvedto.point.bottomright.up",
+                action: .switchGitBranch(branch)
+            )
+        }
+
+        items += availableSnippets().map { snippet in
+            PaletteItem(
+                id: "plugin-snippet-\(snippet.id)",
+                title: "Snippet: \(snippet.title)",
+                subtitle: snippet.detail,
+                symbolName: snippet.symbolName,
+                action: .insertSnippet(snippet.id)
+            )
+        }
+
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else {
             return items
@@ -1336,6 +2094,14 @@ final class AppState: ObservableObject {
             openRemotePanel()
         case let .openRemoteSpec(spec):
             openRemoteDocument(spec: spec)
+        case .showPluginManager:
+            showPluginManagerPanel()
+        case .showSnippetLibrary:
+            showSnippetLibraryPanel()
+        case .showTaskRunner:
+            showTaskRunnerPanel()
+        case .showTerminalConsole:
+            showTerminalConsolePanel()
         case .searchInFolder:
             showProjectSearch()
         case .saveDocument:
@@ -1370,6 +2136,26 @@ final class AppState: ObservableObject {
             prettyPrintJSON()
         case .minifyJSON:
             minifyJSON()
+        case .formatDocument:
+            formatSelectedDocumentUsingPlugins()
+        case .runPluginDiagnostics:
+            runPluginDiagnostics()
+        case .compareWithGitHead:
+            compareSelectedDocumentWithGitHead()
+        case .refreshGitStatus:
+            refreshGitStatus()
+        case .stageCurrentFileInGit:
+            stageSelectedFileInGit()
+        case let .switchGitBranch(branch):
+            switchGitBranch(branch)
+        case .refreshWorkspaceExplorer:
+            refreshWorkspaceExplorer()
+        case let .runPrimaryWorkspaceTask(role):
+            runPrimaryWorkspaceTask(role)
+        case let .runWorkspaceTask(taskID):
+            runWorkspaceTask(withID: taskID)
+        case let .insertSnippet(snippetID):
+            insertSnippet(withID: snippetID)
         case .exportSettings:
             exportSettings()
         case .importSettings:
@@ -1436,6 +2222,8 @@ final class AppState: ObservableObject {
 
             RecoveryService.deleteSnapshot(for: id)
             recordRecentFile(url)
+            refreshPluginWorkspaceState()
+            refreshDocumentDiagnostics(for: id)
         } catch {
             if !initiatedByAutosave, PrivilegedFileService.isPermissionFailure(error), PrivilegedFileService.likelyNeedsPrivilege(for: url) {
                 alertContext = AlertContext(
@@ -1461,14 +2249,16 @@ final class AppState: ObservableObject {
                     self.updateDocument(id: id) { updatedDocument in
                         updatedDocument.lastSavedText = updatedDocument.text
                         updatedDocument.isDirty = false
-                    updatedDocument.hasRecoveredDraft = false
-                    updatedDocument.lastSavedAt = Date()
-                    updatedDocument.statusMessage = "Saved to remote host"
-                    updatedDocument.fileSize = Int64(updatedDocument.text.utf8.count)
+                        updatedDocument.hasRecoveredDraft = false
+                        updatedDocument.lastSavedAt = Date()
+                        updatedDocument.statusMessage = "Saved to remote host"
+                        updatedDocument.fileSize = Int64(updatedDocument.text.utf8.count)
+                    }
+                    RecoveryService.deleteSnapshot(for: id)
+                    self.recordRecentRemote(document.remoteReference)
+                    self.refreshPluginWorkspaceState()
+                    self.refreshDocumentDiagnostics(for: id)
                 }
-                RecoveryService.deleteSnapshot(for: id)
-                self.recordRecentRemote(document.remoteReference)
-            }
             } catch {
                 await MainActor.run {
                     self.present(error: error, title: "Couldn’t Save Remote File")
@@ -1480,6 +2270,8 @@ final class AppState: ObservableObject {
     private func finalizeClose(id: UUID) {
         RecoveryService.deleteSnapshot(for: id)
         documents.removeAll { $0.id == id }
+        documentDiagnosticsByID[id] = nil
+        gitBlameCache = gitBlameCache.filter { !$0.key.hasPrefix(id.uuidString) }
 
         if selectedDocumentID == id {
             selectedDocumentID = documents.last?.id
@@ -1494,6 +2286,7 @@ final class AppState: ObservableObject {
         requestEditorFocus()
 
         scheduleSessionSave()
+        refreshPluginWorkspaceState()
     }
 
     private func restoreWorkspace() {
@@ -1547,6 +2340,8 @@ final class AppState: ObservableObject {
         }
 
         requestEditorFocus()
+        refreshPluginWorkspaceState()
+        refreshAllDocumentDiagnostics()
     }
 
     private func startFileMonitoring() {
@@ -1639,6 +2434,7 @@ final class AppState: ObservableObject {
             }
 
             RecoveryService.deleteSnapshot(for: id)
+            refreshDocumentDiagnostics(for: id)
         } catch {
             present(error: error, title: "Couldn’t Reload File")
         }
@@ -1766,6 +2562,8 @@ final class AppState: ObservableObject {
 
                     self.documents.append(document)
                     self.recordRecentRemote(document.remoteReference)
+                    self.refreshPluginWorkspaceState()
+                    self.refreshDocumentDiagnostics(for: document.id)
                 }
             } catch {
                 await MainActor.run {
@@ -1799,6 +2597,88 @@ final class AppState: ObservableObject {
         editorFocusToken = UUID()
     }
 
+    private func refreshPluginWorkspaceState() {
+        pluginCatalog = PluginHostService.installedPlugins(workspaceRoot: activeWorkspaceURL)
+        let externalPluginTasks = enabledPlugins.flatMap(\.tasks)
+        pluginTaskState.tasks = WorkspaceTaskService.detectTasks(rootURL: activeWorkspaceURL) + externalPluginTasks
+
+        if let selectedTaskID = pluginTaskState.selectedTaskID,
+           pluginTaskState.tasks.contains(where: { $0.id == selectedTaskID }) {
+            // keep current selection
+        } else {
+            pluginTaskState.selectedTaskID = pluginTaskState.tasks.first?.id
+        }
+
+        gitRepositorySummary = GitService.summary(for: activeWorkspaceURL)
+        refreshWorkspaceExplorer()
+    }
+
+    private func runWorkspaceTask(_ task: EditorPluginTask) {
+        pluginTaskState.selectedTaskID = task.id
+        showingTaskRunner = true
+
+        pluginTaskState.lastRun = PluginTaskRun(
+            taskID: task.id,
+            taskTitle: task.title,
+            commandDescription: task.commandDescription,
+            startedAt: Date(),
+            output: "Running \(task.commandDescription)...",
+            status: .running
+        )
+
+        let workspaceRoot = activeWorkspaceURL
+        let currentDocument = selectedDocument
+
+        Task.detached(priority: .userInitiated) {
+            let run = await WorkspaceTaskService.run(task, workspaceRoot: workspaceRoot, currentDocument: currentDocument)
+
+            await MainActor.run {
+                self.pluginTaskState.lastRun = run
+                if run.status == .failed {
+                    self.alertContext = AlertContext(
+                        title: "Task Failed",
+                        message: "\(task.title) exited unsuccessfully. Review the task runner output for details."
+                    )
+                }
+            }
+        }
+    }
+
+    private func paletteAction(for action: EditorPluginCommandAction) -> PaletteAction {
+        switch action {
+        case .showTaskRunner:
+            return .showTaskRunner
+        case .showSnippetLibrary:
+            return .showSnippetLibrary
+        case .runDiagnostics:
+            return .runPluginDiagnostics
+        case .formatDocument:
+            return .formatDocument
+        case let .runPrimaryTask(role):
+            return .runPrimaryWorkspaceTask(role)
+        case .refreshGitStatus:
+            return .refreshGitStatus
+        case .compareWithGitHead:
+            return .compareWithGitHead
+        }
+    }
+
+    private func refreshDocumentDiagnostics(for id: UUID) {
+        guard let document = document(withID: id), !document.isLargeFileMode else {
+            documentDiagnosticsByID[id] = []
+            return
+        }
+
+        gitBlameCache = gitBlameCache.filter { !$0.key.hasPrefix(id.uuidString) }
+        documentDiagnosticsByID[id] = PluginDiagnosticsService.diagnostics(for: document)
+    }
+
+    private func refreshAllDocumentDiagnostics() {
+        for document in documents {
+            refreshDocumentDiagnostics(for: document.id)
+        }
+    }
+
     private func structuredToggleTitle(for document: EditorDocument) -> String {
         guard let structuredPresentationMode = document.availableStructuredPresentationMode else {
             return "Show Raw Text"
@@ -1823,6 +2703,8 @@ final class AppState: ObservableObject {
             return "Inspect configuration sections and key-value pairs"
         case .archiveBrowser:
             return "Browse archive contents without extracting them"
+        case .httpRequest:
+            return "Run and inspect HTTP requests from the current document"
         case .editor, .readOnlyPreview, .binaryHex:
             return "Switch document presentation"
         }

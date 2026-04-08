@@ -5,6 +5,7 @@ enum DocumentLanguage: String, CaseIterable, Identifiable, Codable {
     case csv
     case markdown
     case json
+    case http
     case xml
     case swift
     case shell
@@ -27,6 +28,8 @@ enum DocumentLanguage: String, CaseIterable, Identifiable, Codable {
             return "Markdown"
         case .json:
             return "JSON"
+        case .http:
+            return "HTTP / REST"
         case .xml:
             return "XML / HTML"
         case .swift:
@@ -58,6 +61,8 @@ enum DocumentLanguage: String, CaseIterable, Identifiable, Codable {
             return "textformat"
         case .json:
             return "curlybraces"
+        case .http:
+            return "network"
         case .xml:
             return "chevron.left.forwardslash.chevron.right"
         case .swift:
@@ -83,7 +88,7 @@ enum DocumentLanguage: String, CaseIterable, Identifiable, Codable {
         switch self {
         case .swift, .javascript, .css:
             return "//"
-        case .shell, .python, .config, .log:
+        case .shell, .python, .config, .log, .http:
             return "#"
         case .sql:
             return "--"
@@ -94,7 +99,7 @@ enum DocumentLanguage: String, CaseIterable, Identifiable, Codable {
 
     var indentUnit: String {
         switch self {
-        case .markdown, .css, .json, .xml, .config:
+        case .markdown, .css, .json, .xml, .config, .http:
             return "  "
         case .plainText, .csv, .swift, .shell, .javascript, .python, .sql, .log:
             return "    "
@@ -103,7 +108,7 @@ enum DocumentLanguage: String, CaseIterable, Identifiable, Codable {
 
     var bracketPairs: [Character: Character] {
         switch self {
-        case .markdown, .log, .plainText, .csv, .shell, .python, .config, .swift, .javascript, .json, .css, .sql, .xml:
+        case .markdown, .log, .plainText, .csv, .shell, .python, .config, .swift, .javascript, .json, .css, .sql, .xml, .http:
             return ["(": ")", "[": "]", "{": "}"]
         }
     }
@@ -114,6 +119,8 @@ enum DocumentLanguage: String, CaseIterable, Identifiable, Codable {
             return .structuredTable
         case .json:
             return .structuredJSON
+        case .http:
+            return .httpRequest
         case .log:
             return .logExplorer
         case .config:
@@ -134,7 +141,7 @@ enum DocumentLanguage: String, CaseIterable, Identifiable, Codable {
         }
 
         switch self {
-        case .swift, .javascript, .json, .css, .sql, .xml:
+        case .swift, .javascript, .json, .css, .sql, .xml, .http:
             return trimmed.hasSuffix("{") || trimmed.hasSuffix("[") || trimmed.hasSuffix("(")
         case .python:
             return trimmed.hasSuffix(":")
@@ -154,7 +161,7 @@ enum DocumentLanguage: String, CaseIterable, Identifiable, Codable {
         }
 
         switch self {
-        case .swift, .javascript, .json, .css, .sql, .config:
+        case .swift, .javascript, .json, .css, .sql, .config, .http:
             return trimmed.hasPrefix("}") || trimmed.hasPrefix("]") || trimmed.hasPrefix(")")
         case .xml:
             return trimmed.hasPrefix("</")
@@ -204,6 +211,8 @@ enum DocumentLanguage: String, CaseIterable, Identifiable, Codable {
             return .markdown
         case "json", "jsonc":
             return .json
+        case "http", "rest":
+            return .http
         case "xml", "html", "htm", "svg", "xhtml", "plist":
             return .xml
         case "swift":
@@ -239,6 +248,10 @@ enum DocumentLanguage: String, CaseIterable, Identifiable, Codable {
 
         if isJSON(trimmed) {
             return .json
+        }
+
+        if looksLikeHTTPRequest(text) {
+            return .http
         }
 
         if looksLikeDelimitedTable(text) {
@@ -358,6 +371,11 @@ enum DocumentLanguage: String, CaseIterable, Identifiable, Codable {
         ]
 
         return matchesAnyPattern(patterns, in: text)
+    }
+
+    private static func looksLikeHTTPRequest(_ text: String) -> Bool {
+        let requestLinePattern = #"(?m)^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+https?://\S+"#
+        return text.range(of: requestLinePattern, options: .regularExpression) != nil
     }
 
     private static func looksLikePython(_ text: String) -> Bool {

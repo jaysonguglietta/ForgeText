@@ -173,6 +173,11 @@ struct AppSettings: Codable {
     var enabledPluginIDs: [String] = []
     var showHiddenFilesInExplorer = false
     var workspaceFavoritePaths: [String] = []
+    var aiProviders: [AIProviderConfiguration] = AIProviderDefaults.profiles
+    var preferredAIProviderID: UUID?
+    var aiIncludeSelection = true
+    var aiIncludeCurrentDocument = true
+    var aiIncludeWorkspaceRules = true
 
     init() {}
 
@@ -187,6 +192,11 @@ struct AppSettings: Codable {
         case enabledPluginIDs
         case showHiddenFilesInExplorer
         case workspaceFavoritePaths
+        case aiProviders
+        case preferredAIProviderID
+        case aiIncludeSelection
+        case aiIncludeCurrentDocument
+        case aiIncludeWorkspaceRules
     }
 
     init(from decoder: Decoder) throws {
@@ -201,5 +211,10 @@ struct AppSettings: Codable {
         enabledPluginIDs = try container.decodeIfPresent([String].self, forKey: .enabledPluginIDs) ?? PluginHostService.defaultEnabledPluginIDs
         showHiddenFilesInExplorer = try container.decodeIfPresent(Bool.self, forKey: .showHiddenFilesInExplorer) ?? false
         workspaceFavoritePaths = try container.decodeIfPresent([String].self, forKey: .workspaceFavoritePaths) ?? []
+        aiProviders = try container.decodeIfPresent([AIProviderConfiguration].self, forKey: .aiProviders) ?? AIProviderDefaults.profiles
+        preferredAIProviderID = try container.decodeIfPresent(UUID.self, forKey: .preferredAIProviderID)
+        aiIncludeSelection = try container.decodeIfPresent(Bool.self, forKey: .aiIncludeSelection) ?? true
+        aiIncludeCurrentDocument = try container.decodeIfPresent(Bool.self, forKey: .aiIncludeCurrentDocument) ?? true
+        aiIncludeWorkspaceRules = try container.decodeIfPresent(Bool.self, forKey: .aiIncludeWorkspaceRules) ?? true
     }
 }

@@ -426,6 +426,86 @@ struct RemoteWorkspaceState {
     var statusMessage: String?
 }
 
+struct CloneRepositoryState {
+    var repositorySpecifier = ""
+    var destinationParentPath = ""
+    var directoryName = ""
+    var branchName = ""
+    var usesShallowClone = false
+    var isCloning = false
+    var statusMessage: String?
+}
+
+struct GitChangedFile: Identifiable, Hashable {
+    let id: String
+    let relativePath: String
+    let absoluteURL: URL
+    let indexStatus: String
+    let workTreeStatus: String
+
+    var displayName: String {
+        URL(fileURLWithPath: relativePath).lastPathComponent
+    }
+
+    var statusSummary: String {
+        let components = [indexStatus, workTreeStatus]
+            .map { $0 == " " ? "-" : $0 }
+        return components.joined(separator: "/")
+    }
+
+    var isConflicted: Bool {
+        indexStatus == "U" || workTreeStatus == "U"
+    }
+}
+
+struct GitStashEntry: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let summary: String
+}
+
+struct GitPanelState {
+    var changedFiles: [GitChangedFile] = []
+    var stashes: [GitStashEntry] = []
+    var commitMessage = ""
+    var newBranchName = ""
+    var stashMessage = ""
+    var isBusy = false
+    var lastOperationMessage: String?
+}
+
+struct ProblemRecord: Identifiable, Hashable {
+    let id = UUID()
+    let source: String
+    let severity: PluginDiagnosticSeverity
+    let filePath: String?
+    let lineNumber: Int?
+    let columnNumber: Int?
+    let message: String
+    let detail: String?
+}
+
+struct ProblemsPanelState {
+    var records: [ProblemRecord] = []
+    var sourceDescription = "Problems"
+    var lastUpdatedAt: Date?
+}
+
+struct TestExplorerState {
+    var selectedTaskID: String?
+    var lastRun: PluginTaskRun?
+}
+
+struct AIWorkbenchState {
+    var sessions: [AIChatSession] = []
+    var selectedSessionID: UUID?
+    var draftPrompt = ""
+    var isSending = false
+    var lastResponseText: String?
+    var lastAction: AIQuickAction?
+    var statusMessage: String?
+}
+
 struct GitBlameInfo: Hashable {
     let commitHash: String
     let author: String

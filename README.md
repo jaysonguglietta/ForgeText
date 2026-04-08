@@ -4,6 +4,31 @@ ForgeText is a native macOS text editor built for serious text work: plain text,
 
 The app uses `NSTextView` under SwiftUI for mature macOS editing behavior, but the current shell is intentionally styled like a late-90s web workbench: beveled panels, bright portal accents, monospaced chrome, and a retro control surface wrapped around a native editor core.
 
+## ForgeText 1.0 workbench
+
+ForgeText 1.0 centers around twenty core capabilities:
+
+1. Native multi-document editing with tabs, sidebar navigation, and split-pane layouts
+2. Reliable open/save/revert flows with dirty-state protection
+3. Encoding, BOM, and line-ending preservation
+4. Crash recovery, autosave recovery, and session restore
+5. Find/replace, regex search, go-to-line, project search, and command palette
+6. Language detection, predictive completions, syntax highlighting, and editing assists
+7. Structured viewers for CSV, JSON, logs, HTTP, and config formats
+8. Large-file preview, binary hex fallback, archive browsing, and log follow mode
+9. Workspace explorer with favorites and filtering
+10. Embedded terminal and terminal handoff
+11. Workspace task runner for build, test, and lint workflows
+12. Problems panel with compiler-style matcher support
+13. Test explorer for detected test tasks and recent run output
+14. Git clone and local repository workspace activation
+15. Git workbench with fetch, pull, push, commit, branch, stash, stage, and unstage flows
+16. Git-aware compare, diff markers, blame context, and status surfaces
+17. Plugin manager plus external plugin manifest loading
+18. Snippets, lightweight diagnostics, formatting hooks, and secret-aware checks
+19. Provider-neutral AI workbench with workspace rules, chat sessions, and quick actions
+20. Native macOS local install workflow with a distinct retro-web shell
+
 ## Current capabilities
 
 ### Core editing
@@ -36,6 +61,7 @@ The app uses `NSTextView` under SwiftUI for mature macOS editing behavior, but t
 ### macOS workflows
 
 - Finder/open-document handling for supported file types
+- Clone GitHub or other Git repositories directly into a local workspace folder
 - Local release build/install workflow for `/Applications`
 - Workspace explorer with favorites and file filtering
 - Embedded terminal console inside ForgeText
@@ -48,11 +74,21 @@ The app uses `NSTextView` under SwiftUI for mature macOS editing behavior, but t
 - External plugin manifest loading from workspace and user plugin folders
 - Plugin-backed snippet library for JSON, Markdown, Swift, shell, Python, JavaScript, XML, SQL, CSS, and config files
 - Workspace task runner that detects SwiftPM, npm, Python, and Make-based build/test/lint commands
+- Problems panel with compiler-style output matching for build, test, lint, and terminal output
+- Test explorer for running detected test tasks and reviewing the latest run
 - Lightweight diagnostics for malformed JSON/XML/CSV/config/HTTP files plus TODO/FIXME markers
 - Secret-aware warnings for private keys, bearer tokens, and likely credentials
-- Git-aware status pills, branch switching, stage-current-file, compare-with-HEAD, and diff-gutter markers
+- Git-aware status pills, repository cloning, fetch/pull/push, commit drafting, branch creation, stash flows, compare-with-HEAD, and diff-gutter markers
 - Inline editor insight bar for current-line diagnostics and Git blame context
 - Format-document support for JSON, XML, HTTP, and toolchain-backed language formatting when available
+
+### AI workbench
+
+- Provider-neutral AI profiles for OpenAI, Anthropic, Gemini, Ollama, and OpenAI-compatible endpoints
+- Workspace rule ingestion from files like `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, and `.forgetext/ai-rules.md`
+- Chat sessions with reusable prompts, provider/model switching, and response history
+- Quick AI actions for explain, improve, generate tests, summarize file, and draft commit message
+- Insert-at-cursor and replace-selection flows from the latest AI response
 
 ## Retro UI direction
 
@@ -163,13 +199,14 @@ xcodebuild \
   test
 ```
 
-## Current product focus
+## Post-1.0 focus
 
-ForgeText is already beyond a starter app. The next meaningful pushes are about depth and polish:
+ForgeText is now in a credible 1.0 state. The next meaningful pushes are about depth and polish:
 
 - parser-backed language packs and deeper formatter/linter integrations
+- richer GitHub and remote collaboration workflows
 - stronger system-engineer workflows like privileged save and richer remote editing
-- higher-end table, log, compare, explorer, and diagnostics tooling
+- higher-end table, log, compare, explorer, diagnostics, and testing tooling
 - accessibility, packaging, updater flow, and release hardening
 
 ## Product docs

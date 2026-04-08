@@ -6,6 +6,8 @@ enum GitService {
         case fileOutsideRepository
         case noCommittedVersion(String)
         case branchSwitchFailed(String)
+        case commitMessageRequired
+        case branchNameRequired
 
         var errorDescription: String? {
             switch self {
@@ -17,6 +19,10 @@ enum GitService {
                 return "Git HEAD does not contain a committed version of \(path)."
             case let .branchSwitchFailed(branch):
                 return "ForgeText couldn’t switch to the Git branch '\(branch)'."
+            case .commitMessageRequired:
+                return "Enter a commit message before committing changes."
+            case .branchNameRequired:
+                return "Enter a branch name before creating a branch."
             }
         }
     }
@@ -162,6 +168,182 @@ enum GitService {
         _ = try CommandExecutionService.runString(
             "/usr/bin/git",
             arguments: ["-C", repositoryRoot.path, "add", "--", relativePath]
+        )
+    }
+
+    static func unstage(fileURL: URL, workspaceRoot: URL?) throws {
+        guard let repositoryRoot = repositoryRoot(containing: workspaceRoot ?? fileURL.deletingLastPathComponent()) else {
+            throw GitError.repositoryNotFound
+        }
+
+        let relativePath = try relativePath(for: fileURL, repositoryRoot: repositoryRoot)
+        _ = try CommandExecutionService.runString(
+            "/usr/bin/git",
+            arguments: ["-C", repositoryRoot.path, "restore", "--staged", "--", relativePath]
+        )
+    }
+
+    static func changedFiles(for location: URL?) -> [GitChangedFile] {
+        guard let repositoryRoot = repositoryRoot(containing: location),
+              let output = try? CommandExecutionService.runString(
+                  "/usr/bin/git",
+                  arguments: ["-C", repositoryRoot.path, "status", "--porcelain=v1"]
+              )
+        else {
+            return []
+        }
+
+        return output
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line in
+                let value = String(line)
+                guard value.count >= 3 else {
+                    return nil
+                }
+
+                let characters = Array(value)
+                let indexStatus = String(characters[0])
+                let workTreeStatus = String(characters[1])
+                let rawPath = String(value.dropFirst(3))
+                let resolvedPath = rawPath.contains(" -> ")
+                    ? String(rawPath.split(separator: ">", maxSplits: 1).last?.trimmingCharacters(in: .whitespacesAndNewlines) ?? rawPath)
+                    : rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+                let absoluteURL = repositoryRoot.appendingPathComponent(resolvedPath)
+
+                return GitChangedFile(
+                    id: resolvedPath,
+                    relativePath: resolvedPath,
+                    absoluteURL: absoluteURL,
+                    indexStatus: indexStatus,
+                    workTreeStatus: workTreeStatus
+                )
+            }
+    }
+
+    static func stashes(for location: URL?) -> [GitStashEntry] {
+        guard let repositoryRoot = repositoryRoot(containing: location),
+              let output = try? CommandExecutionService.runString(
+                  "/usr/bin/git",
+                  arguments: ["-C", repositoryRoot.path, "stash", "list"]
+              )
+        else {
+            return []
+        }
+
+        return output
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line in
+                let value = String(line)
+                let parts = value.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+                guard parts.count >= 3 else {
+                    return nil
+                }
+                return GitStashEntry(
+                    id: String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines),
+                    name: String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines),
+                    summary: String(parts[2]).trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
+    }
+
+    static func fetch(at location: URL?) throws {
+        guard let repositoryRoot = repositoryRoot(containing: location) else {
+            throw GitError.repositoryNotFound
+        }
+
+        _ = try CommandExecutionService.runString(
+            "/usr/bin/git",
+            arguments: ["-C", repositoryRoot.path, "fetch", "--all", "--prune"]
+        )
+    }
+
+    static func pull(at location: URL?) throws {
+        guard let repositoryRoot = repositoryRoot(containing: location) else {
+            throw GitError.repositoryNotFound
+        }
+
+        _ = try CommandExecutionService.runString(
+            "/usr/bin/git",
+            arguments: ["-C", repositoryRoot.path, "pull", "--ff-only"]
+        )
+    }
+
+    static func push(at location: URL?) throws {
+        guard let repositoryRoot = repositoryRoot(containing: location) else {
+            throw GitError.repositoryNotFound
+        }
+
+        _ = try CommandExecutionService.runString(
+            "/usr/bin/git",
+            arguments: ["-C", repositoryRoot.path, "push"]
+        )
+    }
+
+    static func commit(message: String, at location: URL?) throws {
+        let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedMessage.isEmpty else {
+            throw GitError.commitMessageRequired
+        }
+        guard let repositoryRoot = repositoryRoot(containing: location) else {
+            throw GitError.repositoryNotFound
+        }
+
+        _ = try CommandExecutionService.runString(
+            "/usr/bin/git",
+            arguments: ["-C", repositoryRoot.path, "commit", "-m", trimmedMessage]
+        )
+    }
+
+    static func createBranch(named branch: String, at location: URL?) throws {
+        let trimmedBranch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedBranch.isEmpty else {
+            throw GitError.branchNameRequired
+        }
+        guard let repositoryRoot = repositoryRoot(containing: location) else {
+            throw GitError.repositoryNotFound
+        }
+
+        _ = try CommandExecutionService.runString(
+            "/usr/bin/git",
+            arguments: ["-C", repositoryRoot.path, "checkout", "-b", trimmedBranch]
+        )
+    }
+
+    static func stashSave(message: String, at location: URL?) throws {
+        guard let repositoryRoot = repositoryRoot(containing: location) else {
+            throw GitError.repositoryNotFound
+        }
+
+        let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        var arguments = ["-C", repositoryRoot.path, "stash", "push", "-u"]
+        if !trimmedMessage.isEmpty {
+            arguments += ["-m", trimmedMessage]
+        }
+
+        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: arguments)
+    }
+
+    static func stashPop(_ stashID: String?, at location: URL?) throws {
+        guard let repositoryRoot = repositoryRoot(containing: location) else {
+            throw GitError.repositoryNotFound
+        }
+
+        var arguments = ["-C", repositoryRoot.path, "stash", "pop"]
+        if let stashID, !stashID.isEmpty {
+            arguments.append(stashID)
+        }
+
+        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: arguments)
+    }
+
+    static func diffForWorkingTree(at location: URL?) throws -> String {
+        guard let repositoryRoot = repositoryRoot(containing: location) else {
+            throw GitError.repositoryNotFound
+        }
+
+        return try CommandExecutionService.runString(
+            "/usr/bin/git",
+            arguments: ["-C", repositoryRoot.path, "diff", "--cached", "--stat", "--patch"]
         )
     }
 

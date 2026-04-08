@@ -18,8 +18,20 @@ struct FileEditorCommands: Commands {
             }
             .keyboardShortcut("o")
 
+            Button("Clone Repository...") {
+                appState.showCloneRepositoryPanel()
+            }
+
             Button("Open Remote...") {
                 appState.openRemotePanel()
+            }
+
+            Button("Git Workbench...") {
+                appState.showGitWorkbenchPanel()
+            }
+
+            Button("AI Workbench...") {
+                appState.showAIWorkbenchPanel()
             }
 
             Button("Search in Folder...") {
@@ -151,6 +163,30 @@ struct FileEditorCommands: Commands {
             .disabled(appState.selectedDocument?.fileURL == nil)
         }
 
+        CommandMenu("Source Control") {
+            Button("Git Workbench") {
+                appState.showGitWorkbenchPanel()
+            }
+
+            Button("Refresh Git Status") {
+                appState.refreshGitStatus()
+            }
+
+            Divider()
+
+            Button("Fetch") {
+                appState.fetchGitRepository()
+            }
+
+            Button("Pull") {
+                appState.pullGitRepository()
+            }
+
+            Button("Push") {
+                appState.pushGitRepository()
+            }
+        }
+
         CommandMenu("View") {
             Button(appState.settings.wrapLines ? "Disable Line Wrap" : "Enable Line Wrap") {
                 appState.toggleWrapLines()
@@ -263,6 +299,14 @@ struct FileEditorCommands: Commands {
                 appState.showTerminalConsolePanel()
             }
 
+            Button("Problems Panel") {
+                appState.showProblemsPanelView()
+            }
+
+            Button("Test Explorer") {
+                appState.showTestExplorerPanel()
+            }
+
             Divider()
 
             Button("Refresh Workspace Explorer") {
@@ -334,6 +378,41 @@ struct FileEditorCommands: Commands {
                 appState.compareSelectedDocumentWithGitHead()
             }
             .disabled(appState.selectedDocument?.fileURL == nil)
+        }
+
+    }
+}
+
+struct AIWorkbenchCommands: Commands {
+    @ObservedObject var appState: AppState
+
+    var body: some Commands {
+        CommandMenu("AI") {
+            Button("AI Workbench") {
+                appState.showAIWorkbenchPanel()
+            }
+
+            Divider()
+
+            Button("Explain Selection") {
+                appState.runAIQuickAction(.explainSelection)
+            }
+
+            Button("Improve Selection") {
+                appState.runAIQuickAction(.improveSelection)
+            }
+
+            Button("Generate Tests") {
+                appState.runAIQuickAction(.generateTests)
+            }
+
+            Button("Summarize File") {
+                appState.runAIQuickAction(.summarizeFile)
+            }
+
+            Button("Draft Commit Message") {
+                appState.runAIQuickAction(.draftCommitMessage)
+            }
         }
     }
 }

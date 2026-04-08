@@ -15,6 +15,7 @@ struct ForgeTextApp: App {
         .defaultSize(width: 1120, height: 760)
         .commands {
             FileEditorCommands(appState: applicationDelegate.appState)
+            AIWorkbenchCommands(appState: applicationDelegate.appState)
             TextEditingCommands()
         }
     }

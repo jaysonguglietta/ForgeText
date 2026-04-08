@@ -35,6 +35,11 @@ struct TaskRunnerView: View {
                     }
                     .buttonStyle(RetroActionButtonStyle(tone: .secondary))
 
+                    Button("Problems") {
+                        appState.showProblemsPanelView()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+
                     Button("Close") {
                         dismiss()
                     }

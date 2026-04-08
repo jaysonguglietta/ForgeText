@@ -21,11 +21,26 @@ struct ContentView: View {
         .sheet(isPresented: $appState.showingGoToLine) {
             GoToLineView(appState: appState)
         }
+        .sheet(isPresented: $appState.showingCloneRepository) {
+            CloneRepositoryView(appState: appState)
+        }
+        .sheet(isPresented: $appState.showingGitWorkbench) {
+            GitWorkbenchView(appState: appState)
+        }
         .sheet(isPresented: $appState.projectSearchState.isPresented) {
             ProjectSearchView(appState: appState)
         }
         .sheet(isPresented: $appState.showingRemoteOpen) {
             RemoteOpenView(appState: appState)
+        }
+        .sheet(isPresented: $appState.showingProblemsPanel) {
+            ProblemsPanelView(appState: appState)
+        }
+        .sheet(isPresented: $appState.showingTestExplorer) {
+            TestExplorerView(appState: appState)
+        }
+        .sheet(isPresented: $appState.showingAIWorkbench) {
+            AIWorkbenchView(appState: appState)
         }
         .sheet(isPresented: $appState.showingWorkspaceSessions) {
             WorkspaceSessionsView(appState: appState)
@@ -190,6 +205,18 @@ private struct DocumentSidebarView: View {
                         .accessibilityLabel("Choose workspace root folder")
 
                         Button {
+                            appState.showCloneRepositoryPanel()
+                        } label: {
+                            fileCard(
+                                title: "Clone Repository",
+                                subtitle: "Clone a GitHub or Git repo directly into a local workspace folder",
+                                symbolName: "square.and.arrow.down.on.square"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Clone a repository into a local workspace")
+
+                        Button {
                             appState.openRemotePanel()
                         } label: {
                             fileCard(
@@ -236,6 +263,54 @@ private struct DocumentSidebarView: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Open embedded terminal")
+
+                        Button {
+                            appState.showGitWorkbenchPanel()
+                        } label: {
+                            fileCard(
+                                title: "Git Workbench",
+                                subtitle: "Commit, push, pull, stash, and inspect repository changes",
+                                symbolName: "point.topleft.down.curvedto.point.bottomright.up"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open Git workbench")
+
+                        Button {
+                            appState.showAIWorkbenchPanel()
+                        } label: {
+                            fileCard(
+                                title: "AI Workbench",
+                                subtitle: "Use different models and providers for chat, editing, and commit drafts",
+                                symbolName: "sparkles.rectangle.stack"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open AI workbench")
+
+                        Button {
+                            appState.showProblemsPanelView()
+                        } label: {
+                            fileCard(
+                                title: "Problems",
+                                subtitle: "Review matched build, test, lint, and terminal problems",
+                                symbolName: "exclamationmark.bubble"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open problems panel")
+
+                        Button {
+                            appState.showTestExplorerPanel()
+                        } label: {
+                            fileCard(
+                                title: "Test Explorer",
+                                subtitle: "Run detected workspace tests and inspect results",
+                                symbolName: "checklist.checked"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open test explorer")
                     }
 
                     WorkspaceExplorerView(appState: appState)
@@ -1295,6 +1370,16 @@ private struct EmptyWorkspaceView: View {
                         appState.openDocument()
                     }
                     .buttonStyle(RetroActionButtonStyle(tone: .primary))
+
+                    Button("Clone Repo") {
+                        appState.showCloneRepositoryPanel()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .primary))
+
+                    Button("AI Workbench") {
+                        appState.showAIWorkbenchPanel()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
 
                     Button("Open Remote") {
                         appState.openRemotePanel()

@@ -9,6 +9,7 @@ The current shipped shell already includes:
 - a retro-web chrome system with beveled panels, bright portal colors, and monospaced control surfaces
 - a left-rail document and workspace sidebar
 - an integrated workspace explorer and embedded terminal surface
+- dedicated Git, AI, problems, and test workbench panels
 - a header that surfaces mode, language, theme, pane layout, and document actions
 - breadcrumbs, outline rail, structured-view toggles, mode-aware banners, and per-line insight bars
 - matching retro treatment across the main sheets like command palette, search, sessions, and shortcuts
@@ -23,6 +24,7 @@ That baseline should be treated as the new visual system, not as disposable plac
 - Status information should stay compact and meaningful: counts, file format, warnings, and mode-specific metrics.
 - The sidebar should grow into a workbench rail with recent files, symbols, saved searches, and project utilities.
 - Explorer, plugin, diagnostics, and task surfaces should feel like related tools, not separate mini-apps.
+- Git and AI panels should feel like native workbench peers, not bolted-on modal utilities.
 - The retro look should support utility, not block it. Novelty should live in the chrome while reading and editing stay legible.
 
 ## Near-term UI improvements
@@ -33,6 +35,7 @@ That baseline should be treated as the new visual system, not as disposable plac
 - Add mode-aware empty and error states that explain what ForgeText is doing and how to get back to raw text.
 - Add stronger visual treatment for active pane focus, compare mode, and read-only states.
 - Make remote results, terminal output, and diagnostics panels feel like first-class workbench panes.
+- Tighten Git workbench and AI workbench layouts so repetitive actions feel one-keystroke away.
 
 ## Retro-shell guardrails
 

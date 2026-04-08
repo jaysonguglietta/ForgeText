@@ -18,8 +18,14 @@ final class AppState: ObservableObject {
     enum PaletteAction {
         case newDocument
         case openDocuments
+        case cloneRepository
         case openRemote
         case openRemoteSpec(String)
+        case showGitWorkbench
+        case showProblemsPanel
+        case showTestExplorer
+        case showAIWorkbench
+        case runAIQuickAction(AIQuickAction)
         case showPluginManager
         case showSnippetLibrary
         case showTaskRunner
@@ -88,7 +94,12 @@ final class AppState: ObservableObject {
     @Published var showingDiscardChanges = false
     @Published var showingCommandPalette = false
     @Published var showingGoToLine = false
+    @Published var showingCloneRepository = false
     @Published var showingRemoteOpen = false
+    @Published var showingGitWorkbench = false
+    @Published var showingProblemsPanel = false
+    @Published var showingTestExplorer = false
+    @Published var showingAIWorkbench = false
     @Published var showingWorkspaceSessions = false
     @Published var showingKeyboardShortcuts = false
     @Published var showingPluginManager = false
@@ -100,10 +111,15 @@ final class AppState: ObservableObject {
     @Published var projectSearchState = ProjectSearchState()
     @Published var comparisonState: DocumentComparisonState?
     @Published var remoteLocationDraft = ""
+    @Published var cloneRepositoryState = CloneRepositoryState(destinationParentPath: GitCloneService.defaultDestinationParentURL().path)
     @Published var secondaryPaneMode: WorkspaceSecondaryPaneMode = .off
     @Published var secondaryDocumentID: UUID?
     @Published var pluginTaskState = PluginTaskPanelState()
     @Published var pluginDiagnosticsState = PluginDiagnosticsPanelState()
+    @Published var gitPanelState = GitPanelState()
+    @Published var problemsPanelState = ProblemsPanelState()
+    @Published var testExplorerState = TestExplorerState()
+    @Published var aiWorkbenchState = AIWorkbenchState()
     @Published var gitRepositorySummary: GitRepositorySummary?
     @Published var workspaceExplorerState = WorkspaceExplorerState()
     @Published var terminalPanelState = EmbeddedTerminalPanelState()
@@ -125,9 +141,18 @@ final class AppState: ObservableObject {
         if loadedSettings.enabledPluginIDs.isEmpty {
             loadedSettings.enabledPluginIDs = PluginHostService.defaultEnabledPluginIDs
         }
+        if loadedSettings.preferredAIProviderID == nil {
+            loadedSettings.preferredAIProviderID = loadedSettings.aiProviders.first(where: \.isEnabled)?.id
+        }
+
+        let loadedAISessions = AIConversationStore.load()
+        hadUncleanShutdown = CrashRecoveryMonitor.markLaunch()
         settings = loadedSettings
         workspaceSessions = WorkspaceSessionStore.load()
-        hadUncleanShutdown = CrashRecoveryMonitor.markLaunch()
+        aiWorkbenchState = AIWorkbenchState(
+            sessions: loadedAISessions,
+            selectedSessionID: loadedAISessions.first?.id
+        )
         restoreWorkspace()
         startFileMonitoring()
         refreshPluginWorkspaceState()
@@ -225,6 +250,27 @@ final class AppState: ObservableObject {
         return pluginTaskState.tasks.first(where: { $0.id == selectedTaskID }) ?? pluginTaskState.tasks.first
     }
 
+    var availableTestTasks: [EditorPluginTask] {
+        pluginTaskState.tasks.filter { $0.role == .test }
+    }
+
+    var selectedAIProvider: AIProviderConfiguration? {
+        if let preferredID = settings.preferredAIProviderID,
+           let provider = settings.aiProviders.first(where: { $0.id == preferredID && $0.isEnabled }) {
+            return provider
+        }
+
+        return settings.aiProviders.first(where: \.isEnabled)
+    }
+
+    var selectedAISession: AIChatSession? {
+        guard let selectedSessionID = aiWorkbenchState.selectedSessionID else {
+            return aiWorkbenchState.sessions.first
+        }
+
+        return aiWorkbenchState.sessions.first(where: { $0.id == selectedSessionID }) ?? aiWorkbenchState.sessions.first
+    }
+
     var activeWorkspaceURL: URL? {
         projectSearchState.rootURL ?? selectedDocument?.fileURL?.deletingLastPathComponent()
     }
@@ -315,6 +361,101 @@ final class AppState: ObservableObject {
             }
 
             self?.openDocuments(at: panel.urls)
+        }
+    }
+
+    func showCloneRepositoryPanel() {
+        let suggestedParent = projectSearchState.rootURL?.deletingLastPathComponent()
+            ?? activeWorkspaceURL
+            ?? GitCloneService.defaultDestinationParentURL()
+        if cloneRepositoryState.destinationParentPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            cloneRepositoryState.destinationParentPath = suggestedParent.path
+        }
+
+        if cloneRepositoryState.directoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            cloneRepositoryState.directoryName = GitCloneService.suggestedDirectoryName(for: cloneRepositoryState.repositorySpecifier) ?? ""
+        }
+
+        cloneRepositoryState.statusMessage = nil
+        showingCloneRepository = true
+    }
+
+    func chooseCloneDestinationParent() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        let currentPath = cloneRepositoryState.destinationParentPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !currentPath.isEmpty {
+            panel.directoryURL = URL(fileURLWithPath: currentPath, isDirectory: true)
+        }
+
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url?.standardizedFileURL else {
+                return
+            }
+
+            Task { @MainActor in
+                self?.cloneRepositoryState.destinationParentPath = url.path
+            }
+        }
+    }
+
+    func cloneRepository() {
+        let repositorySpecifier = cloneRepositoryState.repositorySpecifier.trimmingCharacters(in: .whitespacesAndNewlines)
+        let destinationParentPath = cloneRepositoryState.destinationParentPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let directoryName = cloneRepositoryState.directoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !repositorySpecifier.isEmpty else {
+            alertContext = AlertContext(title: "Repository URL Needed", message: "Paste a GitHub HTTPS or SSH repository URL before cloning.")
+            return
+        }
+
+        guard !destinationParentPath.isEmpty else {
+            alertContext = AlertContext(title: "Destination Folder Needed", message: "Choose a local parent folder for the cloned repository.")
+            return
+        }
+
+        guard !directoryName.isEmpty else {
+            alertContext = AlertContext(title: "Repository Name Needed", message: "Enter the local folder name ForgeText should use for the clone.")
+            return
+        }
+
+        cloneRepositoryState.isCloning = true
+        cloneRepositoryState.statusMessage = "Cloning \(repositorySpecifier)..."
+
+        let parentURL = URL(fileURLWithPath: destinationParentPath, isDirectory: true)
+        let branchName = cloneRepositoryState.branchName
+        let usesShallowClone = cloneRepositoryState.usesShallowClone
+
+        Task.detached(priority: .userInitiated) {
+            do {
+                let clonedRepositoryURL = try GitCloneService.cloneRepository(
+                    repositorySpecifier: repositorySpecifier,
+                    destinationParentURL: parentURL,
+                    directoryName: directoryName,
+                    branchName: branchName,
+                    usesShallowClone: usesShallowClone
+                )
+
+                await MainActor.run {
+                    self.cloneRepositoryState.isCloning = false
+                    self.cloneRepositoryState.statusMessage = "Cloned \(clonedRepositoryURL.lastPathComponent)"
+                    self.showingCloneRepository = false
+                    self.activateWorkspace(
+                        at: clonedRepositoryURL,
+                        statusMessage: "Loaded repository \(clonedRepositoryURL.lastPathComponent)",
+                        openPreferredFile: true
+                    )
+                }
+            } catch {
+                await MainActor.run {
+                    self.cloneRepositoryState.isCloning = false
+                    self.cloneRepositoryState.statusMessage = error.localizedDescription
+                    self.present(error: error, title: "Couldn’t Clone Repository")
+                }
+            }
         }
     }
 
@@ -853,6 +994,28 @@ final class AppState: ObservableObject {
         showingPluginManager = true
     }
 
+    func showGitWorkbenchPanel() {
+        refreshGitWorkbench()
+        showingGitWorkbench = true
+    }
+
+    func showProblemsPanelView() {
+        showingProblemsPanel = true
+    }
+
+    func showTestExplorerPanel() {
+        if testExplorerState.selectedTaskID == nil {
+            testExplorerState.selectedTaskID = availableTestTasks.first?.id
+        }
+        showingTestExplorer = true
+    }
+
+    func showAIWorkbenchPanel() {
+        ensureAIProviderSelection()
+        ensureAISession()
+        showingAIWorkbench = true
+    }
+
     func showSnippetLibraryPanel() {
         showingSnippetLibrary = true
     }
@@ -868,6 +1031,52 @@ final class AppState: ObservableObject {
         }
 
         showingTerminalConsole = true
+    }
+
+    func updateSelectedAIProviderID(_ id: UUID) {
+        settings.preferredAIProviderID = id
+        AppSettingsStore.save(settings)
+    }
+
+    func updateSelectedAIProviderName(_ value: String) {
+        updateSelectedAIProvider { $0.name = value }
+    }
+
+    func updateSelectedAIProviderBaseURL(_ value: String) {
+        updateSelectedAIProvider { $0.baseURLString = value }
+    }
+
+    func updateSelectedAIProviderModel(_ value: String) {
+        updateSelectedAIProvider { $0.model = value }
+    }
+
+    func updateSelectedAIProviderAPIKey(_ value: String) {
+        updateSelectedAIProvider { $0.apiKey = value }
+    }
+
+    func updateSelectedAIProviderEnabled(_ isEnabled: Bool) {
+        updateSelectedAIProvider { $0.isEnabled = isEnabled }
+    }
+
+    func updateSelectedAIProviderTemperature(_ value: Double) {
+        updateSelectedAIProvider { $0.temperature = value }
+    }
+
+    func createAISession() {
+        let session = AIChatSession(title: "New Chat")
+        aiWorkbenchState.sessions.insert(session, at: 0)
+        aiWorkbenchState.selectedSessionID = session.id
+        AIConversationStore.save(aiWorkbenchState.sessions)
+    }
+
+    func selectAISession(_ id: UUID) {
+        aiWorkbenchState.selectedSessionID = id
+    }
+
+    func deleteAISession(_ id: UUID) {
+        aiWorkbenchState.sessions.removeAll { $0.id == id }
+        aiWorkbenchState.selectedSessionID = aiWorkbenchState.sessions.first?.id
+        AIConversationStore.save(aiWorkbenchState.sessions)
     }
 
     func runEmbeddedTerminalCommand(_ commandOverride: String? = nil) {
@@ -893,9 +1102,13 @@ final class AppState: ObservableObject {
 
         Task.detached(priority: .userInitiated) {
             let run = await EmbeddedTerminalService.run(command: command, currentDirectoryURL: workingDirectory)
+            let problems = ProblemMatcherService.parseProblems(from: run.output, source: "Embedded Terminal")
 
             await MainActor.run {
                 self.terminalPanelState.lastRun = run
+                self.problemsPanelState.records = problems
+                self.problemsPanelState.sourceDescription = "Embedded Terminal"
+                self.problemsPanelState.lastUpdatedAt = Date()
                 if run.status == .failed {
                     self.alertContext = AlertContext(
                         title: "Command Failed",
@@ -931,8 +1144,7 @@ final class AppState: ObservableObject {
 
     func openWorkspaceExplorerNode(_ node: WorkspaceExplorerNode) {
         if node.isDirectory {
-            projectSearchState.rootURL = node.url
-            refreshPluginWorkspaceState()
+            activateWorkspace(at: node.url, statusMessage: "Workspace updated", openPreferredFile: false)
             return
         }
 
@@ -1193,12 +1405,92 @@ final class AppState: ObservableObject {
 
     func refreshGitStatus() {
         refreshPluginWorkspaceState()
+        refreshGitWorkbench()
 
         if gitRepositorySummary == nil {
             alertContext = AlertContext(
                 title: "No Git Repository",
                 message: "ForgeText couldn’t find a Git repository for the current workspace or document."
             )
+        }
+    }
+
+    func refreshGitWorkbench() {
+        gitPanelState.changedFiles = GitService.changedFiles(for: activeWorkspaceURL)
+        gitPanelState.stashes = GitService.stashes(for: activeWorkspaceURL)
+        gitRepositorySummary = GitService.summary(for: activeWorkspaceURL)
+    }
+
+    func openGitChangedFile(_ file: GitChangedFile) {
+        openDocuments(at: [file.absoluteURL])
+    }
+
+    func stageGitChangedFile(_ file: GitChangedFile) {
+        do {
+            try GitService.stage(fileURL: file.absoluteURL, workspaceRoot: activeWorkspaceURL)
+            refreshGitWorkbench()
+        } catch {
+            present(error: error, title: "Couldn’t Stage File")
+        }
+    }
+
+    func unstageGitChangedFile(_ file: GitChangedFile) {
+        do {
+            try GitService.unstage(fileURL: file.absoluteURL, workspaceRoot: activeWorkspaceURL)
+            refreshGitWorkbench()
+        } catch {
+            present(error: error, title: "Couldn’t Unstage File")
+        }
+    }
+
+    func fetchGitRepository() {
+        runGitOperation(successMessage: "Fetched remote changes") {
+            try GitService.fetch(at: activeWorkspaceURL)
+        }
+    }
+
+    func pullGitRepository() {
+        runGitOperation(successMessage: "Pulled latest changes") {
+            try GitService.pull(at: activeWorkspaceURL)
+        }
+    }
+
+    func pushGitRepository() {
+        runGitOperation(successMessage: "Pushed current branch") {
+            try GitService.push(at: activeWorkspaceURL)
+        }
+    }
+
+    func commitGitChanges() {
+        let message = gitPanelState.commitMessage
+        runGitOperation(successMessage: "Committed staged changes") {
+            try GitService.commit(message: message, at: activeWorkspaceURL)
+        } onSuccess: {
+            self.gitPanelState.commitMessage = ""
+        }
+    }
+
+    func createGitBranch() {
+        let branchName = gitPanelState.newBranchName
+        runGitOperation(successMessage: "Created and switched branch") {
+            try GitService.createBranch(named: branchName, at: activeWorkspaceURL)
+        } onSuccess: {
+            self.gitPanelState.newBranchName = ""
+        }
+    }
+
+    func stashGitChanges() {
+        let message = gitPanelState.stashMessage
+        runGitOperation(successMessage: "Stashed working tree changes") {
+            try GitService.stashSave(message: message, at: activeWorkspaceURL)
+        } onSuccess: {
+            self.gitPanelState.stashMessage = ""
+        }
+    }
+
+    func popGitStash(_ stash: GitStashEntry?) {
+        runGitOperation(successMessage: "Applied stash") {
+            try GitService.stashPop(stash?.id, at: activeWorkspaceURL)
         }
     }
 
@@ -1267,6 +1559,18 @@ final class AppState: ObservableObject {
             )
         }
 
+        if !problemsPanelState.records.isEmpty {
+            let hasErrors = problemsPanelState.records.contains(where: { $0.severity == .error })
+            items.append(
+                PluginStatusItem(
+                    id: "problems",
+                    text: "Problems \(problemsPanelState.records.count)",
+                    symbolName: hasErrors ? "xmark.octagon" : "exclamationmark.triangle",
+                    tone: hasErrors ? .danger : .warning
+                )
+            )
+        }
+
         if isPluginEnabled("forge.git-tools"), let gitRepositorySummary {
             items.append(
                 PluginStatusItem(
@@ -1323,6 +1627,138 @@ final class AppState: ObservableObject {
         }
 
         return items
+    }
+
+    func openProblem(_ record: ProblemRecord) {
+        guard let filePath = record.filePath else {
+            showingProblemsPanel = false
+            return
+        }
+
+        let url = URL(fileURLWithPath: filePath)
+        openDocuments(at: [url])
+        if let lineNumber = record.lineNumber,
+           let documentID = documents.first(where: { $0.fileURL?.standardizedFileURL == url.standardizedFileURL })?.id {
+            goToLine(lineNumber, in: documentID)
+        }
+        showingProblemsPanel = false
+    }
+
+    func runSelectedTestTask() {
+        guard let selectedTaskID = testExplorerState.selectedTaskID else {
+            return
+        }
+
+        runWorkspaceTask(withID: selectedTaskID)
+        showingTestExplorer = true
+    }
+
+    func sendAIPrompt(_ promptOverride: String? = nil, quickAction: AIQuickAction? = nil) {
+        ensureAIProviderSelection()
+        ensureAISession()
+
+        guard let provider = selectedAIProvider else {
+            alertContext = AlertContext(title: "AI Provider Needed", message: "Choose or enable an AI provider before sending a prompt.")
+            return
+        }
+
+        let promptText = (promptOverride ?? aiWorkbenchState.draftPrompt).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !promptText.isEmpty || quickAction == .draftCommitMessage else {
+            alertContext = AlertContext(title: "Prompt Needed", message: "Enter a prompt before sending it to the selected AI provider.")
+            return
+        }
+
+        let selectedText = selectedDocument.flatMap(selectedText(in:))
+        let workspaceRules = settings.aiIncludeWorkspaceRules ? AIRulesService.loadRules(for: activeWorkspaceURL) : nil
+        let effectivePrompt: String
+        if quickAction == .draftCommitMessage {
+            let diff = (try? GitService.diffForWorkingTree(at: activeWorkspaceURL)) ?? ""
+            effectivePrompt = diff.isEmpty ? "Draft a commit message for the current repository changes." : "Draft a Git commit message for these staged changes:\n\n\(diff)"
+        } else {
+            effectivePrompt = promptText
+        }
+
+        let preparedPrompt = AIProviderService.buildPrompt(
+            userPrompt: effectivePrompt,
+            currentDocument: settings.aiIncludeCurrentDocument ? selectedDocument : nil,
+            selectedText: settings.aiIncludeSelection ? selectedText : nil,
+            workspaceRules: workspaceRules,
+            includeCurrentDocument: settings.aiIncludeCurrentDocument,
+            includeSelectedText: settings.aiIncludeSelection,
+            includeWorkspaceRules: settings.aiIncludeWorkspaceRules,
+            quickAction: quickAction
+        )
+
+        aiWorkbenchState.isSending = true
+        aiWorkbenchState.lastAction = quickAction
+        aiWorkbenchState.statusMessage = "Sending prompt to \(provider.name)..."
+        showingAIWorkbench = true
+
+        let priorMessages = selectedAISession?.messages ?? []
+
+        Task {
+            do {
+                let response = try await AIProviderService.send(
+                    prompt: preparedPrompt,
+                    sessionMessages: priorMessages.filter { $0.role != .system },
+                    provider: provider
+                )
+
+                await MainActor.run {
+                    self.recordAIInteraction(
+                        prompt: effectivePrompt.isEmpty ? quickAction?.displayName ?? "AI Request" : effectivePrompt,
+                        response: response,
+                        provider: provider
+                    )
+                    self.aiWorkbenchState.isSending = false
+                    self.aiWorkbenchState.lastResponseText = response
+                    self.aiWorkbenchState.statusMessage = "Received response from \(provider.name)"
+                    if quickAction == .draftCommitMessage {
+                        self.gitPanelState.commitMessage = response
+                        self.showingGitWorkbench = true
+                    } else {
+                        self.aiWorkbenchState.draftPrompt = ""
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.aiWorkbenchState.isSending = false
+                    self.aiWorkbenchState.statusMessage = error.localizedDescription
+                    self.present(error: error, title: "Couldn’t Complete AI Request")
+                }
+            }
+        }
+    }
+
+    func runAIQuickAction(_ action: AIQuickAction) {
+        switch action {
+        case .explainSelection:
+            sendAIPrompt("Explain the selected code or text.", quickAction: action)
+        case .improveSelection:
+            sendAIPrompt("Improve the selected code or text while preserving intent.", quickAction: action)
+        case .generateTests:
+            sendAIPrompt("Generate strong automated tests for the selected code or current file.", quickAction: action)
+        case .summarizeFile:
+            sendAIPrompt("Summarize the current file for another developer.", quickAction: action)
+        case .draftCommitMessage:
+            sendAIPrompt("", quickAction: action)
+        }
+    }
+
+    func insertLastAIResponseAtCursor() {
+        guard let selectedDocumentID, let response = aiWorkbenchState.lastResponseText else {
+            return
+        }
+
+        insertText(response, replacingSelection: false, in: selectedDocumentID)
+    }
+
+    func replaceSelectionWithLastAIResponse() {
+        guard let selectedDocumentID, let response = aiWorkbenchState.lastResponseText else {
+            return
+        }
+
+        insertText(response, replacingSelection: true, in: selectedDocumentID)
     }
 
     func showFindReplace() {
@@ -1870,7 +2306,12 @@ final class AppState: ObservableObject {
         var items: [PaletteItem] = [
             PaletteItem(id: "new", title: "New Document", subtitle: "Create a fresh untitled document", symbolName: "plus.square", action: .newDocument),
             PaletteItem(id: "open", title: "Open Files", subtitle: "Choose files from disk", symbolName: "folder", action: .openDocuments),
+            PaletteItem(id: "cloneRepository", title: "Clone Repository", subtitle: "Clone a GitHub or Git repository and open it as a workspace", symbolName: "square.and.arrow.down.on.square", action: .cloneRepository),
             PaletteItem(id: "openRemote", title: "Open Remote File", subtitle: "Open a document over SSH", symbolName: "network", action: .openRemote),
+            PaletteItem(id: "gitWorkbench", title: "Git Workbench", subtitle: "Commit, push, pull, stash, and inspect repository changes", symbolName: "point.topleft.down.curvedto.point.bottomright.up", action: .showGitWorkbench),
+            PaletteItem(id: "problems", title: "Problems Panel", subtitle: "Review matched build, test, and lint problems", symbolName: "exclamationmark.bubble", action: .showProblemsPanel),
+            PaletteItem(id: "tests", title: "Test Explorer", subtitle: "Run detected test tasks and inspect results", symbolName: "checklist.checked", action: .showTestExplorer),
+            PaletteItem(id: "aiWorkbench", title: "AI Workbench", subtitle: "Chat with configured models and run editor AI actions", symbolName: "sparkles.rectangle.stack", action: .showAIWorkbench),
             PaletteItem(id: "plugins", title: "Plugin Manager", subtitle: "Enable built-in IDE plugins and review their capabilities", symbolName: "puzzlepiece.extension", action: .showPluginManager),
             PaletteItem(id: "snippets", title: "Snippet Library", subtitle: "Browse and insert snippets for the active document", symbolName: "text.badge.plus", action: .showSnippetLibrary),
             PaletteItem(id: "tasks", title: "Task Runner", subtitle: "Run workspace build, test, and lint tasks", symbolName: "play.square.stack", action: .showTaskRunner),
@@ -1890,6 +2331,11 @@ final class AppState: ObservableObject {
             PaletteItem(id: "refreshGit", title: "Refresh Git Status", subtitle: "Reload branch and working tree information", symbolName: "arrow.clockwise", action: .refreshGitStatus),
             PaletteItem(id: "compareGitHead", title: "Compare with Git HEAD", subtitle: "Review the current file against the last commit", symbolName: "arrow.left.arrow.right.square", action: .compareWithGitHead),
             PaletteItem(id: "stageGit", title: "Stage Current File", subtitle: "Add the active file to the Git index", symbolName: "tray.and.arrow.down", action: .stageCurrentFileInGit),
+            PaletteItem(id: "aiExplain", title: "AI: Explain Selection", subtitle: "Ask the selected model to explain the current selection", symbolName: AIQuickAction.explainSelection.symbolName, action: .runAIQuickAction(.explainSelection)),
+            PaletteItem(id: "aiImprove", title: "AI: Improve Selection", subtitle: "Ask the selected model to improve the current selection", symbolName: AIQuickAction.improveSelection.symbolName, action: .runAIQuickAction(.improveSelection)),
+            PaletteItem(id: "aiTests", title: "AI: Generate Tests", subtitle: "Ask the selected model for tests covering the current code", symbolName: AIQuickAction.generateTests.symbolName, action: .runAIQuickAction(.generateTests)),
+            PaletteItem(id: "aiSummary", title: "AI: Summarize File", subtitle: "Ask the selected model to summarize the current file", symbolName: AIQuickAction.summarizeFile.symbolName, action: .runAIQuickAction(.summarizeFile)),
+            PaletteItem(id: "aiCommit", title: "AI: Draft Commit Message", subtitle: "Generate a Git commit message from the current diff", symbolName: AIQuickAction.draftCommitMessage.symbolName, action: .runAIQuickAction(.draftCommitMessage)),
             PaletteItem(id: "compareSaved", title: "Compare with Saved", subtitle: "Review the current buffer against disk", symbolName: "square.split.2x1", action: .compareWithSaved),
             PaletteItem(id: "compareFile", title: "Compare with File", subtitle: "Choose another file and compare it", symbolName: "doc.on.doc", action: .compareWithFile),
             PaletteItem(id: "follow", title: "Toggle Follow Mode", subtitle: "Auto-reload changes from disk", symbolName: "arrow.triangle.2.circlepath", action: .toggleFollowMode),
@@ -2090,8 +2536,20 @@ final class AppState: ObservableObject {
             newDocument()
         case .openDocuments:
             openDocument()
+        case .cloneRepository:
+            showCloneRepositoryPanel()
         case .openRemote:
             openRemotePanel()
+        case .showGitWorkbench:
+            showGitWorkbenchPanel()
+        case .showProblemsPanel:
+            showProblemsPanelView()
+        case .showTestExplorer:
+            showTestExplorerPanel()
+        case .showAIWorkbench:
+            showAIWorkbenchPanel()
+        case let .runAIQuickAction(action):
+            runAIQuickAction(action)
         case let .openRemoteSpec(spec):
             openRemoteDocument(spec: spec)
         case .showPluginManager:
@@ -2597,6 +3055,19 @@ final class AppState: ObservableObject {
         editorFocusToken = UUID()
     }
 
+    private func activateWorkspace(at rootURL: URL, statusMessage: String, openPreferredFile: Bool) {
+        let standardizedRoot = rootURL.standardizedFileURL
+        projectSearchState.rootURL = standardizedRoot
+        projectSearchState.statusMessage = statusMessage
+
+        if openPreferredFile, let landingFileURL = preferredWorkspaceLandingFile(in: standardizedRoot) {
+            openDocuments(at: [landingFileURL])
+        } else {
+            refreshPluginWorkspaceState()
+            scheduleSessionSave()
+        }
+    }
+
     private func refreshPluginWorkspaceState() {
         pluginCatalog = PluginHostService.installedPlugins(workspaceRoot: activeWorkspaceURL)
         let externalPluginTasks = enabledPlugins.flatMap(\.tasks)
@@ -2609,7 +3080,15 @@ final class AppState: ObservableObject {
             pluginTaskState.selectedTaskID = pluginTaskState.tasks.first?.id
         }
 
+        if let selectedTestTaskID = testExplorerState.selectedTaskID,
+           availableTestTasks.contains(where: { $0.id == selectedTestTaskID }) {
+            // keep current selection
+        } else {
+            testExplorerState.selectedTaskID = availableTestTasks.first?.id
+        }
+
         gitRepositorySummary = GitService.summary(for: activeWorkspaceURL)
+        refreshGitWorkbench()
         refreshWorkspaceExplorer()
     }
 
@@ -2631,9 +3110,17 @@ final class AppState: ObservableObject {
 
         Task.detached(priority: .userInitiated) {
             let run = await WorkspaceTaskService.run(task, workspaceRoot: workspaceRoot, currentDocument: currentDocument)
+            let problems = ProblemMatcherService.parseProblems(from: run.output, source: task.title)
 
             await MainActor.run {
                 self.pluginTaskState.lastRun = run
+                self.problemsPanelState.records = problems
+                self.problemsPanelState.sourceDescription = task.title
+                self.problemsPanelState.lastUpdatedAt = Date()
+                if task.role == .test {
+                    self.testExplorerState.lastRun = run
+                    self.testExplorerState.selectedTaskID = task.id
+                }
                 if run.status == .failed {
                     self.alertContext = AlertContext(
                         title: "Task Failed",
@@ -2661,6 +3148,131 @@ final class AppState: ObservableObject {
         case .compareWithGitHead:
             return .compareWithGitHead
         }
+    }
+
+    private func runGitOperation(
+        successMessage: String,
+        operation: () throws -> Void,
+        onSuccess: (() -> Void)? = nil
+    ) {
+        gitPanelState.isBusy = true
+        do {
+            try operation()
+            onSuccess?()
+            gitPanelState.lastOperationMessage = successMessage
+            gitPanelState.isBusy = false
+            refreshPluginWorkspaceState()
+        } catch {
+            gitPanelState.isBusy = false
+            gitPanelState.lastOperationMessage = error.localizedDescription
+            present(error: error, title: "Git Operation Failed")
+        }
+    }
+
+    private func ensureAIProviderSelection() {
+        if settings.preferredAIProviderID == nil {
+            settings.preferredAIProviderID = settings.aiProviders.first(where: \.isEnabled)?.id
+            AppSettingsStore.save(settings)
+        }
+    }
+
+    private func ensureAISession() {
+        if aiWorkbenchState.sessions.isEmpty {
+            let session = AIChatSession(title: "New Chat")
+            aiWorkbenchState.sessions = [session]
+            aiWorkbenchState.selectedSessionID = session.id
+            AIConversationStore.save(aiWorkbenchState.sessions)
+        } else if aiWorkbenchState.selectedSessionID == nil {
+            aiWorkbenchState.selectedSessionID = aiWorkbenchState.sessions.first?.id
+        }
+    }
+
+    private func updateSelectedAIProvider(_ mutate: (inout AIProviderConfiguration) -> Void) {
+        guard let providerID = settings.preferredAIProviderID,
+              let index = settings.aiProviders.firstIndex(where: { $0.id == providerID }) else {
+            return
+        }
+
+        mutate(&settings.aiProviders[index])
+        AppSettingsStore.save(settings)
+    }
+
+    private func recordAIInteraction(prompt: String, response: String, provider: AIProviderConfiguration) {
+        ensureAISession()
+        guard let sessionID = aiWorkbenchState.selectedSessionID,
+              let index = aiWorkbenchState.sessions.firstIndex(where: { $0.id == sessionID }) else {
+            return
+        }
+
+        var session = aiWorkbenchState.sessions[index]
+        if session.messages.isEmpty {
+            session.title = String(prompt.prefix(48))
+        }
+
+        session.messages.append(
+            AIChatMessage(role: .user, content: prompt, providerName: provider.name, model: provider.model)
+        )
+        session.messages.append(
+            AIChatMessage(role: .assistant, content: response, providerName: provider.name, model: provider.model)
+        )
+        session.updatedAt = Date()
+
+        aiWorkbenchState.sessions[index] = session
+        aiWorkbenchState.sessions.sort { $0.updatedAt > $1.updatedAt }
+        aiWorkbenchState.selectedSessionID = session.id
+        AIConversationStore.save(aiWorkbenchState.sessions)
+    }
+
+    private func selectedText(in document: EditorDocument) -> String? {
+        let safeRange = NSIntersectionRange(document.selectedRange, NSRange(location: 0, length: (document.text as NSString).length))
+        guard safeRange.length > 0 else {
+            return nil
+        }
+
+        return (document.text as NSString).substring(with: safeRange)
+    }
+
+    private func insertText(_ text: String, replacingSelection: Bool, in documentID: UUID) {
+        updateDocument(id: documentID) { updatedDocument in
+            guard !updatedDocument.isReadOnly else {
+                return
+            }
+
+            let fullText = updatedDocument.text as NSString
+            let safeRange = NSIntersectionRange(updatedDocument.selectedRange, NSRange(location: 0, length: fullText.length))
+            let targetRange = replacingSelection ? safeRange : NSRange(location: safeRange.location + safeRange.length, length: 0)
+            let updatedText = fullText.replacingCharacters(in: targetRange, with: text)
+            let cursorLocation = targetRange.location + (text as NSString).length
+
+            updatedDocument.text = updatedText
+            updatedDocument.selectedRange = NSRange(location: cursorLocation, length: 0)
+            updatedDocument.syncDirtyState()
+            updatedDocument.statusMessage = replacingSelection ? "Replaced selection from AI response" : "Inserted AI response"
+            recomputeFindState(for: &updatedDocument)
+        }
+
+        requestEditorFocus()
+        scheduleAutosave()
+        refreshDocumentDiagnostics(for: documentID)
+    }
+
+    private func preferredWorkspaceLandingFile(in rootURL: URL) -> URL? {
+        let candidateNames = [
+            "README.md",
+            "README.markdown",
+            "README.mdown",
+            "README.txt",
+            "README",
+        ]
+
+        for name in candidateNames {
+            let fileURL = rootURL.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                return fileURL
+            }
+        }
+
+        return nil
     }
 
     private func refreshDocumentDiagnostics(for id: UUID) {

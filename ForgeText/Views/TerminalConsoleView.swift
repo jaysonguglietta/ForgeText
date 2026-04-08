@@ -16,6 +16,11 @@ struct TerminalConsoleView: View {
 
                     Spacer(minLength: 0)
 
+                    Button("Problems") {
+                        appState.showProblemsPanelView()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+
                     Button("Close") {
                         dismiss()
                     }

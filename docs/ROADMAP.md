@@ -24,15 +24,27 @@ ForgeText should aim to be the native macOS editor system engineers trust when t
 - Workspace explorer, embedded terminal, HTTP request runner, remote grep/command workflows, and external plugin manifests.
 - Inline diagnostics, diff-gutter markers, Git blame context, and secret-aware warnings for risky file contents.
 
-## 1.0 priorities still open
+## ForgeText 1.0 shipped scope
 
-- Large-file mode with smarter streaming and tail behavior.
-- Richer structured viewers for diff-heavy workflows, archive contents, and schema-aware configs.
-- Project search with preview, compare tools, and stronger multi-pane workbench navigation.
-- Safer writes for protected files, symlinks, and metadata-sensitive system files.
-- Packaging, notarization, updates, accessibility, and UI regression coverage.
+ForgeText 1.0 now includes:
 
-## System engineer features to add next
+- A native editor workbench with tabs, split panes, outline, breadcrumbs, command palette, and project search.
+- Structured viewing for CSV, JSON, logs, HTTP request files, archives, and config-oriented formats.
+- Workspace explorer, embedded terminal, task runner, problems panel, and test explorer.
+- Local Git workflows including clone, fetch, pull, push, commit, branch creation, stash flows, compare, blame context, and diff markers.
+- A provider-neutral AI workbench with reusable sessions, workspace rules, provider profiles, and quick editor actions.
+- Plugin surfaces for snippets, diagnostics, formatting hooks, and external plugin manifests.
+- Recovery-oriented file handling for encodings, line endings, large files, binary fallbacks, crash recovery, and session restore.
+
+## Post-1.0 priorities
+
+- Parser-backed language intelligence, symbol indexing, and deeper formatter/linter integrations.
+- GitHub-native workflows like pull requests, issue context, and richer repo collaboration surfaces.
+- Safer privileged save paths, remote editing depth, and stronger metadata-preserving write behavior.
+- More advanced structured data tooling for tables, logs, config schemas, and diff-heavy reviews.
+- Packaging, notarization, auto-update, accessibility, telemetry, and UI regression coverage.
+
+## System engineer features to deepen next
 
 - Privileged save flow for protected files under `/etc`, `/Library`, and similar paths.
 - Remote SSH/SFTP editing with richer local UI, remote file operations, and safer credential handling.
@@ -46,7 +58,7 @@ ForgeText should aim to be the native macOS editor system engineers trust when t
 - Better diff and compare workflows for system config reviews.
 - Saved searches, pinned documents, and more session-oriented workbench behavior.
 - More file-aware empty states and better disclosure around read-only and preview modes.
-- Plugin-manager polish, richer task output handling, and deeper diagnostics panels.
+- Plugin-manager polish, richer task output handling, deeper diagnostics panels, and tighter AI/Git workbench ergonomics.
 
 ## Longer-term bets
 

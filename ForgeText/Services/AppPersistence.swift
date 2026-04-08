@@ -245,6 +245,29 @@ enum WorkspaceSessionStore {
     }
 }
 
+enum AIConversationStore {
+    private static let defaultsKey = "forgeText.aiSessions"
+
+    static func load() -> [AIChatSession] {
+        guard
+            let data = UserDefaults.standard.data(forKey: defaultsKey),
+            let sessions = try? JSONDecoder().decode([AIChatSession].self, from: data)
+        else {
+            return []
+        }
+
+        return sessions.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    static func save(_ sessions: [AIChatSession]) {
+        guard let data = try? JSONEncoder().encode(sessions) else {
+            return
+        }
+
+        UserDefaults.standard.set(data, forKey: defaultsKey)
+    }
+}
+
 enum CrashRecoveryMonitor {
     static func markLaunch() -> Bool {
         let url = markerURL()

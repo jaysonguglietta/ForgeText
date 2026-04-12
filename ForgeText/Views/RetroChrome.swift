@@ -21,6 +21,9 @@ enum RetroPalette {
     static let success = Color(red: 0.08, green: 0.49, blue: 0.22)
     static let warning = Color(red: 0.74, green: 0.42, blue: 0.02)
     static let danger = Color(red: 0.67, green: 0.13, blue: 0.19)
+    static let mutedInk = Color(red: 0.24, green: 0.30, blue: 0.40)
+    static let railFill = Color(red: 0.91, green: 0.89, blue: 0.80)
+    static let paperLine = Color(red: 0.26, green: 0.36, blue: 0.55).opacity(0.08)
 }
 
 struct RetroBackdropView: View {
@@ -34,33 +37,40 @@ struct RetroBackdropView: View {
 
             VStack(spacing: 0) {
                 LinearGradient(
-                    colors: [RetroPalette.chromeBlue, RetroPalette.chromeTeal, RetroPalette.chromeCyan],
+                    colors: [RetroPalette.chromeBlue, RetroPalette.chromeTeal, RetroPalette.chromeCyan.opacity(0.88)],
                     startPoint: .leading,
                     endPoint: .trailing
                 )
-                .frame(height: 118)
+                .frame(height: 84)
 
                 Spacer(minLength: 0)
             }
 
             Canvas { context, size in
-                let dotColor = GraphicsContext.Shading.color(RetroPalette.chromeBlue.opacity(0.07))
-                for x in stride(from: 10.0, through: size.width, by: 18.0) {
-                    for y in stride(from: 136.0, through: size.height, by: 18.0) {
+                let dotColor = GraphicsContext.Shading.color(RetroPalette.chromeBlue.opacity(0.045))
+                for x in stride(from: 12.0, through: size.width, by: 22.0) {
+                    for y in stride(from: 102.0, through: size.height, by: 22.0) {
                         context.fill(Path(ellipseIn: CGRect(x: x, y: y, width: 2, height: 2)), with: dotColor)
                     }
                 }
             }
 
+            Canvas { context, size in
+                let lineColor = GraphicsContext.Shading.color(RetroPalette.paperLine)
+                for y in stride(from: 98.0, through: size.height, by: 28.0) {
+                    context.fill(Path(CGRect(x: 0, y: y, width: size.width, height: 1)), with: lineColor)
+                }
+            }
+
             VStack(spacing: 0) {
                 HStack(spacing: 7) {
-                    Rectangle().fill(RetroPalette.chromeGold)
-                    Rectangle().fill(RetroPalette.chromePink)
-                    Rectangle().fill(RetroPalette.chromeCyan)
-                    Rectangle().fill(RetroPalette.chromeGold)
-                    Rectangle().fill(RetroPalette.chromePink)
+                    Rectangle().fill(RetroPalette.chromeGold.opacity(0.92))
+                    Rectangle().fill(RetroPalette.chromePink.opacity(0.86))
+                    Rectangle().fill(RetroPalette.chromeCyan.opacity(0.86))
+                    Rectangle().fill(RetroPalette.chromeGold.opacity(0.92))
+                    Rectangle().fill(RetroPalette.chromePink.opacity(0.86))
                 }
-                .frame(height: 6)
+                .frame(height: 5)
 
                 Spacer(minLength: 0)
             }
@@ -102,7 +112,7 @@ struct RetroPanelBackground: View {
                     .frame(width: 1)
             }
         }
-        .shadow(color: .black.opacity(inset ? 0.0 : 0.12), radius: 0, x: 2, y: 2)
+        .shadow(color: .black.opacity(inset ? 0.0 : 0.10), radius: 0, x: 1, y: 1)
     }
 }
 
@@ -124,8 +134,8 @@ struct RetroActionButtonStyle: ButtonStyle {
             .tracking(0.4)
             .foregroundStyle(palette.text)
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .frame(minHeight: 30)
+            .padding(.vertical, 7)
+            .frame(minHeight: 28)
             .background(
                 RetroPanelBackground(
                     fill: palette.fill,
@@ -146,9 +156,9 @@ struct RetroActionButtonStyle: ButtonStyle {
             )
         case .secondary:
             return (
-                pressed ? RetroPalette.panelFillMuted : RetroPalette.fieldFill,
+                pressed ? RetroPalette.panelFillMuted : RetroPalette.panelFillMuted,
                 RetroPalette.chromeTeal,
-                RetroPalette.link
+                RetroPalette.ink
             )
         case .accent:
             return (
@@ -171,7 +181,7 @@ struct RetroTextFieldModifier: ViewModifier {
         content
             .font(.system(size: 13, weight: .medium, design: .monospaced))
             .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.vertical, 7)
             .background(
                 RetroPanelBackground(
                     fill: RetroPalette.fieldFill,
@@ -215,6 +225,57 @@ struct RetroRule: View {
                 )
             )
             .frame(height: 3)
+    }
+}
+
+struct RetroSectionHeader: View {
+    let title: String
+    var systemImage: String? = nil
+    var accent: Color = RetroPalette.chromeBlue
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(accent)
+            }
+
+            Text(title.uppercased())
+                .font(.system(size: 11, weight: .black, design: .monospaced))
+                .tracking(0.8)
+                .foregroundStyle(RetroPalette.ink)
+
+            Rectangle()
+                .fill(accent.opacity(0.75))
+                .frame(height: 2)
+
+            Circle()
+                .fill(accent)
+                .frame(width: 5, height: 5)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .retroPanel(fill: RetroPalette.panelFill, accent: accent)
+    }
+}
+
+struct RetroIconButtonStyle: ButtonStyle {
+    var accent: Color = RetroPalette.chromeTeal
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 10, weight: .bold, design: .monospaced))
+            .foregroundStyle(RetroPalette.ink)
+            .padding(6)
+            .background(
+                RetroPanelBackground(
+                    fill: configuration.isPressed ? RetroPalette.panelFillMuted : RetroPalette.fieldFill,
+                    accent: accent,
+                    inset: configuration.isPressed
+                )
+            )
+            .offset(x: configuration.isPressed ? 1 : 0, y: configuration.isPressed ? 1 : 0)
     }
 }
 

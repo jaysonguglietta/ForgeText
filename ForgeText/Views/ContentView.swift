@@ -100,21 +100,33 @@ private struct DocumentSidebarView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    HStack(spacing: 12) {
-                        BrandMarkView(size: 42)
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 12) {
+                            BrandMarkView(size: 40)
 
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text("ForgeText")
-                                .font(.system(size: 24, weight: .black, design: .monospaced))
-                                .tracking(1.0)
-                                .foregroundStyle(RetroPalette.ink)
-                            Text("native text editor :: webclass of '99")
-                                .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                .foregroundStyle(RetroPalette.link)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("ForgeText")
+                                    .font(.system(size: 24, weight: .black, design: .monospaced))
+                                    .tracking(1.0)
+                                    .foregroundStyle(RetroPalette.ink)
+
+                                Text("native developer workbench :: webclass of '99")
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(RetroPalette.link)
+                            }
+
+                            Spacer(minLength: 0)
+
+                            RetroCapsuleLabel(text: "local", accent: RetroPalette.chromeCyan)
                         }
+
+                        Text("Text, code, logs, configs, Git, tasks, and AI in one portal-era Mac editor.")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(RetroPalette.mutedInk)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(14)
-                    .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
+                    .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromePink)
 
                     LazyVGrid(
                         columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3),
@@ -353,10 +365,10 @@ private struct DocumentSidebarView: View {
                         .accessibilityLabel("Open snippet library")
                     }
                 }
-                .padding(18)
+                .padding(16)
             }
         }
-        .frame(minWidth: 280)
+        .frame(minWidth: 292)
         .background(RetroBackdropView())
     }
 
@@ -367,27 +379,33 @@ private struct DocumentSidebarView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            VStack(spacing: 8) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 34, height: 34)
-                    .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromePink)
+            VStack(spacing: 0) {
+                Rectangle()
+                    .fill(RetroPalette.chromeGold)
+                    .frame(height: 4)
 
-                VStack(spacing: 2) {
-                    Text(title)
-                        .font(.system(size: 12, weight: .bold, design: .monospaced))
-                        .foregroundStyle(RetroPalette.ink)
+                VStack(spacing: 8) {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 34, height: 34)
+                        .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromePink)
 
-                    Text(subtitle)
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(RetroPalette.link)
+                    VStack(spacing: 2) {
+                        Text(title)
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .foregroundStyle(RetroPalette.ink)
+
+                        Text(subtitle)
+                            .font(.system(size: 10, weight: .bold, design: .monospaced))
+                            .foregroundStyle(RetroPalette.link)
+                            .lineLimit(1)
+                    }
+                    .multilineTextAlignment(.center)
                 }
-                .multilineTextAlignment(.center)
-                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 10)
             }
-            .frame(maxWidth: .infinity, minHeight: 92)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, minHeight: 86)
             .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromeBlue)
         }
         .buttonStyle(.plain)
@@ -396,8 +414,10 @@ private struct DocumentSidebarView: View {
     private func fileCard(title: String, subtitle: String, symbolName: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: symbolName)
+                .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(RetroPalette.chromePink)
-                .frame(width: 18)
+                .frame(width: 26, height: 26)
+                .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromeTeal)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
@@ -411,17 +431,18 @@ private struct DocumentSidebarView: View {
             }
 
             Spacer(minLength: 0)
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(RetroPalette.chromeBlue.opacity(0.7))
         }
-        .padding(10)
+        .padding(11)
         .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeTeal)
     }
 
     private func sidebarSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                RetroCapsuleLabel(text: title, accent: RetroPalette.chromePink)
-                RetroRule()
-            }
+            RetroSectionHeader(title: title, accent: RetroPalette.chromePink)
             content()
         }
     }
@@ -436,8 +457,10 @@ private struct DocumentSidebarRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: documentIconName)
+                .font(.system(size: 12, weight: .bold))
                 .foregroundStyle(isSelected ? RetroPalette.chromePink : RetroPalette.link)
-                .frame(width: 18)
+                .frame(width: 26, height: 26)
+                .retroInsetPanel(fill: RetroPalette.fieldFill, accent: isSelected ? RetroPalette.chromePink : RetroPalette.chromeTeal)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
@@ -462,15 +485,19 @@ private struct DocumentSidebarRow: View {
             Button(action: onClose) {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .bold))
-                    .padding(6)
             }
-            .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+            .buttonStyle(RetroIconButtonStyle(accent: isSelected ? RetroPalette.chromePink : RetroPalette.chromeTeal))
         }
         .padding(10)
         .retroPanel(
-            fill: isSelected ? RetroPalette.chromeCyan.opacity(0.35) : RetroPalette.panelFillMuted,
+            fill: isSelected ? RetroPalette.panelFill : RetroPalette.panelFillMuted,
             accent: isSelected ? RetroPalette.chromePink : RetroPalette.chromeTeal
         )
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(isSelected ? RetroPalette.chromeGold : Color.clear)
+                .frame(width: 4)
+        }
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
     }
@@ -691,214 +718,221 @@ private struct DocumentWorkspaceView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 14) {
-            BrandMarkView(size: 30)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 14) {
+                BrandMarkView(size: 28)
 
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text(document.displayName)
                         .font(.system(size: 22, weight: .black, design: .monospaced))
                         .tracking(0.8)
                         .foregroundStyle(RetroPalette.ink)
 
-                    if document.isRemote {
-                        headerBadge("Remote", color: RetroPalette.chromeCyan)
-                    }
+                    FlowBadgeRow {
+                        if document.isRemote {
+                            headerBadge("Remote", color: RetroPalette.chromeCyan)
+                        }
 
-                    if document.isDirty {
-                        headerBadge("Edited", color: RetroPalette.warning)
-                    }
+                        if document.isDirty {
+                            headerBadge("Edited", color: RetroPalette.warning)
+                        }
 
-                    if document.hasRecoveredDraft {
-                        headerBadge("Recovered", color: RetroPalette.success)
-                    }
+                        if document.hasRecoveredDraft {
+                            headerBadge("Recovered", color: RetroPalette.success)
+                        }
 
-                    if document.isLargeFileMode {
-                        headerBadge("Large File", color: RetroPalette.chromeGold)
-                    }
+                        if document.isLargeFileMode {
+                            headerBadge("Large File", color: RetroPalette.chromeGold)
+                        }
 
-                    if let structuredBadge {
-                        headerBadge(structuredBadge.text, color: structuredBadge.color)
-                    }
-                }
-
-                Text(document.pathDescription)
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(RetroPalette.link)
-                    .textSelection(.enabled)
-            }
-
-            Spacer(minLength: 0)
-
-            if let structuredPresentationMode = document.availableStructuredPresentationMode {
-                Button {
-                    toggleStructuredPresentation(structuredPresentationMode)
-                } label: {
-                    headerControl(
-                        document.presentationMode == structuredPresentationMode ? "Raw Text" : structuredPresentationMode.displayName,
-                        systemImage: document.presentationMode == structuredPresentationMode ? "doc.text" : structuredPresentationMode.symbolName
-                    )
-                }
-                .buttonStyle(.plain)
-            }
-
-            Menu {
-                ForEach(DocumentLanguage.allCases) { language in
-                    Button(language.displayName) {
-                        appState.setLanguage(language)
-                    }
-                }
-            } label: {
-                headerControl(document.language.displayName, systemImage: document.language.symbolName)
-            }
-            .menuStyle(.borderlessButton)
-
-            Menu {
-                ForEach(EditorTheme.allCases) { theme in
-                    Button(theme.displayName) {
-                        appState.setTheme(theme)
-                    }
-                }
-            } label: {
-                headerControl(appState.settings.theme.displayName, systemImage: "paintpalette")
-            }
-            .menuStyle(.borderlessButton)
-
-            Menu {
-                ForEach(WorkspaceSecondaryPaneMode.allCases) { mode in
-                    Button(mode.displayName) {
-                        appState.setSecondaryPaneMode(mode)
-                    }
-                }
-
-                if appState.secondaryPaneMode == .secondDocument, !secondaryDocumentCandidates.isEmpty {
-                    Divider()
-
-                    ForEach(secondaryDocumentCandidates) { candidate in
-                        Button(candidate.displayName) {
-                            appState.setSecondaryDocument(candidate.id)
+                        if let structuredBadge {
+                            headerBadge(structuredBadge.text, color: structuredBadge.color)
                         }
                     }
-                }
-            } label: {
-                headerControl(splitControlTitle, systemImage: "rectangle.split.2x1")
-            }
-            .menuStyle(.borderlessButton)
 
-            Menu {
-                if let gitRepositorySummary = appState.gitRepositorySummary {
-                    Menu("Git Branches") {
-                        ForEach(appState.availableGitBranches, id: \.self) { branch in
-                            Button(branch) {
-                                appState.switchGitBranch(branch)
+                    Text(document.pathDescription)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(RetroPalette.link)
+                        .textSelection(.enabled)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    if let structuredPresentationMode = document.availableStructuredPresentationMode {
+                        Button {
+                            toggleStructuredPresentation(structuredPresentationMode)
+                        } label: {
+                            headerControl(
+                                document.presentationMode == structuredPresentationMode ? "Raw Text" : structuredPresentationMode.displayName,
+                                systemImage: document.presentationMode == structuredPresentationMode ? "doc.text" : structuredPresentationMode.symbolName
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    Menu {
+                        ForEach(DocumentLanguage.allCases) { language in
+                            Button(language.displayName) {
+                                appState.setLanguage(language)
                             }
                         }
+                    } label: {
+                        headerControl(document.language.displayName, systemImage: document.language.symbolName)
                     }
+                    .menuStyle(.borderlessButton)
 
-                    Button("Refresh Git Status") {
-                        appState.refreshGitStatus()
-                    }
-
-                    Button("Compare with Git HEAD") {
-                        appState.compareSelectedDocumentWithGitHead()
-                    }
-                    .disabled(document.fileURL == nil)
-
-                    Button("Stage Current File") {
-                        appState.stageSelectedFileInGit()
-                    }
-                    .disabled(document.fileURL == nil)
-
-                    Divider()
-
-                    Button("Git branch: \(gitRepositorySummary.branchName)") {}
-                        .disabled(true)
-                }
-
-                Menu("Encoding") {
-                    ForEach(String.Encoding.commonSaveEncodings, id: \.rawValue) { encoding in
-                        Button(encoding.displayName) {
-                            appState.setEncoding(encoding)
+                    Menu {
+                        ForEach(EditorTheme.allCases) { theme in
+                            Button(theme.displayName) {
+                                appState.setTheme(theme)
+                            }
                         }
+                    } label: {
+                        headerControl(appState.settings.theme.displayName, systemImage: "paintpalette")
                     }
-                }
+                    .menuStyle(.borderlessButton)
 
-                Menu("Line Endings") {
-                    ForEach(LineEnding.allCases, id: \.rawValue) { lineEnding in
-                        Button(lineEnding.label) {
-                            appState.setLineEnding(lineEnding)
+                    Menu {
+                        ForEach(WorkspaceSecondaryPaneMode.allCases) { mode in
+                            Button(mode.displayName) {
+                                appState.setSecondaryPaneMode(mode)
+                            }
                         }
+
+                        if appState.secondaryPaneMode == .secondDocument, !secondaryDocumentCandidates.isEmpty {
+                            Divider()
+
+                            ForEach(secondaryDocumentCandidates) { candidate in
+                                Button(candidate.displayName) {
+                                    appState.setSecondaryDocument(candidate.id)
+                                }
+                            }
+                        }
+                    } label: {
+                        headerControl(splitControlTitle, systemImage: "rectangle.split.2x1")
                     }
-                }
+                    .menuStyle(.borderlessButton)
 
-                Button(document.includesByteOrderMark ? "Disable BOM" : "Enable BOM") {
-                    appState.toggleByteOrderMark()
-                }
-                .disabled(!appState.canSave)
+                    Menu {
+                        if let gitRepositorySummary = appState.gitRepositorySummary {
+                            Menu("Git Branches") {
+                                ForEach(appState.availableGitBranches, id: \.self) { branch in
+                                    Button(branch) {
+                                        appState.switchGitBranch(branch)
+                                    }
+                                }
+                            }
 
-                Divider()
+                            Button("Refresh Git Status") {
+                                appState.refreshGitStatus()
+                            }
 
-                Button(appState.settings.showsOutline ? "Hide Outline" : "Show Outline") {
-                    appState.toggleOutlinePanel()
-                }
+                            Button("Compare with Git HEAD") {
+                                appState.compareSelectedDocumentWithGitHead()
+                            }
+                            .disabled(document.fileURL == nil)
 
-                Button(appState.settings.showsBreadcrumbs ? "Hide Breadcrumbs" : "Show Breadcrumbs") {
-                    appState.toggleBreadcrumbs()
-                }
+                            Button("Stage Current File") {
+                                appState.stageSelectedFileInGit()
+                            }
+                            .disabled(document.fileURL == nil)
 
-                Divider()
+                            Divider()
 
-                Button("Compare with Saved") {
-                    appState.showCompareAgainstSaved()
-                }
-                .disabled(!appState.canCompareSelectedDocument)
+                            Button("Git branch: \(gitRepositorySummary.branchName)") {}
+                                .disabled(true)
+                        }
 
-                Button("Workspace Sessions") {
-                    appState.showWorkspaceSessionsPanel()
-                }
+                        Menu("Encoding") {
+                            ForEach(String.Encoding.commonSaveEncodings, id: \.rawValue) { encoding in
+                                Button(encoding.displayName) {
+                                    appState.setEncoding(encoding)
+                                }
+                            }
+                        }
 
-                Button("Keyboard Shortcuts") {
-                    appState.showingKeyboardShortcuts = true
-                }
+                        Menu("Line Endings") {
+                            ForEach(LineEnding.allCases, id: \.rawValue) { lineEnding in
+                                Button(lineEnding.label) {
+                                    appState.setLineEnding(lineEnding)
+                                }
+                            }
+                        }
 
-                Divider()
+                        Button(document.includesByteOrderMark ? "Disable BOM" : "Enable BOM") {
+                            appState.toggleByteOrderMark()
+                        }
+                        .disabled(!appState.canSave)
 
-                if let structuredPresentationMode = document.availableStructuredPresentationMode {
-                    Button(document.presentationMode == structuredPresentationMode ? "Show Raw Text" : "Show \(structuredPresentationMode.displayName)") {
-                        toggleStructuredPresentation(structuredPresentationMode)
+                        Divider()
+
+                        Button(appState.settings.showsOutline ? "Hide Outline" : "Show Outline") {
+                            appState.toggleOutlinePanel()
+                        }
+
+                        Button(appState.settings.showsBreadcrumbs ? "Hide Breadcrumbs" : "Show Breadcrumbs") {
+                            appState.toggleBreadcrumbs()
+                        }
+
+                        Divider()
+
+                        Button("Compare with Saved") {
+                            appState.showCompareAgainstSaved()
+                        }
+                        .disabled(!appState.canCompareSelectedDocument)
+
+                        Button("Workspace Sessions") {
+                            appState.showWorkspaceSessionsPanel()
+                        }
+
+                        Button("Keyboard Shortcuts") {
+                            appState.showingKeyboardShortcuts = true
+                        }
+
+                        Divider()
+
+                        if let structuredPresentationMode = document.availableStructuredPresentationMode {
+                            Button(document.presentationMode == structuredPresentationMode ? "Show Raw Text" : "Show \(structuredPresentationMode.displayName)") {
+                                toggleStructuredPresentation(structuredPresentationMode)
+                            }
+                        }
+
+                        Button(document.followModeEnabled ? "Disable Follow Mode" : "Enable Follow Mode") {
+                            appState.toggleFollowMode()
+                        }
+                        .disabled(!appState.canFollowSelectedDocument)
+
+                        Button("Open in Terminal") {
+                            appState.openSelectedDocumentInTerminal()
+                        }
+                        .disabled(document.fileURL == nil && appState.projectSearchState.rootURL == nil)
+
+                        if appState.canPrivilegedSaveSelectedDocument {
+                            Button("Privileged Save") {
+                                appState.saveDocumentPrivileged()
+                            }
+                        }
+                    } label: {
+                        headerControl("Document", systemImage: "slider.horizontal.3")
                     }
-                }
+                    .menuStyle(.borderlessButton)
 
-                Button(document.followModeEnabled ? "Disable Follow Mode" : "Enable Follow Mode") {
-                    appState.toggleFollowMode()
-                }
-                .disabled(!appState.canFollowSelectedDocument)
-
-                Button("Open in Terminal") {
-                    appState.openSelectedDocumentInTerminal()
-                }
-                .disabled(document.fileURL == nil && appState.projectSearchState.rootURL == nil)
-
-                if appState.canPrivilegedSaveSelectedDocument {
-                    Button("Privileged Save") {
-                        appState.saveDocumentPrivileged()
+                    Button {
+                        appState.showGoToLine()
+                    } label: {
+                        headerControl("Go to Line", systemImage: "text.line.first.and.arrowtriangle.forward")
                     }
+                    .buttonStyle(.plain)
                 }
-            } label: {
-                headerControl("Document", systemImage: "slider.horizontal.3")
+                .padding(.horizontal, 1)
             }
-            .menuStyle(.borderlessButton)
-
-            Button {
-                appState.showGoToLine()
-            } label: {
-                headerControl("Go to Line", systemImage: "text.line.first.and.arrowtriangle.forward")
-            }
-            .buttonStyle(.plain)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
-        .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
+        .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromePink)
     }
 
     private var editorInsightBar: some View {
@@ -1234,8 +1268,8 @@ private struct DocumentWorkspaceView: View {
             .font(.system(size: 12, weight: .bold, design: .monospaced))
             .foregroundStyle(RetroPalette.ink)
             .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromeBlue)
+            .padding(.vertical, 7)
+            .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromeBlue)
     }
 
     private var structuredBadge: (text: String, color: Color)? {
@@ -1345,51 +1379,104 @@ private struct EmptyWorkspaceView: View {
         ZStack {
             RetroBackdropView()
 
-            VStack(spacing: 20) {
-                BrandMarkView(size: 84)
+            VStack(spacing: 18) {
+                BrandMarkView(size: 76)
 
                 VStack(spacing: 8) {
                     Text("ForgeText")
-                        .font(.system(size: 32, weight: .black, design: .monospaced))
-                        .tracking(1.2)
+                        .font(.system(size: 31, weight: .black, design: .monospaced))
+                        .tracking(1.1)
                         .foregroundStyle(RetroPalette.ink)
-                    Text("A native editor for plain text, code, logs, configs, archives, and whatever else lands on your Mac.")
-                        .font(.system(size: 14, weight: .medium, design: .monospaced))
+
+                    Text("A native developer workbench for text, code, logs, configs, Git, and AI-driven editing.")
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
                         .foregroundStyle(RetroPalette.link)
                         .multilineTextAlignment(.center)
-                        .frame(maxWidth: 500)
+                        .frame(maxWidth: 560)
                 }
 
-                HStack(spacing: 12) {
-                    Button("New Document") {
+                RetroSectionHeader(title: "Start Here", systemImage: "star.fill", accent: RetroPalette.chromePink)
+                    .frame(maxWidth: 560)
+
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2), spacing: 12) {
+                    heroAction("New Document", subtitle: "Start a fresh file", systemImage: "plus.square", tone: .accent) {
                         appState.newDocument()
                     }
-                    .buttonStyle(RetroActionButtonStyle(tone: .accent))
 
-                    Button("Open Files") {
+                    heroAction("Open Files", subtitle: "Browse local files", systemImage: "folder", tone: .primary) {
                         appState.openDocument()
                     }
-                    .buttonStyle(RetroActionButtonStyle(tone: .primary))
 
-                    Button("Clone Repo") {
+                    heroAction("Clone Repo", subtitle: "Pull a repository locally", systemImage: "square.and.arrow.down.on.square", tone: .primary) {
                         appState.showCloneRepositoryPanel()
                     }
-                    .buttonStyle(RetroActionButtonStyle(tone: .primary))
 
-                    Button("AI Workbench") {
+                    heroAction("AI Workbench", subtitle: "Chat, edit, and draft", systemImage: "sparkles.rectangle.stack", tone: .secondary) {
                         appState.showAIWorkbenchPanel()
                     }
-                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
 
-                    Button("Open Remote") {
+                    heroAction("Open Remote", subtitle: "Load over SSH-style paths", systemImage: "network", tone: .secondary) {
                         appState.openRemotePanel()
                     }
-                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+
+                    heroAction("Workspace Sessions", subtitle: "Resume a saved setup", systemImage: "square.stack.3d.up", tone: .secondary) {
+                        appState.showWorkspaceSessionsPanel()
+                    }
                 }
+                .frame(maxWidth: 560)
             }
             .padding(28)
-            .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
+            .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromePink)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func heroAction(
+        _ title: String,
+        subtitle: String,
+        systemImage: String,
+        tone: RetroActionButtonStyle.Tone,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 16, weight: .bold))
+                    .frame(width: 28, height: 28)
+                    .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromeBlue)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    Text(subtitle)
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(Color.primary.opacity(0.75))
+                }
+
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(RetroActionButtonStyle(tone: tone))
+    }
+}
+
+private struct FlowBadgeRow<Content: View>: View {
+    let content: Content
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 8) {
+                content
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                content
+            }
+        }
     }
 }

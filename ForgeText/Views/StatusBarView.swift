@@ -50,86 +50,93 @@ struct StatusBarView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            statusPill("Ln \(metrics.cursorLine), Col \(metrics.cursorColumn)")
-            statusPill("\(metrics.lineCount) lines")
-            statusPill("\(metrics.wordCount) words")
-            statusPill("\(metrics.characterCount) chars")
-            statusPill(document.language.displayName)
-            statusPill(document.encoding.displayName + (document.includesByteOrderMark ? " BOM" : ""))
-            statusPill(document.lineEnding.label)
-            statusPill(settings.wrapLines ? "Wrap On" : "Wrap Off")
-            statusPill(settings.theme.displayName)
+            RetroSectionHeader(title: "Status", accent: RetroPalette.chromeBlue)
+                .frame(width: 116)
 
-            if document.isLargeFileMode {
-                statusPill("Large File")
-            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    statusPill("Ln \(metrics.cursorLine), Col \(metrics.cursorColumn)", tone: .accent)
+                    statusPill("\(metrics.lineCount) lines")
+                    statusPill("\(metrics.wordCount) words")
+                    statusPill("\(metrics.characterCount) chars")
+                    statusPill(document.language.displayName, tone: .accent)
+                    statusPill(document.encoding.displayName + (document.includesByteOrderMark ? " BOM" : ""))
+                    statusPill(document.lineEnding.label)
+                    statusPill(settings.wrapLines ? "Wrap On" : "Wrap Off")
+                    statusPill(settings.theme.displayName)
 
-            if metrics.selectionLength > 0 {
-                statusPill("Sel \(metrics.selectionLength)")
-            }
+                    if document.isLargeFileMode {
+                        statusPill("Large File", tone: .warning)
+                    }
 
-            if document.isReadOnly {
-                statusPill("Read Only")
-            }
+                    if metrics.selectionLength > 0 {
+                        statusPill("Sel \(metrics.selectionLength)")
+                    }
 
-            if document.isPartialPreview {
-                statusPill("Preview")
-            }
+                    if document.isReadOnly {
+                        statusPill("Read Only", tone: .warning)
+                    }
 
-            if document.followModeEnabled {
-                statusPill("Follow")
-            }
+                    if document.isPartialPreview {
+                        statusPill("Preview", tone: .warning)
+                    }
 
-            if let fileSize = document.fileSize {
-                statusPill(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))
-            }
+                    if document.followModeEnabled {
+                        statusPill("Follow", tone: .success)
+                    }
 
-            if let csvTable {
-                statusPill("\(csvTable.rowCount) rows")
-                statusPill("\(csvTable.columnCount) cols")
-            }
+                    if let fileSize = document.fileSize {
+                        statusPill(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))
+                    }
 
-            if let jsonTree {
-                statusPill(jsonTree.topLevelType.displayName)
-                statusPill("\(jsonTree.nodeCount) nodes")
-            }
+                    if let csvTable {
+                        statusPill("\(csvTable.rowCount) rows")
+                        statusPill("\(csvTable.columnCount) cols")
+                    }
 
-            if let logDocument {
-                statusPill("\(logDocument.entryCount) entries")
+                    if let jsonTree {
+                        statusPill(jsonTree.topLevelType.displayName)
+                        statusPill("\(jsonTree.nodeCount) nodes")
+                    }
 
-                if logDocument.warningCount > 0 {
-                    statusPill("\(logDocument.warningCount) warnings")
+                    if let logDocument {
+                        statusPill("\(logDocument.entryCount) entries")
+
+                        if logDocument.warningCount > 0 {
+                            statusPill("\(logDocument.warningCount) warnings", tone: .warning)
+                        }
+
+                        if logDocument.errorCount > 0 {
+                            statusPill("\(logDocument.errorCount) errors", tone: .danger)
+                        }
+                    }
+
+                    if let httpRequestDocument {
+                        statusPill("\(httpRequestDocument.requests.count) requests")
+                    }
+
+                    ForEach(pluginStatusItems) { item in
+                        statusPill(item.text, tone: item.tone)
+                    }
                 }
-
-                if logDocument.errorCount > 0 {
-                    statusPill("\(logDocument.errorCount) errors")
-                }
             }
-
-            if let httpRequestDocument {
-                statusPill("\(httpRequestDocument.requests.count) requests")
-            }
-
-            ForEach(pluginStatusItems) { item in
-                statusPill(item.text, tone: item.tone)
-            }
-
             Spacer(minLength: 0)
 
             if let statusSummary = document.statusSummary {
                 Text(statusSummary)
                     .foregroundStyle(RetroPalette.link)
                     .lineLimit(1)
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
             }
         }
-        .font(.system(size: 11, weight: .medium, design: .monospaced))
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
-        .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromeBlue)
+        .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromeBlue)
     }
 
     private func statusPill(_ text: String, tone: PluginStatusTone = .neutral) -> some View {
         Text(text)
+            .font(.system(size: 11, weight: .bold, design: .monospaced))
             .foregroundStyle(RetroPalette.ink)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)

@@ -416,3 +416,15 @@ struct AIWorkbenchCommands: Commands {
         }
     }
 }
+
+struct UpdateCommands: Commands {
+    @ObservedObject var updateController: AppUpdateController
+
+    var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates...") {
+                updateController.checkForUpdates()
+            }
+        }
+    }
+}

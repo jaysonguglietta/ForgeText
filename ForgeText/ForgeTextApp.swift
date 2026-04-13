@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct ForgeTextApp: App {
     @NSApplicationDelegateAdaptor(ApplicationDelegate.self) private var applicationDelegate
+    @StateObject private var appUpdateController = AppUpdateController()
 
     var body: some Scene {
         WindowGroup("ForgeText") {
@@ -14,6 +15,7 @@ struct ForgeTextApp: App {
         }
         .defaultSize(width: 1120, height: 760)
         .commands {
+            UpdateCommands(updateController: appUpdateController)
             FileEditorCommands(appState: applicationDelegate.appState)
             AIWorkbenchCommands(appState: applicationDelegate.appState)
             TextEditingCommands()

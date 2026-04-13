@@ -62,6 +62,7 @@ ForgeText 1.0 centers around twenty core capabilities:
 
 - Finder/open-document handling for supported file types
 - Clone GitHub or other Git repositories directly into a local workspace folder
+- Public-release update scaffolding with a built-in `Check for Updates...` command backed by Sparkle
 - Local release build/install workflow for `/Applications`
 - Workspace explorer with favorites and file filtering
 - Embedded terminal console inside ForgeText
@@ -213,3 +214,4 @@ ForgeText is now in a credible 1.0 state. The next meaningful pushes are about d
 
 - [ROADMAP.md](/Users/jaysonguglietta/SynologyDrive/Drive/apps/texteditor/docs/ROADMAP.md): product roadmap and release priorities
 - [UI_WORKBENCH_PLAN.md](/Users/jaysonguglietta/SynologyDrive/Drive/apps/texteditor/docs/UI_WORKBENCH_PLAN.md): UI direction and workbench plan
+- [UPDATES.md](/Users/jaysonguglietta/SynologyDrive/Drive/apps/texteditor/docs/UPDATES.md): GitHub Pages + Sparkle release update setup

@@ -111,5 +111,9 @@
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>SUFeedURL</key>
+	<string>https://jaysonguglietta.github.io/ForgeText/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>vrKiecVpUJhPk1ztk0LAUAYaKlyzoCAAyBFMXE29JrY=</string>
 </dict>
 </plist>

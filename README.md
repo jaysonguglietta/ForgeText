@@ -4,6 +4,18 @@ ForgeText is a native macOS text editor built for serious text work: plain text,
 
 The app uses `NSTextView` under SwiftUI for mature macOS editing behavior, but the current shell is intentionally styled like a late-90s web workbench: beveled panels, bright portal accents, monospaced chrome, and a retro control surface wrapped around a native editor core.
 
+## Current version
+
+- Current tagged release: `V1.0.1`
+- Current app bundle version in the local build: `1.0 (1)`
+
+## What's new in V1.0.1
+
+- Git branch, changed-file, and stash refresh now run through async Git workspace snapshots instead of blocking SwiftUI view layout on the main thread
+- This specifically hardens the editor against crashes while rendering Git-heavy menus and workspace chrome
+- ForgeText now includes a dedicated `./Scripts/build_release_dmg.sh` packaging flow for GitHub Releases
+- The release and updater docs now explain the recommended DMG-plus-GitHub-Releases distribution path more clearly
+
 ## ForgeText 1.0 workbench
 
 ForgeText 1.0 centers around twenty core capabilities:
@@ -200,7 +212,7 @@ You can reveal it in Finder with:
 Recommended distribution flow:
 
 1. Build the DMG with `./Scripts/build_release_dmg.sh`
-2. Create a GitHub Release such as `v1.0.0`
+2. Create a GitHub Release such as `V1.0.1`
 3. Upload the DMG as a release asset
 4. Point Sparkle's appcast entry at that release asset URL
 

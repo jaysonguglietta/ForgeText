@@ -178,7 +178,6 @@ Notes:
 
 ## Public GitHub download flow
 
-If you want people to download ForgeText from GitHub, use a GitHub Release asset instead of committing a DMG into the repository history.
 
 Build a GitHub Release-ready DMG with:
 

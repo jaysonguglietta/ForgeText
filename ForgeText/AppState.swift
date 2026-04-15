@@ -121,6 +121,7 @@ final class AppState: ObservableObject {
     @Published var testExplorerState = TestExplorerState()
     @Published var aiWorkbenchState = AIWorkbenchState()
     @Published var gitRepositorySummary: GitRepositorySummary?
+    @Published var availableGitBranches: [String] = []
     @Published var workspaceExplorerState = WorkspaceExplorerState()
     @Published var terminalPanelState = EmbeddedTerminalPanelState()
     @Published var remoteWorkspaceState = RemoteWorkspaceState()
@@ -131,10 +132,12 @@ final class AppState: ObservableObject {
     private var autosaveTask: Task<Void, Never>?
     private var sessionSaveTask: Task<Void, Never>?
     private var projectSearchTask: Task<Void, Never>?
+    private var gitRefreshTask: Task<Void, Never>?
     private var fileMonitorTimer: Timer?
     private var untitledCounter = 1
     private let hadUncleanShutdown: Bool
     private var gitBlameCache: [String: GitBlameInfo] = [:]
+    private var gitRefreshGeneration = 0
 
     init() {
         var loadedSettings = AppSettingsStore.load()
@@ -273,10 +276,6 @@ final class AppState: ObservableObject {
 
     var activeWorkspaceURL: URL? {
         projectSearchState.rootURL ?? selectedDocument?.fileURL?.deletingLastPathComponent()
-    }
-
-    var availableGitBranches: [String] {
-        GitService.branches(for: activeWorkspaceURL)
     }
 
     func inlineDiagnostics(for document: EditorDocument) -> [PluginDiagnostic] {
@@ -1404,21 +1403,51 @@ final class AppState: ObservableObject {
     }
 
     func refreshGitStatus() {
-        refreshPluginWorkspaceState()
-        refreshGitWorkbench()
-
-        if gitRepositorySummary == nil {
-            alertContext = AlertContext(
-                title: "No Git Repository",
-                message: "ForgeText couldn’t find a Git repository for the current workspace or document."
-            )
-        }
+        refreshPluginWorkspaceState(showNoGitAlert: true)
     }
 
-    func refreshGitWorkbench() {
-        gitPanelState.changedFiles = GitService.changedFiles(for: activeWorkspaceURL)
-        gitPanelState.stashes = GitService.stashes(for: activeWorkspaceURL)
-        gitRepositorySummary = GitService.summary(for: activeWorkspaceURL)
+    func refreshGitWorkbench(showNoRepositoryAlert: Bool = false) {
+        gitRefreshTask?.cancel()
+        gitRefreshGeneration += 1
+        let generation = gitRefreshGeneration
+        let workspaceURL = activeWorkspaceURL
+
+        guard workspaceURL != nil else {
+            gitRepositorySummary = nil
+            availableGitBranches = []
+            gitPanelState.changedFiles = []
+            gitPanelState.stashes = []
+
+            if showNoRepositoryAlert {
+                alertContext = AlertContext(
+                    title: "No Git Repository",
+                    message: "ForgeText couldn’t find a Git repository for the current workspace or document."
+                )
+            }
+            return
+        }
+
+        gitRefreshTask = Task.detached(priority: .userInitiated) { [weak self] in
+            let snapshot = GitService.snapshot(for: workspaceURL)
+
+            await MainActor.run {
+                guard let self, self.gitRefreshGeneration == generation else {
+                    return
+                }
+
+                self.gitRepositorySummary = snapshot.summary
+                self.availableGitBranches = snapshot.branches
+                self.gitPanelState.changedFiles = snapshot.changedFiles
+                self.gitPanelState.stashes = snapshot.stashes
+
+                if showNoRepositoryAlert, snapshot.summary == nil {
+                    self.alertContext = AlertContext(
+                        title: "No Git Repository",
+                        message: "ForgeText couldn’t find a Git repository for the current workspace or document."
+                    )
+                }
+            }
+        }
     }
 
     func openGitChangedFile(_ file: GitChangedFile) {
@@ -3068,7 +3097,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func refreshPluginWorkspaceState() {
+    private func refreshPluginWorkspaceState(showNoGitAlert: Bool = false) {
         pluginCatalog = PluginHostService.installedPlugins(workspaceRoot: activeWorkspaceURL)
         let externalPluginTasks = enabledPlugins.flatMap(\.tasks)
         pluginTaskState.tasks = WorkspaceTaskService.detectTasks(rootURL: activeWorkspaceURL) + externalPluginTasks
@@ -3087,8 +3116,7 @@ final class AppState: ObservableObject {
             testExplorerState.selectedTaskID = availableTestTasks.first?.id
         }
 
-        gitRepositorySummary = GitService.summary(for: activeWorkspaceURL)
-        refreshGitWorkbench()
+        refreshGitWorkbench(showNoRepositoryAlert: showNoGitAlert)
         refreshWorkspaceExplorer()
     }
 

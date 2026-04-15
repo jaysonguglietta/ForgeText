@@ -1,6 +1,20 @@
 import Foundation
 
 enum GitService {
+    struct GitWorkspaceSnapshot {
+        let summary: GitRepositorySummary?
+        let branches: [String]
+        let changedFiles: [GitChangedFile]
+        let stashes: [GitStashEntry]
+
+        static let empty = GitWorkspaceSnapshot(
+            summary: nil,
+            branches: [],
+            changedFiles: [],
+            stashes: []
+        )
+    }
+
     enum GitError: LocalizedError {
         case repositoryNotFound
         case fileOutsideRepository
@@ -32,14 +46,7 @@ enum GitService {
             return nil
         }
 
-        guard let output = try? CommandExecutionService.runString(
-            "/usr/bin/git",
-            arguments: ["-C", rootURL.path, "status", "--short", "--branch"]
-        ) else {
-            return nil
-        }
-
-        return parseStatusOutput(output, rootURL: rootURL)
+        return summary(repositoryRoot: rootURL)
     }
 
     static func headContents(for fileURL: URL, workspaceRoot: URL?) throws -> String {
@@ -130,18 +137,7 @@ enum GitService {
             return []
         }
 
-        guard let output = try? CommandExecutionService.runString(
-            "/usr/bin/git",
-            arguments: ["-C", repositoryRoot.path, "branch", "--format=%(refname:short)"]
-        ) else {
-            return []
-        }
-
-        return output
-            .split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .sorted()
+        return branches(repositoryRoot: repositoryRoot)
     }
 
     static func checkout(branch: String, at location: URL?) throws {
@@ -184,66 +180,32 @@ enum GitService {
     }
 
     static func changedFiles(for location: URL?) -> [GitChangedFile] {
-        guard let repositoryRoot = repositoryRoot(containing: location),
-              let output = try? CommandExecutionService.runString(
-                  "/usr/bin/git",
-                  arguments: ["-C", repositoryRoot.path, "status", "--porcelain=v1"]
-              )
-        else {
+        guard let repositoryRoot = repositoryRoot(containing: location) else {
             return []
         }
 
-        return output
-            .split(whereSeparator: \.isNewline)
-            .compactMap { line in
-                let value = String(line)
-                guard value.count >= 3 else {
-                    return nil
-                }
-
-                let characters = Array(value)
-                let indexStatus = String(characters[0])
-                let workTreeStatus = String(characters[1])
-                let rawPath = String(value.dropFirst(3))
-                let resolvedPath = rawPath.contains(" -> ")
-                    ? String(rawPath.split(separator: ">", maxSplits: 1).last?.trimmingCharacters(in: .whitespacesAndNewlines) ?? rawPath)
-                    : rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
-                let absoluteURL = repositoryRoot.appendingPathComponent(resolvedPath)
-
-                return GitChangedFile(
-                    id: resolvedPath,
-                    relativePath: resolvedPath,
-                    absoluteURL: absoluteURL,
-                    indexStatus: indexStatus,
-                    workTreeStatus: workTreeStatus
-                )
-            }
+        return changedFiles(repositoryRoot: repositoryRoot)
     }
 
     static func stashes(for location: URL?) -> [GitStashEntry] {
-        guard let repositoryRoot = repositoryRoot(containing: location),
-              let output = try? CommandExecutionService.runString(
-                  "/usr/bin/git",
-                  arguments: ["-C", repositoryRoot.path, "stash", "list"]
-              )
-        else {
+        guard let repositoryRoot = repositoryRoot(containing: location) else {
             return []
         }
 
-        return output
-            .split(whereSeparator: \.isNewline)
-            .compactMap { line in
-                let value = String(line)
-                let parts = value.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
-                guard parts.count >= 3 else {
-                    return nil
-                }
-                return GitStashEntry(
-                    id: String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines),
-                    name: String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines),
-                    summary: String(parts[2]).trimmingCharacters(in: .whitespacesAndNewlines)
-                )
-            }
+        return stashes(repositoryRoot: repositoryRoot)
+    }
+
+    static func snapshot(for location: URL?) -> GitWorkspaceSnapshot {
+        guard let repositoryRoot = repositoryRoot(containing: location) else {
+            return .empty
+        }
+
+        return GitWorkspaceSnapshot(
+            summary: summary(repositoryRoot: repositoryRoot),
+            branches: branches(repositoryRoot: repositoryRoot),
+            changedFiles: changedFiles(repositoryRoot: repositoryRoot),
+            stashes: stashes(repositoryRoot: repositoryRoot)
+        )
     }
 
     static func fetch(at location: URL?) throws {
@@ -367,6 +329,91 @@ enum GitService {
         }
 
         return URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    private static func summary(repositoryRoot: URL) -> GitRepositorySummary? {
+        guard let output = try? CommandExecutionService.runString(
+            "/usr/bin/git",
+            arguments: ["-C", repositoryRoot.path, "status", "--short", "--branch"]
+        ) else {
+            return nil
+        }
+
+        return parseStatusOutput(output, rootURL: repositoryRoot)
+    }
+
+    private static func branches(repositoryRoot: URL) -> [String] {
+        guard let output = try? CommandExecutionService.runString(
+            "/usr/bin/git",
+            arguments: ["-C", repositoryRoot.path, "branch", "--format=%(refname:short)"]
+        ) else {
+            return []
+        }
+
+        return output
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .sorted()
+    }
+
+    private static func changedFiles(repositoryRoot: URL) -> [GitChangedFile] {
+        guard let output = try? CommandExecutionService.runString(
+            "/usr/bin/git",
+            arguments: ["-C", repositoryRoot.path, "status", "--porcelain=v1"]
+        ) else {
+            return []
+        }
+
+        return output
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line in
+                let value = String(line)
+                guard value.count >= 3 else {
+                    return nil
+                }
+
+                let characters = Array(value)
+                let indexStatus = String(characters[0])
+                let workTreeStatus = String(characters[1])
+                let rawPath = String(value.dropFirst(3))
+                let resolvedPath = rawPath.contains(" -> ")
+                    ? String(rawPath.split(separator: ">", maxSplits: 1).last?.trimmingCharacters(in: .whitespacesAndNewlines) ?? rawPath)
+                    : rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+                let absoluteURL = repositoryRoot.appendingPathComponent(resolvedPath)
+
+                return GitChangedFile(
+                    id: resolvedPath,
+                    relativePath: resolvedPath,
+                    absoluteURL: absoluteURL,
+                    indexStatus: indexStatus,
+                    workTreeStatus: workTreeStatus
+                )
+            }
+    }
+
+    private static func stashes(repositoryRoot: URL) -> [GitStashEntry] {
+        guard let output = try? CommandExecutionService.runString(
+            "/usr/bin/git",
+            arguments: ["-C", repositoryRoot.path, "stash", "list"]
+        ) else {
+            return []
+        }
+
+        return output
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line in
+                let value = String(line)
+                let parts = value.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+                guard parts.count >= 3 else {
+                    return nil
+                }
+                return GitStashEntry(
+                    id: String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines),
+                    name: String(parts[1]).trimmingCharacters(in: .whitespacesAndNewlines),
+                    summary: String(parts[2]).trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
     }
 
     private static func relativePath(for fileURL: URL, repositoryRoot: URL) throws -> String {

@@ -7,8 +7,8 @@ ForgeText uses Sparkle for direct-download macOS updates.
 The intended public update flow is:
 
 1. Publish a signed `Release` build of `ForgeText.app`
-2. Package it as a `.dmg` or `.zip`
-3. Upload that archive to a GitHub Release
+2. Package it as a `.dmg` for GitHub Releases
+3. Upload that DMG to a GitHub Release
 4. Generate a Sparkle appcast that points at the release asset URL
 5. Host the appcast on GitHub Pages
 6. Let ForgeText's built-in `Check for Updates...` command query that feed
@@ -36,16 +36,25 @@ The intended public update flow is:
 
 ## Publishing a release
 
-1. Build the app in `Release`
-2. Package the app as a signed and notarized `.dmg` or `.zip`
-3. Put the archive in a folder with all historical release archives
-4. Run Sparkle's `generate_appcast` against that folder
-5. Upload:
-   - the release archive
-   - any generated delta files
-   - the generated `appcast.xml`
+1. Build the GitHub Release archive:
+
+   ```bash
+   ./Scripts/build_release_dmg.sh
+   ```
+
+2. Create a GitHub Release such as `v1.0.0`
+3. Upload the generated `dist/ForgeText-<version>-<build>.dmg` as a release asset
+4. Put the DMG, and any historical release archives you want Sparkle to know about, in a local staging folder
+5. Run Sparkle's `generate_appcast` against that folder
 6. Replace the placeholder `docs/appcast.xml` in this repo with the generated appcast
 7. Push the updated `docs/appcast.xml` so GitHub Pages serves it
+
+## Why DMG + GitHub Releases
+
+- A DMG gives macOS users the familiar drag-to-Applications install flow
+- GitHub Releases is the right home for distributable binaries
+- Keeping DMGs out of git history keeps the repository smaller and cleaner
+- Sparkle can point directly at the same GitHub Release asset URL that users download manually
 
 ## Notes
 

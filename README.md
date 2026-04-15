@@ -176,6 +176,41 @@ Notes:
 - It skips DMG packaging and Apple notarization.
 - The installed app lives at `/Applications/ForgeText.app` when `--install` is used.
 
+## Public GitHub download flow
+
+If you want people to download ForgeText from GitHub, use a GitHub Release asset instead of committing a DMG into the repository history.
+
+Build a GitHub Release-ready DMG with:
+
+```bash
+./Scripts/build_release_dmg.sh
+```
+
+That writes a versioned DMG to:
+
+```text
+dist/ForgeText-1.0-1.dmg
+```
+
+You can reveal it in Finder with:
+
+```bash
+./Scripts/build_release_dmg.sh --open
+```
+
+Recommended distribution flow:
+
+1. Build the DMG with `./Scripts/build_release_dmg.sh`
+2. Create a GitHub Release such as `v1.0.0`
+3. Upload the DMG as a release asset
+4. Point Sparkle's appcast entry at that release asset URL
+
+Notes:
+
+- Use GitHub Releases for downloadable binaries; do not commit generated DMGs to `main`
+- For public distribution, the app and DMG should eventually be Developer ID signed and notarized
+- The updater feed lives at `https://jaysonguglietta.github.io/ForgeText/appcast.xml`
+
 ## Testing
 
 Build verification from the terminal:

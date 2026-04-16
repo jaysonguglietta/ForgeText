@@ -9,6 +9,7 @@ struct ContentView: View {
         } detail: {
             if let document = appState.selectedDocument, let metrics = appState.selectedMetrics {
                 DocumentWorkspaceView(appState: appState, document: document, metrics: metrics)
+                    .id(document.id)
             } else {
                 EmptyWorkspaceView(appState: appState)
             }

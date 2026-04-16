@@ -33,6 +33,9 @@ struct ContentView: View {
         .sheet(isPresented: $appState.showingRemoteOpen) {
             RemoteOpenView(appState: appState)
         }
+        .sheet(isPresented: $appState.showingWorkspacePlatform) {
+            WorkspacePlatformView(appState: appState)
+        }
         .sheet(isPresented: $appState.showingProblemsPanel) {
             ProblemsPanelView(appState: appState)
         }
@@ -204,6 +207,18 @@ private struct DocumentSidebarView: View {
                     }
 
                     sidebarSection("Workspace") {
+                        Button {
+                            appState.showWorkspacePlatformPanel()
+                        } label: {
+                            fileCard(
+                                title: "Workspace Center",
+                                subtitle: "\(appState.workspaceRootURLs.count) roots • \(appState.workspaceTrustMode.displayName.lowercased()) mode",
+                                symbolName: "square.3.layers.3d"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open workspace center")
+
                         Button {
                             appState.chooseWorkspaceRoot()
                         } label: {
@@ -703,6 +718,12 @@ private struct DocumentWorkspaceView: View {
                 }
 
                 Button {
+                    appState.showWorkspacePlatformPanel()
+                } label: {
+                    Label("Workspace", systemImage: "square.3.layers.3d")
+                }
+
+                Button {
                     appState.showTaskRunnerPanel()
                 } label: {
                     Label("Tasks", systemImage: "play.square.stack")
@@ -743,6 +764,10 @@ private struct DocumentWorkspaceView: View {
 
                         if document.isLargeFileMode {
                             headerBadge("Large File", color: RetroPalette.chromeGold)
+                        }
+
+                        if appState.workspaceTrustMode == .restricted {
+                            headerBadge("Restricted", color: RetroPalette.warning)
                         }
 
                         if let structuredBadge {
@@ -817,6 +842,12 @@ private struct DocumentWorkspaceView: View {
                     .menuStyle(.borderlessButton)
 
                     Menu {
+                        Button("Workspace Center") {
+                            appState.showWorkspacePlatformPanel()
+                        }
+
+                        Divider()
+
                         if let gitRepositorySummary = appState.gitRepositorySummary {
                             Menu("Git Branches") {
                                 ForEach(appState.availableGitBranches, id: \.self) { branch in

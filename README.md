@@ -81,6 +81,16 @@ ForgeText 1.0 centers around twenty core capabilities:
 - Terminal handoff, workspace sessions, recent files, and recent remote locations
 - Remote file open, remote grep, and remote command execution over SSH-style connections
 
+### Workspace platform
+
+- Workspace Center for managing active roots, trust mode, saved profiles, sync bundles, and registry sources
+- Multi-root workspaces with `.forgetext-workspace` files, active-root switching, and session restore
+- Workspace Trust / Restricted Mode so tasks, AI actions, remote commands, and external plugins can be gated in safer folders
+- Saved workspace profiles for theme, font, plugin, explorer, and AI context preferences
+- Portable mode support through a sibling `ForgeTextData` directory or `FORGETEXT_PORTABLE_DATA_DIR`
+- Sync bundle export/import for settings, workspace sessions, and AI sessions
+- Curated plus custom plugin registries with install, remove, enable, disable, and refresh flows
+
 ### IDE and plugin features
 
 - Built-in plugin manager with enable/disable controls for first-party IDE extensions
@@ -88,10 +98,10 @@ ForgeText 1.0 centers around twenty core capabilities:
 - Plugin-backed snippet library for JSON, Markdown, Swift, shell, Python, JavaScript, XML, SQL, CSS, and config files
 - Workspace task runner that detects SwiftPM, npm, Python, and Make-based build/test/lint commands
 - Problems panel with compiler-style output matching for build, test, lint, and terminal output
-- Test explorer for running detected test tasks and reviewing the latest run
+- Test explorer for running detected test tasks, coverage-aware runs, and reviewing the latest run
 - Lightweight diagnostics for malformed JSON/XML/CSV/config/HTTP files plus TODO/FIXME markers
 - Secret-aware warnings for private keys, bearer tokens, and likely credentials
-- Git-aware status pills, repository cloning, fetch/pull/push, commit drafting, branch creation, stash flows, compare-with-HEAD, and diff-gutter markers
+- Git-aware status pills, repository cloning, fetch/pull/push, commit drafting, branch creation, stash flows, compare-with-HEAD, diff-gutter markers, recent graph history, remotes, and merge-conflict resolution helpers
 - Inline editor insight bar for current-line diagnostics and Git blame context
 - Format-document support for JSON, XML, HTTP, and toolchain-backed language formatting when available
 
@@ -102,6 +112,12 @@ ForgeText 1.0 centers around twenty core capabilities:
 - Chat sessions with reusable prompts, provider/model switching, and response history
 - Quick AI actions for explain, improve, generate tests, summarize file, and draft commit message
 - Insert-at-cursor and replace-selection flows from the latest AI response
+
+### CLI
+
+- `Scripts/forgetext` launcher for opening ForgeText from Terminal
+- Supports workspace files, profile selection, diff mode, and `file:line` shortcuts
+- Simple file/folder opens route through macOS `open`; advanced flags launch ForgeText with direct CLI arguments
 
 ## Retro UI direction
 
@@ -120,7 +136,7 @@ This is not a temporary joke skin. It is now part of the product direction for t
 - `project.yml`: XcodeGen project definition
 - `ForgeText/`: application source
 - `ForgeTextTests/`: unit tests
-- `Scripts/`: helper scripts for app icon generation, local release builds, and utility tasks
+- `Scripts/`: helper scripts for app icon generation, local release builds, DMG packaging, the `forgetext` CLI launcher, and utility tasks
 - `docs/`: product and UI planning docs
 
 ## Build and run
@@ -187,6 +203,44 @@ Notes:
 - This workflow is for local use on your own Mac.
 - It skips DMG packaging and Apple notarization.
 - The installed app lives at `/Applications/ForgeText.app` when `--install` is used.
+
+## CLI launcher
+
+Once ForgeText is built or installed, you can launch it from Terminal with:
+
+```bash
+./Scripts/forgetext
+```
+
+Open a file:
+
+```bash
+./Scripts/forgetext ~/projects/app/README.md
+```
+
+Jump to a line:
+
+```bash
+./Scripts/forgetext ~/projects/app/Sources/main.swift:42
+```
+
+Open a saved multi-root workspace:
+
+```bash
+./Scripts/forgetext --workspace ~/projects/ops.forgetext-workspace
+```
+
+Open a side-by-side compare:
+
+```bash
+./Scripts/forgetext --diff left.txt right.txt
+```
+
+If you keep ForgeText somewhere other than `/Applications`, point the launcher at it with:
+
+```bash
+FORGETEXT_APP=/path/to/ForgeText.app ./Scripts/forgetext --help
+```
 
 ## Public GitHub download flow
 

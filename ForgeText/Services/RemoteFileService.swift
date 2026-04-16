@@ -16,16 +16,30 @@ enum RemoteFileService {
     }
 
     static func open(spec: String) throws -> EditorDocument {
+        try open(spec: spec, mode: .directShell)
+    }
+
+    static func open(spec: String, mode: RemoteExecutionMode) throws -> EditorDocument {
         guard let reference = RemoteFileReference.parse(spec) else {
             throw RemoteError.invalidLocation
         }
 
-        return try open(reference: reference)
+        return try open(reference: reference, mode: mode)
     }
 
     static func open(reference: RemoteFileReference) throws -> EditorDocument {
-        let command = "cat -- \(CommandExecutionService.shellQuote(reference.path))"
-        let output = try CommandExecutionService.runString("/usr/bin/ssh", arguments: [reference.connection, command])
+        try open(reference: reference, mode: .directShell)
+    }
+
+    static func open(reference: RemoteFileReference, mode: RemoteExecutionMode) throws -> EditorDocument {
+        let output: String
+        switch mode {
+        case .directShell:
+            let command = "cat -- \(CommandExecutionService.shellQuote(reference.path))"
+            output = try CommandExecutionService.runString("/usr/bin/ssh", arguments: [reference.connection, command])
+        case .remoteAgent:
+            output = try RemoteAgentService.readFile(connection: reference.connection, path: reference.path)
+        }
         return EditorDocument.remote(reference: reference, text: output)
     }
 
@@ -40,10 +54,18 @@ enum RemoteFileService {
     }
 
     static func search(connection: String, rootPath: String, query: String) throws -> [RemoteSearchHit] {
+        try search(connection: connection, rootPath: rootPath, query: query, mode: .directShell)
+    }
+
+    static func search(connection: String, rootPath: String, query: String, mode: RemoteExecutionMode) throws -> [RemoteSearchHit] {
         let trimmedRoot = rootPath.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedRoot.isEmpty, !trimmedQuery.isEmpty else {
             throw RemoteError.invalidSearchRoot
+        }
+
+        if mode == .remoteAgent {
+            return try RemoteAgentService.search(connection: connection, rootPath: trimmedRoot, query: trimmedQuery)
         }
 
         let command = """
@@ -69,6 +91,15 @@ enum RemoteFileService {
     }
 
     static func run(connection: String, command: String) throws -> CommandExecutionService.CommandResult {
-        try CommandExecutionService.execute("/usr/bin/ssh", arguments: [connection, command])
+        try run(connection: connection, command: command, mode: .directShell)
+    }
+
+    static func run(connection: String, command: String, mode: RemoteExecutionMode) throws -> CommandExecutionService.CommandResult {
+        switch mode {
+        case .directShell:
+            return try CommandExecutionService.execute("/usr/bin/ssh", arguments: [connection, command])
+        case .remoteAgent:
+            return try RemoteAgentService.run(connection: connection, command: command)
+        }
     }
 }

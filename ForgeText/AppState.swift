@@ -18,6 +18,9 @@ final class AppState: ObservableObject {
     enum PaletteAction {
         case newDocument
         case openDocuments
+        case openWorkspaceFile
+        case saveWorkspaceFile
+        case showWorkspacePlatform
         case cloneRepository
         case openRemote
         case openRemoteSpec(String)
@@ -56,9 +59,14 @@ final class AppState: ObservableObject {
         case refreshWorkspaceExplorer
         case runPrimaryWorkspaceTask(PluginTaskRole)
         case runWorkspaceTask(String)
+        case runCoverageTask
         case insertSnippet(String)
         case exportSettings
         case importSettings
+        case exportSyncBundle
+        case importSyncBundle
+        case trustWorkspace
+        case restrictWorkspace
         case toggleWrapLines
         case toggleOutline
         case toggleBreadcrumbs
@@ -100,6 +108,7 @@ final class AppState: ObservableObject {
     @Published var showingProblemsPanel = false
     @Published var showingTestExplorer = false
     @Published var showingAIWorkbench = false
+    @Published var showingWorkspacePlatform = false
     @Published var showingWorkspaceSessions = false
     @Published var showingKeyboardShortcuts = false
     @Published var showingPluginManager = false
@@ -125,6 +134,7 @@ final class AppState: ObservableObject {
     @Published var workspaceExplorerState = WorkspaceExplorerState()
     @Published var terminalPanelState = EmbeddedTerminalPanelState()
     @Published var remoteWorkspaceState = RemoteWorkspaceState()
+    @Published var workspacePlatformState = WorkspacePlatformState()
     @Published private var pluginCatalog: [EditorPlugin] = PluginHostService.builtInPlugins
     @Published private var documentDiagnosticsByID: [UUID: [PluginDiagnostic]] = [:]
 
@@ -138,6 +148,7 @@ final class AppState: ObservableObject {
     private let hadUncleanShutdown: Bool
     private var gitBlameCache: [String: GitBlameInfo] = [:]
     private var gitRefreshGeneration = 0
+    private var processedLaunchArguments = false
 
     init() {
         var loadedSettings = AppSettingsStore.load()
@@ -159,6 +170,7 @@ final class AppState: ObservableObject {
         restoreWorkspace()
         startFileMonitoring()
         refreshPluginWorkspaceState()
+        refreshWorkspacePlatformState()
 
         if hadUncleanShutdown, documents.contains(where: \.hasRecoveredDraft) {
             alertContext = AlertContext(
@@ -241,8 +253,11 @@ final class AppState: ObservableObject {
     }
 
     var enabledPlugins: [EditorPlugin] {
-        let enabledIDs = PluginHostService.normalizedEnabledPluginIDs(from: settings, installedPlugins: pluginCatalog)
-        return pluginCatalog.filter { enabledIDs.contains($0.id) }
+        PluginHostService.enabledPlugins(
+            using: settings,
+            workspaceRoots: workspaceRootURLs,
+            trustMode: workspaceTrustMode
+        )
     }
 
     var selectedPluginTask: EditorPluginTask? {
@@ -274,8 +289,45 @@ final class AppState: ObservableObject {
         return aiWorkbenchState.sessions.first(where: { $0.id == selectedSessionID }) ?? aiWorkbenchState.sessions.first
     }
 
+    var workspaceRootURLs: [URL] {
+        let explicitRoots = workspacePlatformState.rootPaths.map { URL(fileURLWithPath: $0, isDirectory: true) }
+        if !explicitRoots.isEmpty {
+            return WorkspacePlatformService.normalizedRootURLs(from: explicitRoots)
+        }
+
+        if let rootURL = projectSearchState.rootURL?.standardizedFileURL {
+            return [rootURL]
+        }
+
+        if let documentRoot = selectedDocument?.fileURL?.deletingLastPathComponent() {
+            return [documentRoot]
+        }
+
+        return []
+    }
+
     var activeWorkspaceURL: URL? {
-        projectSearchState.rootURL ?? selectedDocument?.fileURL?.deletingLastPathComponent()
+        if let activeRootPath = workspacePlatformState.activeRootPath {
+            return URL(fileURLWithPath: activeRootPath, isDirectory: true).standardizedFileURL
+        }
+
+        return workspaceRootURLs.first
+    }
+
+    var workspaceTrustMode: WorkspaceTrustMode {
+        WorkspacePlatformService.trustMode(for: workspaceRootURLs, settings: settings)
+    }
+
+    var availableWorkspaceProfiles: [WorkspaceProfile] {
+        settings.profiles.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    var availableRegistryPlugins: [PluginRegistryEntry] {
+        workspacePlatformState.registryEntries
+    }
+
+    var isPortableModeEnabled: Bool {
+        StoragePathService.isPortableModeEnabled
     }
 
     func inlineDiagnostics(for document: EditorDocument) -> [PluginDiagnostic] {
@@ -469,6 +521,7 @@ final class AppState: ObservableObject {
             }
             remoteWorkspaceState.searchRootPath = selectedRemoteDirectory ?? draftedRemoteDirectory ?? "/"
         }
+        checkRemoteAgent()
         showingRemoteOpen = true
     }
 
@@ -484,10 +537,11 @@ final class AppState: ObservableObject {
         }
 
         showingRemoteOpen = false
+        let executionMode = remoteWorkspaceState.executionMode
 
         Task.detached(priority: .userInitiated) {
             do {
-                let document = try RemoteFileService.open(spec: spec)
+                let document = try RemoteFileService.open(spec: spec, mode: executionMode)
                 await MainActor.run {
                     self.documents.append(document)
                     self.selectedDocumentID = document.id
@@ -510,6 +564,11 @@ final class AppState: ObservableObject {
 
         for url in urls {
             let standardizedURL = url.standardizedFileURL
+
+            if standardizedURL.pathExtension == WorkspacePlatformService.workspaceFileExtension {
+                loadWorkspaceFile(at: standardizedURL)
+                continue
+            }
 
             if let existing = documents.first(where: { $0.fileURL?.standardizedFileURL == standardizedURL }) {
                 selectedID = existing.id
@@ -699,6 +758,298 @@ final class AppState: ObservableObject {
         AppSettingsStore.save(settings)
     }
 
+    func showWorkspacePlatformPanel() {
+        refreshWorkspacePlatformState()
+        showingWorkspacePlatform = true
+    }
+
+    func addWorkspaceRoot() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = false
+        panel.allowsMultipleSelection = false
+
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url?.standardizedFileURL else {
+                return
+            }
+
+            Task { @MainActor in
+                guard let self else { return }
+                var roots = self.workspaceRootURLs
+                roots.append(url)
+                self.setWorkspaceRoots(
+                    roots,
+                    activeRoot: self.activeWorkspaceURL ?? url,
+                    workspaceFileURL: self.workspacePlatformState.workspaceFilePath.map { URL(fileURLWithPath: $0) },
+                    workspaceName: self.workspacePlatformState.workspaceName,
+                    selectedProfileID: self.workspacePlatformState.selectedProfileID
+                )
+                self.workspacePlatformState.lastStatusMessage = "Added workspace root \(url.lastPathComponent)"
+                self.refreshPluginWorkspaceState()
+            }
+        }
+    }
+
+    func removeWorkspaceRoot(path: String) {
+        let remainingRoots = workspaceRootURLs.filter { $0.path != path }
+        let nextActiveRoot = remainingRoots.first
+        setWorkspaceRoots(
+            remainingRoots,
+            activeRoot: nextActiveRoot,
+            workspaceFileURL: workspacePlatformState.workspaceFilePath.map { URL(fileURLWithPath: $0) },
+            workspaceName: workspacePlatformState.workspaceName,
+            selectedProfileID: workspacePlatformState.selectedProfileID
+        )
+        workspacePlatformState.lastStatusMessage = remainingRoots.isEmpty ? "Workspace roots cleared" : "Removed workspace root"
+        refreshPluginWorkspaceState()
+    }
+
+    func setActiveWorkspaceRoot(path: String) {
+        guard let root = workspaceRootURLs.first(where: { $0.path == path }) else {
+            return
+        }
+
+        setWorkspaceRoots(
+            workspaceRootURLs,
+            activeRoot: root,
+            workspaceFileURL: workspacePlatformState.workspaceFilePath.map { URL(fileURLWithPath: $0) },
+            workspaceName: workspacePlatformState.workspaceName,
+            selectedProfileID: workspacePlatformState.selectedProfileID
+        )
+        workspacePlatformState.lastStatusMessage = "Active root set to \(root.lastPathComponent)"
+        refreshPluginWorkspaceState()
+    }
+
+    func saveWorkspaceFile() {
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "\(workspacePlatformState.workspaceName).\(WorkspacePlatformService.workspaceFileExtension)"
+
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url?.standardizedFileURL else {
+                return
+            }
+
+            Task { @MainActor in
+                self?.saveWorkspaceFile(to: url)
+            }
+        }
+    }
+
+    func openWorkspaceFilePanel() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url?.standardizedFileURL else {
+                return
+            }
+
+            Task { @MainActor in
+                self?.loadWorkspaceFile(at: url)
+            }
+        }
+    }
+
+    func trustCurrentWorkspace() {
+        WorkspacePlatformService.markTrusted(roots: workspaceRootURLs, settings: &settings)
+        AppSettingsStore.save(settings)
+        workspacePlatformState.lastStatusMessage = "Workspace marked trusted"
+        refreshPluginWorkspaceState()
+    }
+
+    func restrictCurrentWorkspace() {
+        WorkspacePlatformService.markRestricted(roots: workspaceRootURLs, settings: &settings)
+        AppSettingsStore.save(settings)
+        workspacePlatformState.lastStatusMessage = "Workspace moved to restricted mode"
+        refreshPluginWorkspaceState()
+    }
+
+    func saveCurrentWorkspaceProfile(named name: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            alertContext = AlertContext(title: "Profile Name Needed", message: "Give the profile a short name before saving it.")
+            return
+        }
+
+        var profiles = settings.profiles
+        if let index = profiles.firstIndex(where: { $0.name.caseInsensitiveCompare(trimmedName) == .orderedSame }) {
+            profiles[index].snapshot = settings.profileSnapshot
+            profiles[index].updatedAt = Date()
+            workspacePlatformState.selectedProfileID = profiles[index].id
+        } else {
+            let profile = WorkspaceProfile(name: trimmedName, snapshot: settings.profileSnapshot)
+            profiles.append(profile)
+            workspacePlatformState.selectedProfileID = profile.id
+        }
+
+        settings.profiles = profiles.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        AppSettingsStore.save(settings)
+        workspacePlatformState.profileDraftName = ""
+        workspacePlatformState.lastStatusMessage = "Saved profile \(trimmedName)"
+    }
+
+    func applyWorkspaceProfile(_ profile: WorkspaceProfile) {
+        settings.apply(profileSnapshot: profile.snapshot)
+        workspacePlatformState.selectedProfileID = profile.id
+        AppSettingsStore.save(settings)
+        refreshPluginWorkspaceState()
+        workspacePlatformState.lastStatusMessage = "Applied profile \(profile.name)"
+    }
+
+    func deleteWorkspaceProfile(_ profile: WorkspaceProfile) {
+        settings.profiles.removeAll { $0.id == profile.id }
+        if workspacePlatformState.selectedProfileID == profile.id {
+            workspacePlatformState.selectedProfileID = nil
+        }
+        AppSettingsStore.save(settings)
+        workspacePlatformState.lastStatusMessage = "Deleted profile \(profile.name)"
+    }
+
+    func refreshPluginRegistry() {
+        workspacePlatformState.isRefreshingRegistry = true
+        workspacePlatformState.registryEntries = PluginRegistryService.catalog(using: settings)
+        workspacePlatformState.lastRegistryRefreshAt = Date()
+        workspacePlatformState.isRefreshingRegistry = false
+    }
+
+    func addPluginRegistry(named name: String, source: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !trimmedName.isEmpty, !trimmedSource.isEmpty else {
+            alertContext = AlertContext(
+                title: "Registry Details Needed",
+                message: "Add both a registry name and a JSON source URL or file path."
+            )
+            return
+        }
+
+        if settings.pluginRegistries.contains(where: { $0.source.caseInsensitiveCompare(trimmedSource) == .orderedSame }) {
+            alertContext = AlertContext(
+                title: "Registry Already Added",
+                message: "That registry source is already configured."
+            )
+            return
+        }
+
+        settings.pluginRegistries.append(
+            PluginRegistryConfiguration(name: trimmedName, source: trimmedSource, isEnabled: true)
+        )
+        settings.pluginRegistries.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        AppSettingsStore.save(settings)
+        workspacePlatformState.registryDraftName = ""
+        workspacePlatformState.registryDraftSource = ""
+        refreshPluginRegistry()
+        workspacePlatformState.lastStatusMessage = "Added plugin registry \(trimmedName)"
+    }
+
+    func setPluginRegistryEnabled(_ registry: PluginRegistryConfiguration, isEnabled: Bool) {
+        guard let index = settings.pluginRegistries.firstIndex(where: { $0.id == registry.id }) else {
+            return
+        }
+
+        settings.pluginRegistries[index].isEnabled = isEnabled
+        AppSettingsStore.save(settings)
+        refreshPluginRegistry()
+        workspacePlatformState.lastStatusMessage = "\(registry.name) registry \(isEnabled ? "enabled" : "disabled")"
+    }
+
+    func removePluginRegistry(_ registry: PluginRegistryConfiguration) {
+        settings.pluginRegistries.removeAll { $0.id == registry.id }
+        AppSettingsStore.save(settings)
+        refreshPluginRegistry()
+        workspacePlatformState.lastStatusMessage = "Removed plugin registry \(registry.name)"
+    }
+
+    func installRegistryPlugin(_ entry: PluginRegistryEntry) {
+        do {
+            _ = try PluginRegistryService.install(entry)
+            if !settings.enabledPluginIDs.contains(entry.id), entry.defaultEnabled {
+                settings.enabledPluginIDs.append(entry.id)
+            }
+            AppSettingsStore.save(settings)
+            refreshPluginWorkspaceState()
+            workspacePlatformState.lastStatusMessage = "Installed plugin \(entry.name)"
+        } catch {
+            present(error: error, title: "Couldn’t Install Plugin")
+        }
+    }
+
+    func uninstallPlugin(_ plugin: EditorPlugin) {
+        do {
+            try PluginRegistryService.uninstall(plugin: plugin)
+            settings.enabledPluginIDs.removeAll { $0 == plugin.id }
+            AppSettingsStore.save(settings)
+            refreshPluginWorkspaceState()
+            workspacePlatformState.lastStatusMessage = "Removed plugin \(plugin.manifest.name)"
+        } catch {
+            present(error: error, title: "Couldn’t Remove Plugin")
+        }
+    }
+
+    func exportSyncBundle() {
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "ForgeTextSync.json"
+
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url?.standardizedFileURL else {
+                return
+            }
+
+            Task { @MainActor in
+                guard let self else { return }
+                do {
+                    try WorkspacePlatformService.exportSyncBundle(
+                        settings: self.settings,
+                        workspaceSessions: self.workspaceSessions,
+                        aiSessions: self.aiWorkbenchState.sessions,
+                        to: url
+                    )
+                    self.workspacePlatformState.lastStatusMessage = "Exported sync bundle"
+                } catch {
+                    self.present(error: error, title: "Couldn’t Export Sync Bundle")
+                }
+            }
+        }
+    }
+
+    func importSyncBundle() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+
+        panel.begin { [weak self] response in
+            guard response == .OK, let url = panel.url?.standardizedFileURL else {
+                return
+            }
+
+            Task { @MainActor in
+                guard let self else { return }
+                do {
+                    let bundle = try WorkspacePlatformService.importSyncBundle(from: url)
+                    self.settings = bundle.appSettings
+                    self.workspaceSessions = bundle.workspaceSessions
+                    self.aiWorkbenchState.sessions = bundle.aiSessions.sorted { $0.updatedAt > $1.updatedAt }
+                    self.aiWorkbenchState.selectedSessionID = self.aiWorkbenchState.sessions.first?.id
+                    AppSettingsStore.save(self.settings)
+                    WorkspaceSessionStore.save(self.workspaceSessions)
+                    AIConversationStore.save(self.aiWorkbenchState.sessions)
+                    self.refreshPluginWorkspaceState()
+                    self.workspacePlatformState.lastStatusMessage = "Imported sync bundle"
+                } catch {
+                    self.present(error: error, title: "Couldn’t Import Sync Bundle")
+                }
+            }
+        }
+    }
+
     func showWorkspaceSessionsPanel() {
         showingWorkspaceSessions = true
     }
@@ -717,6 +1068,10 @@ final class AppState: ObservableObject {
             selectedFilePath: selectedDocument?.fileURL?.path,
             selectedRemoteSpec: selectedDocument?.remoteReference?.spec,
             workspaceRootPath: projectSearchState.rootURL?.path,
+            workspaceRootPaths: workspaceRootURLs.map(\.path),
+            activeWorkspaceRootPath: activeWorkspaceURL?.path,
+            workspaceFilePath: workspacePlatformState.workspaceFilePath,
+            selectedProfileID: workspacePlatformState.selectedProfileID,
             theme: settings.theme,
             wrapLines: settings.wrapLines,
             fontSize: settings.fontSize
@@ -738,10 +1093,23 @@ final class AppState: ObservableObject {
         selectedDocumentID = nil
         recentFiles = Array(Set(recentFiles + fileURLs)).prefix(20).map { $0 }
         recentRemoteLocations = Array(Set(recentRemoteLocations + session.openRemoteSpecs.compactMap(RemoteFileReference.parse))).prefix(20).map { $0 }
-        projectSearchState.rootURL = session.workspaceRootPath.map(URL.init(fileURLWithPath:))
+        let sessionRoots = (session.workspaceRootPaths.isEmpty ? session.workspaceRootPath.map { [$0] } ?? [] : session.workspaceRootPaths)
+            .map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
+        let activeRoot = (session.activeWorkspaceRootPath ?? session.workspaceRootPath).map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
+        setWorkspaceRoots(
+            sessionRoots,
+            activeRoot: activeRoot,
+            workspaceFileURL: session.workspaceFilePath.map(URL.init(fileURLWithPath:)),
+            workspaceName: session.name,
+            selectedProfileID: session.selectedProfileID
+        )
         settings.theme = session.theme
         settings.wrapLines = session.wrapLines
         settings.fontSize = session.fontSize
+        if let profileID = session.selectedProfileID,
+           let profile = settings.profiles.first(where: { $0.id == profileID }) {
+            applyWorkspaceProfile(profile)
+        }
 
         openDocuments(at: fileURLs)
 
@@ -953,7 +1321,16 @@ final class AppState: ObservableObject {
     }
 
     func isPluginEnabled(_ pluginID: String) -> Bool {
-        PluginHostService.normalizedEnabledPluginIDs(from: settings, installedPlugins: pluginCatalog).contains(pluginID)
+        let isPersistedEnabled = PluginHostService.normalizedEnabledPluginIDs(from: settings, installedPlugins: pluginCatalog).contains(pluginID)
+        guard isPersistedEnabled else {
+            return false
+        }
+
+        if workspaceTrustMode == .restricted {
+            return PluginHostService.isAllowedInRestrictedMode(pluginID: pluginID)
+        }
+
+        return true
     }
 
     func togglePluginEnabled(_ pluginID: String) {
@@ -975,7 +1352,12 @@ final class AppState: ObservableObject {
             return []
         }
 
-        let snippets = PluginHostService.snippets(for: selectedDocument.language, using: settings, workspaceRoot: activeWorkspaceURL)
+        let snippets = PluginHostService.snippets(
+            for: selectedDocument.language,
+            using: settings,
+            workspaceRoots: workspaceRootURLs,
+            trustMode: workspaceTrustMode
+        )
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedQuery.isEmpty else {
@@ -990,6 +1372,7 @@ final class AppState: ObservableObject {
     }
 
     func showPluginManagerPanel() {
+        refreshPluginRegistry()
         showingPluginManager = true
     }
 
@@ -1010,6 +1393,9 @@ final class AppState: ObservableObject {
     }
 
     func showAIWorkbenchPanel() {
+        guard ensureTrustedWorkspace(for: "AI workbench actions") else {
+            return
+        }
         ensureAIProviderSelection()
         ensureAISession()
         showingAIWorkbench = true
@@ -1020,11 +1406,17 @@ final class AppState: ObservableObject {
     }
 
     func showTaskRunnerPanel() {
+        guard ensureTrustedWorkspace(for: "workspace tasks") else {
+            return
+        }
         refreshPluginWorkspaceState()
         showingTaskRunner = true
     }
 
     func showTerminalConsolePanel() {
+        guard ensureTrustedWorkspace(for: "embedded terminal commands") else {
+            return
+        }
         if terminalPanelState.commandText.isEmpty {
             terminalPanelState.commandText = EmbeddedTerminalService.suggestedCommands.first ?? ""
         }
@@ -1079,6 +1471,9 @@ final class AppState: ObservableObject {
     }
 
     func runEmbeddedTerminalCommand(_ commandOverride: String? = nil) {
+        guard ensureTrustedWorkspace(for: "embedded terminal commands") else {
+            return
+        }
         let command = (commandOverride ?? terminalPanelState.commandText).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty else {
             alertContext = AlertContext(title: "Command Needed", message: "Enter a shell command to run in the embedded terminal.")
@@ -1121,10 +1516,11 @@ final class AppState: ObservableObject {
     func refreshWorkspaceExplorer() {
         workspaceExplorerState.includeHiddenFiles = settings.showHiddenFilesInExplorer
         workspaceExplorerState.nodes = WorkspaceExplorerService.loadTree(
-            rootURL: activeWorkspaceURL,
+            roots: workspaceRootURLs,
             includeHiddenFiles: workspaceExplorerState.includeHiddenFiles,
             favoritePaths: Set(settings.workspaceFavoritePaths)
         )
+        workspaceExplorerState.selectedRootPath = activeWorkspaceURL?.path
         workspaceExplorerState.lastRefreshedAt = Date()
         workspaceExplorerState.statusMessage = workspaceExplorerState.nodes.isEmpty ? "Choose a workspace folder to browse files." : nil
     }
@@ -1151,6 +1547,9 @@ final class AppState: ObservableObject {
     }
 
     func runRemoteSearch() {
+        guard ensureTrustedWorkspace(for: "remote grep") else {
+            return
+        }
         let connection = selectedDocument?.remoteReference?.connection
             ?? RemoteFileReference.parse(remoteLocationDraft)?.connection
             ?? recentRemoteLocations.first?.connection
@@ -1169,10 +1568,16 @@ final class AppState: ObservableObject {
 
         remoteWorkspaceState.isSearching = true
         remoteWorkspaceState.statusMessage = "Searching \(connection):\(rootPath)"
+        let executionMode = remoteWorkspaceState.executionMode
 
         Task.detached(priority: .userInitiated) {
             do {
-                let results = try RemoteFileService.search(connection: connection, rootPath: rootPath, query: query)
+                let results = try RemoteFileService.search(
+                    connection: connection,
+                    rootPath: rootPath,
+                    query: query,
+                    mode: executionMode
+                )
                 await MainActor.run {
                     self.remoteWorkspaceState.grepResults = results
                     self.remoteWorkspaceState.isSearching = false
@@ -1200,6 +1605,9 @@ final class AppState: ObservableObject {
     }
 
     func runRemoteCommand() {
+        guard ensureTrustedWorkspace(for: "remote commands") else {
+            return
+        }
         let connection = selectedDocument?.remoteReference?.connection
             ?? RemoteFileReference.parse(remoteLocationDraft)?.connection
             ?? recentRemoteLocations.first?.connection
@@ -1213,10 +1621,15 @@ final class AppState: ObservableObject {
         remoteWorkspaceState.isRunningCommand = true
         remoteWorkspaceState.lastCommandStatus = .running
         remoteWorkspaceState.lastCommandOutput = "Running \(command) on \(connection)..."
+        let executionMode = remoteWorkspaceState.executionMode
 
         Task.detached(priority: .userInitiated) {
             do {
-                let result = try RemoteFileService.run(connection: connection, command: command)
+                let result = try RemoteFileService.run(
+                    connection: connection,
+                    command: command,
+                    mode: executionMode
+                )
                 let stdout = String(data: result.stdout, encoding: .utf8) ?? ""
                 let stderr = String(data: result.stderr, encoding: .utf8) ?? ""
                 let output = [stdout, stderr]
@@ -1417,6 +1830,9 @@ final class AppState: ObservableObject {
             availableGitBranches = []
             gitPanelState.changedFiles = []
             gitPanelState.stashes = []
+            gitPanelState.graphEntries = []
+            gitPanelState.remotes = []
+            gitPanelState.conflictSections = []
 
             if showNoRepositoryAlert {
                 alertContext = AlertContext(
@@ -1439,6 +1855,13 @@ final class AppState: ObservableObject {
                 self.availableGitBranches = snapshot.branches
                 self.gitPanelState.changedFiles = snapshot.changedFiles
                 self.gitPanelState.stashes = snapshot.stashes
+                self.gitPanelState.graphEntries = snapshot.graphEntries
+                self.gitPanelState.remotes = snapshot.remotes
+                let selectedConflict = self.gitPanelState.selectedConflictFileID
+                    .flatMap { id in snapshot.changedFiles.first(where: { $0.id == id && $0.isConflicted }) }
+                    ?? snapshot.changedFiles.first(where: \.isConflicted)
+                self.gitPanelState.selectedConflictFileID = selectedConflict?.id
+                self.gitPanelState.conflictSections = selectedConflict.map { GitConflictService.sections(from: $0.absoluteURL) } ?? []
 
                 if showNoRepositoryAlert, snapshot.summary == nil {
                     self.alertContext = AlertContext(
@@ -1562,7 +1985,12 @@ final class AppState: ObservableObject {
         }
 
         if isPluginEnabled("forge.snippet-library") {
-            let snippetCount = PluginHostService.snippets(for: document.language, using: settings, workspaceRoot: activeWorkspaceURL).count
+            let snippetCount = PluginHostService.snippets(
+                for: document.language,
+                using: settings,
+                workspaceRoots: workspaceRootURLs,
+                trustMode: workspaceTrustMode
+            ).count
             if snippetCount > 0 {
                 items.append(
                     PluginStatusItem(
@@ -1679,6 +2107,25 @@ final class AppState: ObservableObject {
         }
 
         runWorkspaceTask(withID: selectedTaskID)
+        showingTestExplorer = true
+    }
+
+    func runSelectedCoverageTask() {
+        guard let selectedTaskID = testExplorerState.selectedTaskID,
+              let task = pluginTaskState.tasks.first(where: { $0.id == selectedTaskID })
+        else {
+            return
+        }
+
+        guard task.supportsCoverage else {
+            alertContext = AlertContext(
+                title: "Coverage Not Supported",
+                message: "ForgeText doesn’t have a coverage run profile for this detected test task yet."
+            )
+            return
+        }
+
+        runWorkspaceTask(task, enableCoverage: true)
         showingTestExplorer = true
     }
 
@@ -1960,16 +2407,17 @@ final class AppState: ObservableObject {
             }
 
             Task { @MainActor in
-                self?.projectSearchState.rootURL = url
-                self?.projectSearchState.statusMessage = "Search root set"
-                self?.scheduleSessionSave()
-                self?.refreshPluginWorkspaceState()
+                guard let self else { return }
+                self.setWorkspaceRoots([url], activeRoot: url, workspaceName: url.lastPathComponent)
+                self.projectSearchState.statusMessage = "Search root set"
+                self.refreshPluginWorkspaceState()
             }
         }
     }
 
     func runProjectSearch() {
-        guard let rootURL = projectSearchState.rootURL else {
+        let roots = workspaceRootURLs.isEmpty ? projectSearchState.rootURL.map { [$0] } ?? [] : workspaceRootURLs
+        guard !roots.isEmpty else {
             chooseWorkspaceRoot()
             return
         }
@@ -1992,7 +2440,7 @@ final class AppState: ObservableObject {
 
         projectSearchTask = Task.detached(priority: .userInitiated) {
             let summary = WorkspaceSearchService.search(
-                root: rootURL,
+                roots: roots,
                 query: query,
                 options: options,
                 includeHiddenFiles: includeHiddenFiles
@@ -2335,6 +2783,9 @@ final class AppState: ObservableObject {
         var items: [PaletteItem] = [
             PaletteItem(id: "new", title: "New Document", subtitle: "Create a fresh untitled document", symbolName: "plus.square", action: .newDocument),
             PaletteItem(id: "open", title: "Open Files", subtitle: "Choose files from disk", symbolName: "folder", action: .openDocuments),
+            PaletteItem(id: "openWorkspace", title: "Open Workspace File", subtitle: "Load a multi-root ForgeText workspace file", symbolName: "square.3.layers.3d.down.left", action: .openWorkspaceFile),
+            PaletteItem(id: "saveWorkspace", title: "Save Workspace File", subtitle: "Persist the current roots and profile into a workspace file", symbolName: "square.3.layers.3d.top.filled", action: .saveWorkspaceFile),
+            PaletteItem(id: "workspaceCenter", title: "Workspace Center", subtitle: "Manage workspace roots, trust, profiles, and sync", symbolName: "square.3.layers.3d", action: .showWorkspacePlatform),
             PaletteItem(id: "cloneRepository", title: "Clone Repository", subtitle: "Clone a GitHub or Git repository and open it as a workspace", symbolName: "square.and.arrow.down.on.square", action: .cloneRepository),
             PaletteItem(id: "openRemote", title: "Open Remote File", subtitle: "Open a document over SSH", symbolName: "network", action: .openRemote),
             PaletteItem(id: "gitWorkbench", title: "Git Workbench", subtitle: "Commit, push, pull, stash, and inspect repository changes", symbolName: "point.topleft.down.curvedto.point.bottomright.up", action: .showGitWorkbench),
@@ -2373,6 +2824,10 @@ final class AppState: ObservableObject {
             PaletteItem(id: "minifyJSON", title: "Minify JSON", subtitle: "Compress the current JSON document", symbolName: "curlybraces.square", action: .minifyJSON),
             PaletteItem(id: "exportSettings", title: "Export Settings", subtitle: "Save ForgeText preferences to a file", symbolName: "square.and.arrow.up", action: .exportSettings),
             PaletteItem(id: "importSettings", title: "Import Settings", subtitle: "Load ForgeText preferences from a file", symbolName: "square.and.arrow.down", action: .importSettings),
+            PaletteItem(id: "exportSync", title: "Export Sync Bundle", subtitle: "Export settings, sessions, and AI chats together", symbolName: "externaldrive.badge.plus", action: .exportSyncBundle),
+            PaletteItem(id: "importSync", title: "Import Sync Bundle", subtitle: "Import settings, sessions, and AI chats together", symbolName: "externaldrive.badge.checkmark", action: .importSyncBundle),
+            PaletteItem(id: "trustWorkspace", title: "Trust Workspace", subtitle: "Allow tasks, AI, remote commands, and plugins for this workspace", symbolName: "checkmark.shield", action: .trustWorkspace),
+            PaletteItem(id: "restrictWorkspace", title: "Restrict Workspace", subtitle: "Disable risky workspace execution paths until trusted again", symbolName: "lock.shield", action: .restrictWorkspace),
             PaletteItem(id: "wrap", title: settings.wrapLines ? "Disable Line Wrap" : "Enable Line Wrap", subtitle: "Toggle soft wrapping in the editor", symbolName: "paragraphformat", action: .toggleWrapLines),
             PaletteItem(id: "outline", title: settings.showsOutline ? "Hide Outline" : "Show Outline", subtitle: "Toggle the document outline rail", symbolName: "list.bullet.indent", action: .toggleOutline),
             PaletteItem(id: "breadcrumbs", title: settings.showsBreadcrumbs ? "Hide Breadcrumbs" : "Show Breadcrumbs", subtitle: "Toggle the workspace breadcrumb trail", symbolName: "chevron.left.slash.chevron.right", action: .toggleBreadcrumbs),
@@ -2424,6 +2879,18 @@ final class AppState: ObservableObject {
                 action: .toggleByteOrderMark
             )
         )
+
+        if availableTestTasks.contains(where: \.supportsCoverage) {
+            items.append(
+                PaletteItem(
+                    id: "coverage",
+                    title: "Run Coverage Task",
+                    subtitle: "Run the selected test task with coverage enabled when supported",
+                    symbolName: "chart.bar.doc.horizontal",
+                    action: .runCoverageTask
+                )
+            )
+        }
 
         if let selectedDocument {
             if selectedDocument.availableStructuredPresentationMode != nil {
@@ -2565,6 +3032,12 @@ final class AppState: ObservableObject {
             newDocument()
         case .openDocuments:
             openDocument()
+        case .openWorkspaceFile:
+            openWorkspaceFilePanel()
+        case .saveWorkspaceFile:
+            saveWorkspaceFile()
+        case .showWorkspacePlatform:
+            showWorkspacePlatformPanel()
         case .cloneRepository:
             showCloneRepositoryPanel()
         case .openRemote:
@@ -2641,12 +3114,22 @@ final class AppState: ObservableObject {
             runPrimaryWorkspaceTask(role)
         case let .runWorkspaceTask(taskID):
             runWorkspaceTask(withID: taskID)
+        case .runCoverageTask:
+            runSelectedCoverageTask()
         case let .insertSnippet(snippetID):
             insertSnippet(withID: snippetID)
         case .exportSettings:
             exportSettings()
         case .importSettings:
             importSettings()
+        case .exportSyncBundle:
+            exportSyncBundle()
+        case .importSyncBundle:
+            importSyncBundle()
+        case .trustWorkspace:
+            trustCurrentWorkspace()
+        case .restrictWorkspace:
+            restrictCurrentWorkspace()
         case .toggleWrapLines:
             toggleWrapLines()
         case .toggleOutline:
@@ -2782,7 +3265,16 @@ final class AppState: ObservableObject {
             .map(URL.init(fileURLWithPath:))
             .filter { FileManager.default.fileExists(atPath: $0.path) }
         recentRemoteLocations = session.recentRemoteSpecs.compactMap(RemoteFileReference.parse)
-        projectSearchState.rootURL = session.workspaceRootPath.map(URL.init(fileURLWithPath:))
+        let sessionRoots = (session.workspaceRootPaths.isEmpty ? session.workspaceRootPath.map { [$0] } ?? [] : session.workspaceRootPaths)
+            .map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
+        let activeRoot = (session.activeWorkspaceRootPath ?? session.workspaceRootPath).map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
+        setWorkspaceRoots(
+            sessionRoots,
+            activeRoot: activeRoot,
+            workspaceFileURL: session.workspaceFilePath.map(URL.init(fileURLWithPath:)),
+            workspaceName: WorkspacePlatformService.preferredWorkspaceName(for: sessionRoots),
+            selectedProfileID: session.selectedProfileID
+        )
 
         let recoveredDocuments = RecoveryService.loadRecoveredDocuments()
         documents = recoveredDocuments
@@ -3014,7 +3506,11 @@ final class AppState: ObservableObject {
             recentRemoteSpecs: recentRemoteLocations.map(\.spec),
             selectedFile: selectedFile,
             selectedRemoteSpec: selectedRemoteSpec,
-            workspaceRoot: projectSearchState.rootURL
+            workspaceRoot: projectSearchState.rootURL,
+            workspaceRoots: workspaceRootURLs,
+            activeWorkspaceRoot: activeWorkspaceURL,
+            workspaceFileURL: workspacePlatformState.workspaceFilePath.map(URL.init(fileURLWithPath:)),
+            selectedProfileID: workspacePlatformState.selectedProfileID
         )
         AppSettingsStore.save(settings)
     }
@@ -3038,10 +3534,234 @@ final class AppState: ObservableObject {
         scheduleSessionSave()
     }
 
+    func processLaunchArgumentsIfNeeded() {
+        guard !processedLaunchArguments else {
+            return
+        }
+
+        processedLaunchArguments = true
+        let plan = LaunchCommandService.parse(arguments: Array(CommandLine.arguments.dropFirst()))
+
+        if let workspaceFileURL = plan.workspaceFileURL {
+            loadWorkspaceFile(at: workspaceFileURL)
+        }
+
+        if let profileName = plan.profileName,
+           let profile = settings.profiles.first(where: { $0.name.caseInsensitiveCompare(profileName) == .orderedSame }) {
+            applyWorkspaceProfile(profile)
+        }
+
+        if plan.fileURLs.isEmpty == false {
+            openDocuments(at: plan.fileURLs)
+        }
+
+        if let lineTarget = plan.lineTarget {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                if let targetDocument = documents.first(where: { $0.fileURL?.standardizedFileURL == lineTarget.fileURL.standardizedFileURL }) {
+                    goToLine(lineTarget.lineNumber, in: targetDocument.id)
+                }
+            }
+        }
+
+        if let diffRequest = plan.diffRequest {
+            do {
+                let left = try TextFileCodec.open(from: diffRequest.leftURL)
+                let right = try TextFileCodec.open(from: diffRequest.rightURL)
+                let lines = DocumentComparisonService.compare(left: left.text, right: right.text)
+                comparisonState = DocumentComparisonState(
+                    title: "CLI Compare",
+                    leftTitle: diffRequest.leftURL.lastPathComponent,
+                    rightTitle: diffRequest.rightURL.lastPathComponent,
+                    lines: lines,
+                    changedLineCount: lines.filter { $0.kind != .unchanged }.count
+                )
+            } catch {
+                present(error: error, title: "Couldn’t Open Diff Files")
+            }
+        }
+    }
+
+    func loadWorkspaceFile(at url: URL) {
+        do {
+            let descriptor = try WorkspacePlatformService.loadWorkspace(from: url)
+            setWorkspaceRoots(
+                descriptor.rootURLs,
+                activeRoot: descriptor.activeRootURL,
+                workspaceFileURL: descriptor.workspaceFileURL,
+                workspaceName: descriptor.name,
+                selectedProfileID: descriptor.selectedProfileID
+            )
+            if let profileID = descriptor.selectedProfileID,
+               let profile = settings.profiles.first(where: { $0.id == profileID }) {
+                applyWorkspaceProfile(profile)
+            }
+            workspacePlatformState.lastStatusMessage = "Loaded workspace \(descriptor.name)"
+            if documents.isEmpty, let landingFileURL = descriptor.activeRootURL.flatMap(preferredWorkspaceLandingFile(in:)) {
+                openDocuments(at: [landingFileURL])
+            } else {
+                refreshPluginWorkspaceState()
+            }
+        } catch {
+            present(error: error, title: "Couldn’t Open Workspace")
+        }
+    }
+
+    func saveWorkspaceFile(to url: URL) {
+        do {
+            let descriptor = WorkspacePlatformService.descriptor(
+                name: workspacePlatformState.workspaceName,
+                roots: workspaceRootURLs,
+                activeRoot: activeWorkspaceURL,
+                workspaceFileURL: url,
+                selectedProfileID: workspacePlatformState.selectedProfileID
+            )
+            try WorkspacePlatformService.saveWorkspace(descriptor, to: url)
+            setWorkspaceRoots(
+                descriptor.rootURLs,
+                activeRoot: descriptor.activeRootURL,
+                workspaceFileURL: descriptor.workspaceFileURL,
+                workspaceName: descriptor.name,
+                selectedProfileID: descriptor.selectedProfileID
+            )
+            workspacePlatformState.lastStatusMessage = "Saved workspace file"
+        } catch {
+            present(error: error, title: "Couldn’t Save Workspace")
+        }
+    }
+
+    func setRemoteExecutionMode(_ mode: RemoteExecutionMode) {
+        remoteWorkspaceState.executionMode = mode
+        checkRemoteAgent()
+    }
+
+    func checkRemoteAgent() {
+        guard let connection = currentRemoteConnection else {
+            remoteWorkspaceState.agentStatus = nil
+            return
+        }
+
+        guard remoteWorkspaceState.executionMode == .remoteAgent else {
+            remoteWorkspaceState.agentStatus = RemoteAgentStatus.unavailable(connection: connection, installPath: RemoteAgentService.installPath)
+            return
+        }
+
+        Task.detached(priority: .utility) {
+            let status = RemoteAgentService.status(connection: connection)
+            await MainActor.run {
+                self.remoteWorkspaceState.agentStatus = status
+            }
+        }
+    }
+
+    func installRemoteAgent() {
+        guard ensureTrustedWorkspace(for: "remote agent installation") else {
+            return
+        }
+
+        guard let connection = currentRemoteConnection else {
+            alertContext = AlertContext(title: "Remote Connection Needed", message: "Choose a remote file or enter a remote location before installing the agent.")
+            return
+        }
+
+        Task.detached(priority: .userInitiated) {
+            do {
+                let status = try RemoteAgentService.install(on: connection)
+                await MainActor.run {
+                    self.remoteWorkspaceState.agentStatus = status
+                    self.remoteWorkspaceState.statusMessage = "Installed remote agent on \(connection)"
+                }
+            } catch {
+                await MainActor.run {
+                    self.present(error: error, title: "Couldn’t Install Remote Agent")
+                }
+            }
+        }
+    }
+
+    func selectGitConflictFile(_ file: GitChangedFile) {
+        gitPanelState.selectedConflictFileID = file.id
+        gitPanelState.conflictSections = file.isConflicted ? GitConflictService.sections(from: file.absoluteURL) : []
+    }
+
+    func resolveSelectedGitConflict(using strategy: GitConflictResolutionStrategy) {
+        guard let selectedID = gitPanelState.selectedConflictFileID,
+              let file = gitPanelState.changedFiles.first(where: { $0.id == selectedID })
+        else {
+            return
+        }
+
+        do {
+            let text = try String(contentsOf: file.absoluteURL)
+            let resolvedText = GitConflictService.resolveAllConflicts(in: text, strategy: strategy)
+            try resolvedText.write(to: file.absoluteURL, atomically: true, encoding: .utf8)
+            gitPanelState.lastOperationMessage = "Resolved conflicts using \(strategy.displayName.lowercased()) blocks"
+            refreshGitWorkbench()
+            openDocuments(at: [file.absoluteURL])
+        } catch {
+            present(error: error, title: "Couldn’t Resolve Conflicts")
+        }
+    }
+
+    private var currentRemoteConnection: String? {
+        selectedDocument?.remoteReference?.connection
+            ?? RemoteFileReference.parse(remoteLocationDraft)?.connection
+            ?? recentRemoteLocations.first?.connection
+    }
+
+    private func ensureTrustedWorkspace(for feature: String) -> Bool {
+        guard workspaceTrustMode == .restricted, !workspaceRootURLs.isEmpty else {
+            return true
+        }
+
+        alertContext = AlertContext(
+            title: "Workspace Is Restricted",
+            message: "Trust this workspace in Workspace Center before running \(feature). Restricted mode keeps commands, tasks, AI, and external plugins safer by default."
+        )
+        return false
+    }
+
+    private func setWorkspaceRoots(
+        _ roots: [URL],
+        activeRoot: URL?,
+        workspaceFileURL: URL? = nil,
+        workspaceName: String? = nil,
+        selectedProfileID: UUID? = nil
+    ) {
+        let descriptor = WorkspacePlatformService.descriptor(
+            name: workspaceName ?? workspacePlatformState.workspaceName,
+            roots: roots,
+            activeRoot: activeRoot,
+            workspaceFileURL: workspaceFileURL,
+            selectedProfileID: selectedProfileID
+        )
+
+        workspacePlatformState.workspaceName = descriptor.name
+        workspacePlatformState.rootPaths = descriptor.rootURLs.map(\.path)
+        workspacePlatformState.activeRootPath = descriptor.activeRootURL?.path
+        workspacePlatformState.workspaceFilePath = descriptor.workspaceFileURL?.path
+        workspacePlatformState.selectedProfileID = descriptor.selectedProfileID
+        projectSearchState.rootURL = descriptor.activeRootURL ?? descriptor.rootURLs.first
+        workspaceExplorerState.selectedRootPath = descriptor.activeRootURL?.path
+        scheduleSessionSave()
+    }
+
+    private func refreshWorkspacePlatformState() {
+        let roots = workspaceRootURLs
+        workspacePlatformState.rootPaths = roots.map(\.path)
+        workspacePlatformState.activeRootPath = activeWorkspaceURL?.path
+        workspacePlatformState.workspaceName = workspacePlatformState.workspaceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? WorkspacePlatformService.preferredWorkspaceName(for: roots)
+            : workspacePlatformState.workspaceName
+        workspacePlatformState.registryEntries = PluginRegistryService.catalog(using: settings)
+        workspacePlatformState.lastRegistryRefreshAt = Date()
+    }
+
     private func openRestoredRemoteDocument(_ spec: String) {
+        let executionMode = remoteWorkspaceState.executionMode
         Task.detached(priority: .utility) {
             do {
-                let document = try RemoteFileService.open(spec: spec)
+                let document = try RemoteFileService.open(spec: spec, mode: executionMode)
                 await MainActor.run {
                     guard !self.documents.contains(where: { $0.remoteReference?.spec == spec }) else {
                         return
@@ -3086,7 +3806,7 @@ final class AppState: ObservableObject {
 
     private func activateWorkspace(at rootURL: URL, statusMessage: String, openPreferredFile: Bool) {
         let standardizedRoot = rootURL.standardizedFileURL
-        projectSearchState.rootURL = standardizedRoot
+        setWorkspaceRoots([standardizedRoot], activeRoot: standardizedRoot, workspaceName: standardizedRoot.lastPathComponent)
         projectSearchState.statusMessage = statusMessage
 
         if openPreferredFile, let landingFileURL = preferredWorkspaceLandingFile(in: standardizedRoot) {
@@ -3098,9 +3818,9 @@ final class AppState: ObservableObject {
     }
 
     private func refreshPluginWorkspaceState(showNoGitAlert: Bool = false) {
-        pluginCatalog = PluginHostService.installedPlugins(workspaceRoot: activeWorkspaceURL)
+        pluginCatalog = PluginHostService.installedPlugins(workspaceRoots: workspaceRootURLs)
         let externalPluginTasks = enabledPlugins.flatMap(\.tasks)
-        pluginTaskState.tasks = WorkspaceTaskService.detectTasks(rootURL: activeWorkspaceURL) + externalPluginTasks
+        pluginTaskState.tasks = WorkspaceTaskService.detectTasks(rootURLs: workspaceRootURLs) + externalPluginTasks
 
         if let selectedTaskID = pluginTaskState.selectedTaskID,
            pluginTaskState.tasks.contains(where: { $0.id == selectedTaskID }) {
@@ -3118,18 +3838,23 @@ final class AppState: ObservableObject {
 
         refreshGitWorkbench(showNoRepositoryAlert: showNoGitAlert)
         refreshWorkspaceExplorer()
+        refreshWorkspacePlatformState()
     }
 
-    private func runWorkspaceTask(_ task: EditorPluginTask) {
+    private func runWorkspaceTask(_ task: EditorPluginTask, enableCoverage: Bool = false) {
+        guard ensureTrustedWorkspace(for: "workspace tasks") else {
+            return
+        }
         pluginTaskState.selectedTaskID = task.id
         showingTaskRunner = true
+        let commandDescription = enableCoverage ? "\(task.commandDescription) [coverage]" : task.commandDescription
 
         pluginTaskState.lastRun = PluginTaskRun(
             taskID: task.id,
             taskTitle: task.title,
-            commandDescription: task.commandDescription,
+            commandDescription: commandDescription,
             startedAt: Date(),
-            output: "Running \(task.commandDescription)...",
+            output: "Running \(commandDescription)...",
             status: .running
         )
 
@@ -3137,17 +3862,25 @@ final class AppState: ObservableObject {
         let currentDocument = selectedDocument
 
         Task.detached(priority: .userInitiated) {
-            let run = await WorkspaceTaskService.run(task, workspaceRoot: workspaceRoot, currentDocument: currentDocument)
+            let run = await WorkspaceTaskService.run(
+                task,
+                workspaceRoot: workspaceRoot,
+                currentDocument: currentDocument,
+                enableCoverage: enableCoverage
+            )
             let problems = ProblemMatcherService.parseProblems(from: run.output, source: task.title)
+            let coverageSummary = TestCoverageService.summary(from: run.output)
 
             await MainActor.run {
                 self.pluginTaskState.lastRun = run
+                self.pluginTaskState.lastCoverageSummary = coverageSummary
                 self.problemsPanelState.records = problems
                 self.problemsPanelState.sourceDescription = task.title
                 self.problemsPanelState.lastUpdatedAt = Date()
                 if task.role == .test {
                     self.testExplorerState.lastRun = run
                     self.testExplorerState.selectedTaskID = task.id
+                    self.testExplorerState.coverageSummary = coverageSummary
                 }
                 if run.status == .failed {
                     self.alertContext = AlertContext(

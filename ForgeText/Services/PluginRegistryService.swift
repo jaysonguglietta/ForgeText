@@ -1,0 +1,174 @@
+import Foundation
+
+enum PluginRegistryService {
+    private struct RegistryFile: Codable {
+        let entries: [PluginRegistryEntry]
+    }
+
+    static func catalog(using settings: AppSettings) -> [PluginRegistryEntry] {
+        var entries = curatedEntries
+
+        for registry in settings.pluginRegistries where registry.isEnabled {
+            entries.append(contentsOf: loadRegistryEntries(from: registry.source))
+        }
+
+        var seenIDs = Set<String>()
+        return entries.filter { seenIDs.insert($0.id).inserted }
+    }
+
+    static func install(_ entry: PluginRegistryEntry) throws -> URL {
+        let manifestURL = StoragePathService.userPluginDirectoryURL().appendingPathComponent(entry.installFileName)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(entry)
+        try data.write(to: manifestURL, options: .atomic)
+        return manifestURL
+    }
+
+    static func uninstall(plugin: EditorPlugin) throws {
+        guard let sourceDescription = plugin.manifest.sourceDescription else {
+            return
+        }
+
+        let sourceURL = URL(fileURLWithPath: sourceDescription)
+        let userPluginRoot = StoragePathService.userPluginDirectoryURL().standardizedFileURL.path
+        guard sourceURL.standardizedFileURL.path.hasPrefix(userPluginRoot) else {
+            return
+        }
+
+        try FileManager.default.removeItem(at: sourceURL)
+    }
+
+    private static func loadRegistryEntries(from source: String) -> [PluginRegistryEntry] {
+        let trimmedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSource.isEmpty else {
+            return []
+        }
+
+        let sourceURL: URL
+        if trimmedSource.hasPrefix("http://") || trimmedSource.hasPrefix("https://") {
+            guard let url = URL(string: trimmedSource) else {
+                return []
+            }
+            sourceURL = url
+        } else {
+            sourceURL = URL(fileURLWithPath: trimmedSource)
+        }
+
+        guard let data = try? Data(contentsOf: sourceURL),
+              let file = try? JSONDecoder().decode(RegistryFile.self, from: data)
+        else {
+            return []
+        }
+
+        return file.entries
+    }
+
+    private static let curatedEntries: [PluginRegistryEntry] = [
+        PluginRegistryEntry(
+            id: "forge.ops-snippets",
+            name: "Ops Snippets Pack",
+            version: "1.0.0",
+            author: "ForgeText",
+            summary: "Adds practical snippets for shell, systemd, env files, and incident notes.",
+            category: .snippets,
+            capabilities: [.snippets],
+            defaultEnabled: true,
+            sourceDescription: "ForgeText Curated Registry",
+            snippets: [
+                PluginRegistrySnippetRecord(
+                    id: "ops.shell.journalctl",
+                    title: "journalctl Tail",
+                    detail: "Tail recent systemd logs for a specific unit.",
+                    symbolName: "waveform.path.ecg",
+                    languages: [.shell],
+                    body: "journalctl -u $0 -n 200 -f\n"
+                ),
+                PluginRegistrySnippetRecord(
+                    id: "ops.env.block",
+                    title: ".env Block",
+                    detail: "Insert a grouped .env configuration block.",
+                    symbolName: "key",
+                    languages: [.config],
+                    body: "# $0\nKEY=value\nANOTHER_KEY=value\n"
+                ),
+                PluginRegistrySnippetRecord(
+                    id: "ops.systemd.service",
+                    title: "systemd Service",
+                    detail: "Create a basic systemd unit scaffold.",
+                    symbolName: "gearshape.2",
+                    languages: [.config],
+                    body: "[Unit]\nDescription=$0\nAfter=network.target\n\n[Service]\nType=simple\nExecStart=/usr/bin/env bash -lc ''\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n"
+                ),
+            ],
+            tasks: [],
+            installFileName: "forge-ops-snippets.json"
+        ),
+        PluginRegistryEntry(
+            id: "forge.http-collections",
+            name: "HTTP Collections",
+            version: "1.0.0",
+            author: "ForgeText",
+            summary: "Adds runnable HTTP snippets for API smoke tests and authenticated requests.",
+            category: .languageTools,
+            capabilities: [.snippets],
+            defaultEnabled: true,
+            sourceDescription: "ForgeText Curated Registry",
+            snippets: [
+                PluginRegistrySnippetRecord(
+                    id: "http.get.health",
+                    title: "Health Check Request",
+                    detail: "Start a simple GET request against a health endpoint.",
+                    symbolName: "heart.text.square",
+                    languages: [.http],
+                    body: "GET https://example.com/health\nAccept: application/json\n\n"
+                ),
+                PluginRegistrySnippetRecord(
+                    id: "http.auth.bearer",
+                    title: "Bearer Token Request",
+                    detail: "Insert an authenticated request scaffold.",
+                    symbolName: "lock.doc",
+                    languages: [.http],
+                    body: "POST https://example.com/$0\nAuthorization: Bearer {{TOKEN}}\nContent-Type: application/json\n\n{\n  \"ok\": true\n}\n"
+                ),
+            ],
+            tasks: [],
+            installFileName: "forge-http-collections.json"
+        ),
+        PluginRegistryEntry(
+            id: "forge.workspace-tools",
+            name: "Workspace Tools Pack",
+            version: "1.0.0",
+            author: "ForgeText",
+            summary: "Adds lightweight local tasks for repository hygiene and quick diagnostics.",
+            category: .workspaceAutomation,
+            capabilities: [.tasks],
+            defaultEnabled: false,
+            sourceDescription: "ForgeText Curated Registry",
+            snippets: [],
+            tasks: [
+                PluginRegistryTaskRecord(
+                    id: "workspace.git.status",
+                    title: "git status",
+                    subtitle: "Show concise repository status for the active workspace",
+                    symbolName: "point.topleft.down.curvedto.point.bottomright.up",
+                    executable: "git",
+                    arguments: ["status", "--short", "--branch"],
+                    workingDirectory: .workspaceRoot,
+                    role: .custom
+                ),
+                PluginRegistryTaskRecord(
+                    id: "workspace.tree",
+                    title: "tree -L 2",
+                    subtitle: "Print a shallow directory tree for the active workspace",
+                    symbolName: "list.bullet.rectangle",
+                    executable: "tree",
+                    arguments: ["-L", "2"],
+                    workingDirectory: .workspaceRoot,
+                    role: .custom
+                ),
+            ],
+            installFileName: "forge-workspace-tools.json"
+        ),
+    ]
+}

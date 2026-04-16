@@ -53,6 +53,65 @@ struct RemoteOpenView: View {
                 }
                 .pickerStyle(.segmented)
 
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Execution")
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .foregroundStyle(RetroPalette.visited)
+
+                    Picker(
+                        "Execution Mode",
+                        selection: Binding(
+                            get: { appState.remoteWorkspaceState.executionMode },
+                            set: { appState.setRemoteExecutionMode($0) }
+                        )
+                    ) {
+                        ForEach(RemoteExecutionMode.allCases) { executionMode in
+                            Text(executionMode.displayName).tag(executionMode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    if let selectedConnection {
+                        HStack(spacing: 8) {
+                            Text(selectedConnection)
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundStyle(RetroPalette.link)
+
+                            if let agentStatus = appState.remoteWorkspaceState.agentStatus,
+                               appState.remoteWorkspaceState.executionMode == .remoteAgent {
+                                RetroCapsuleLabel(
+                                    text: agentStatus.isInstalled ? "Agent \(agentStatus.version ?? "ready")" : "Agent Missing",
+                                    accent: agentStatus.isInstalled ? RetroPalette.success : RetroPalette.warning
+                                )
+                            }
+
+                            Spacer(minLength: 0)
+
+                            if appState.remoteWorkspaceState.executionMode == .remoteAgent {
+                                Button("Check Agent") {
+                                    appState.checkRemoteAgent()
+                                }
+                                .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+
+                                Button("Install Agent") {
+                                    appState.installRemoteAgent()
+                                }
+                                .buttonStyle(RetroActionButtonStyle(tone: .primary))
+                            }
+                        }
+
+                        if let agentStatus = appState.remoteWorkspaceState.agentStatus,
+                           let lastError = agentStatus.lastError,
+                           appState.remoteWorkspaceState.executionMode == .remoteAgent {
+                            Text(lastError)
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .foregroundStyle(RetroPalette.warning)
+                        }
+                    }
+                }
+                .padding(12)
+                .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromeBlue)
+
                 switch mode {
                 case .open:
                     openRemoteSection
@@ -95,6 +154,11 @@ struct RemoteOpenView: View {
             .frame(minWidth: 760, minHeight: 520)
             .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
             .padding(18)
+        }
+        .onAppear {
+            if appState.remoteWorkspaceState.executionMode == .remoteAgent {
+                appState.checkRemoteAgent()
+            }
         }
     }
 

@@ -4,6 +4,10 @@ struct TerminalConsoleView: View {
     @ObservedObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
 
+    private var isRestrictedWorkspace: Bool {
+        appState.workspaceTrustMode == .restricted && !appState.workspaceRootURLs.isEmpty
+    }
+
     var body: some View {
         ZStack {
             RetroBackdropView()
@@ -36,6 +40,12 @@ struct TerminalConsoleView: View {
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(RetroPalette.link)
 
+                    if isRestrictedWorkspace {
+                        Text("Restricted mode is blocking terminal execution for this workspace. Trust it in Workspace Center to run commands.")
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(RetroPalette.warning)
+                    }
+
                     HStack(spacing: 10) {
                         TextField("Run a command in the current workspace", text: $appState.terminalPanelState.commandText)
                             .textFieldStyle(.plain)
@@ -48,6 +58,7 @@ struct TerminalConsoleView: View {
                             appState.runEmbeddedTerminalCommand()
                         }
                         .buttonStyle(RetroActionButtonStyle(tone: .primary))
+                        .disabled(isRestrictedWorkspace)
                     }
 
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -58,6 +69,7 @@ struct TerminalConsoleView: View {
                                     appState.runEmbeddedTerminalCommand(command)
                                 }
                                 .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+                                .disabled(isRestrictedWorkspace)
                             }
 
                             ForEach(appState.terminalPanelState.history, id: \.self) { command in

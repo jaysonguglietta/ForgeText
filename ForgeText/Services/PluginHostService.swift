@@ -14,14 +14,40 @@ enum PluginHostService {
             .map(\.id)
     }
 
+    static func installedPlugins(workspaceRoots: [URL]) -> [EditorPlugin] {
+        builtInPlugins + ExternalPluginService.discoverPlugins(workspaceRoots: workspaceRoots)
+    }
+
     static func installedPlugins(workspaceRoot: URL?) -> [EditorPlugin] {
-        builtInPlugins + ExternalPluginService.discoverPlugins(workspaceRoot: workspaceRoot)
+        installedPlugins(workspaceRoots: workspaceRoot.map { [$0] } ?? [])
+    }
+
+    static func enabledPlugins(
+        using settings: AppSettings,
+        workspaceRoots: [URL],
+        trustMode: WorkspaceTrustMode
+    ) -> [EditorPlugin] {
+        let plugins = installedPlugins(workspaceRoots: workspaceRoots)
+        let enabledIDs = normalizedEnabledPluginIDs(from: settings, installedPlugins: plugins)
+        return plugins.filter { plugin in
+            guard enabledIDs.contains(plugin.id) else {
+                return false
+            }
+
+            if trustMode == .restricted {
+                return isAllowedInRestrictedMode(pluginID: plugin.id)
+            }
+
+            return true
+        }
     }
 
     static func enabledPlugins(using settings: AppSettings, workspaceRoot: URL?) -> [EditorPlugin] {
-        let plugins = installedPlugins(workspaceRoot: workspaceRoot)
-        let enabledIDs = normalizedEnabledPluginIDs(from: settings, installedPlugins: plugins)
-        return plugins.filter { enabledIDs.contains($0.id) }
+        enabledPlugins(
+            using: settings,
+            workspaceRoots: workspaceRoot.map { [$0] } ?? [],
+            trustMode: .trusted
+        )
     }
 
     static func normalizedEnabledPluginIDs(from settings: AppSettings, installedPlugins: [EditorPlugin]) -> Set<String> {
@@ -39,11 +65,29 @@ enum PluginHostService {
     static func snippets(
         for language: DocumentLanguage,
         using settings: AppSettings,
-        workspaceRoot: URL?
+        workspaceRoots: [URL],
+        trustMode: WorkspaceTrustMode
     ) -> [EditorPluginSnippet] {
-        enabledPlugins(using: settings, workspaceRoot: workspaceRoot)
+        enabledPlugins(using: settings, workspaceRoots: workspaceRoots, trustMode: trustMode)
             .flatMap(\.snippets)
             .filter { $0.languages.isEmpty || $0.languages.contains(language) }
+    }
+
+    static func snippets(
+        for language: DocumentLanguage,
+        using settings: AppSettings,
+        workspaceRoot: URL?
+    ) -> [EditorPluginSnippet] {
+        snippets(
+            for: language,
+            using: settings,
+            workspaceRoots: workspaceRoot.map { [$0] } ?? [],
+            trustMode: .trusted
+        )
+    }
+
+    static func isAllowedInRestrictedMode(pluginID: String) -> Bool {
+        !pluginID.hasPrefix("forge.workspace-tasks") && !pluginID.hasPrefix("forge.workspace-tools")
     }
 
     private static let languageToolsPlugin = EditorPlugin(

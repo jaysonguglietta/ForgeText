@@ -9,6 +9,9 @@ struct ForgeTextApp: App {
         WindowGroup("ForgeText") {
             ContentView(appState: applicationDelegate.appState)
                 .frame(minWidth: 900, minHeight: 620)
+                .task {
+                    applicationDelegate.appState.processLaunchArgumentsIfNeeded()
+                }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
                     CrashRecoveryMonitor.markCleanExit()
                 }

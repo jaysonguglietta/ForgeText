@@ -1,0 +1,76 @@
+#!/bin/zsh
+
+set -euo pipefail
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "$0")" && pwd)
+PROJECT_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
+
+typeset -a CANDIDATES
+
+if [[ -n "${FORGETEXT_APP:-}" ]]; then
+  CANDIDATES+=("$FORGETEXT_APP")
+fi
+
+CANDIDATES+=(
+  "/Applications/ForgeText.app"
+  "$PROJECT_ROOT/DerivedData/Build/Products/Release/ForgeText.app"
+  "$PROJECT_ROOT/DerivedData/Build/Products/Debug/ForgeText.app"
+)
+
+APP_PATH=""
+for candidate in "${CANDIDATES[@]}"; do
+  if [[ -d "$candidate" ]]; then
+    APP_PATH="$candidate"
+    break
+  fi
+done
+
+if [[ -z "$APP_PATH" ]]; then
+  echo "ForgeText.app was not found." >&2
+  echo "Set FORGETEXT_APP or install/build ForgeText first." >&2
+  exit 1
+fi
+
+needs_direct_launch=0
+for argument in "$@"; do
+  case "$argument" in
+    --workspace|--profile|--diff|--help)
+      needs_direct_launch=1
+      ;;
+    *:[0-9]##)
+      needs_direct_launch=1
+      ;;
+  esac
+done
+
+if [[ "${1:-}" == "--help" ]]; then
+  cat <<'EOF'
+ForgeText CLI
+
+Usage:
+  Scripts/forgetext
+  Scripts/forgetext path/to/file.txt
+  Scripts/forgetext path/to/file.swift:42
+  Scripts/forgetext --diff path/to/left path/to/right
+  Scripts/forgetext --workspace path/to/ops.forgetext-workspace
+  Scripts/forgetext --profile Ops path/to/file.txt
+
+Notes:
+  - Simple file and folder opens are routed through macOS `open`.
+  - Advanced flags launch ForgeText directly so the app can read CLI arguments.
+  - Override the app location with FORGETEXT_APP=/path/to/ForgeText.app.
+EOF
+  exit 0
+fi
+
+if (( $# == 0 )); then
+  open -a "$APP_PATH"
+  exit 0
+fi
+
+if (( needs_direct_launch == 0 )); then
+  open -a "$APP_PATH" "$@"
+  exit 0
+fi
+
+open -na "$APP_PATH" --args "$@"

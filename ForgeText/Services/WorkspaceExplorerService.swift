@@ -16,20 +16,32 @@ enum WorkspaceExplorerService {
         favoritePaths: Set<String>,
         maxDepth: Int = 5
     ) -> [WorkspaceExplorerNode] {
-        guard let rootURL else {
-            return []
-        }
-
-        let standardizedRoot = rootURL.standardizedFileURL
-        let node = loadNode(
-            at: standardizedRoot,
+        loadTree(
+            roots: rootURL.map { [$0] } ?? [],
             includeHiddenFiles: includeHiddenFiles,
             favoritePaths: favoritePaths,
-            depth: 0,
             maxDepth: maxDepth
         )
+    }
 
-        return node.map { [$0] } ?? []
+    static func loadTree(
+        roots: [URL],
+        includeHiddenFiles: Bool,
+        favoritePaths: Set<String>,
+        maxDepth: Int = 5
+    ) -> [WorkspaceExplorerNode] {
+        roots
+            .map(\.standardizedFileURL)
+            .compactMap {
+                loadNode(
+                    at: $0,
+                    includeHiddenFiles: includeHiddenFiles,
+                    favoritePaths: favoritePaths,
+                    depth: 0,
+                    maxDepth: maxDepth
+                )
+            }
+            .sorted(by: nodeSort)
     }
 
     static func filteredNodes(_ nodes: [WorkspaceExplorerNode], matching query: String) -> [WorkspaceExplorerNode] {

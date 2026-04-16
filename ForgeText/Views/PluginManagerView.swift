@@ -24,6 +24,25 @@ struct PluginManagerView: View {
         }
     }
 
+    private var filteredRegistryEntries: [PluginRegistryEntry] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else {
+            return appState.availableRegistryPlugins
+        }
+
+        return appState.availableRegistryPlugins.filter { entry in
+            let candidate = [
+                entry.name,
+                entry.summary,
+                entry.author,
+                entry.category.displayName,
+            ]
+            .joined(separator: " ")
+
+            return candidate.localizedCaseInsensitiveContains(trimmedQuery)
+        }
+    }
+
     var body: some View {
         ZStack {
             RetroBackdropView()
@@ -65,14 +84,37 @@ struct PluginManagerView: View {
 
                 ScrollView {
                     VStack(spacing: 14) {
-                        if filteredPlugins.isEmpty {
-                            Text("No plugins matched that search.")
-                                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                .foregroundStyle(RetroPalette.link)
-                                .padding(.top, 32)
-                        } else {
-                            ForEach(filteredPlugins) { plugin in
-                                pluginCard(plugin)
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Installed Plugins")
+                                .font(.system(size: 13, weight: .black, design: .monospaced))
+                                .foregroundStyle(RetroPalette.ink)
+
+                            if filteredPlugins.isEmpty {
+                                Text("No installed plugins matched that search.")
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(RetroPalette.link)
+                                    .padding(.vertical, 12)
+                            } else {
+                                ForEach(filteredPlugins) { plugin in
+                                    pluginCard(plugin)
+                                }
+                            }
+                        }
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Registry Catalog")
+                                .font(.system(size: 13, weight: .black, design: .monospaced))
+                                .foregroundStyle(RetroPalette.ink)
+
+                            if filteredRegistryEntries.isEmpty {
+                                Text("No registry plugins matched that search.")
+                                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(RetroPalette.link)
+                                    .padding(.vertical, 12)
+                            } else {
+                                ForEach(filteredRegistryEntries) { entry in
+                                    registryCard(entry)
+                                }
                             }
                         }
                     }
@@ -134,6 +176,13 @@ struct PluginManagerView: View {
                     Text(manifest.isBuiltIn ? "Built In" : "External")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
                         .foregroundStyle(RetroPalette.link)
+
+                    if !manifest.isBuiltIn {
+                        Button("Remove") {
+                            appState.uninstallPlugin(plugin)
+                        }
+                        .buttonStyle(RetroActionButtonStyle(tone: .danger))
+                    }
                 }
             }
 
@@ -151,6 +200,63 @@ struct PluginManagerView: View {
         }
         .padding(14)
         .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
+    }
+
+    private func registryCard(_ entry: PluginRegistryEntry) -> some View {
+        let isInstalled = appState.installedPlugins.contains(where: { $0.id == entry.id })
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Text(entry.name)
+                            .font(.system(size: 16, weight: .black, design: .monospaced))
+                            .foregroundStyle(RetroPalette.ink)
+
+                        RetroCapsuleLabel(text: entry.category.displayName, accent: RetroPalette.chromeCyan)
+                        RetroCapsuleLabel(text: "v\(entry.version)", accent: RetroPalette.chromeGold)
+                    }
+
+                    Text(entry.summary)
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundStyle(RetroPalette.link)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text("Author: \(entry.author)")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(RetroPalette.visited)
+                }
+
+                Spacer(minLength: 0)
+
+                VStack(alignment: .trailing, spacing: 8) {
+                    Text(isInstalled ? "Installed" : "Available")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(RetroPalette.link)
+
+                    Button(isInstalled ? "Installed" : "Install") {
+                        if !isInstalled {
+                            appState.installRegistryPlugin(entry)
+                        }
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: isInstalled ? .secondary : .primary))
+                    .disabled(isInstalled)
+                }
+            }
+
+            HStack(spacing: 8) {
+                ForEach(entry.capabilities) { capability in
+                    RetroCapsuleLabel(text: capability.displayName, accent: RetroPalette.chromeTeal)
+                }
+            }
+
+            HStack(spacing: 12) {
+                infoStat(title: "Snippets", value: "\(entry.snippets.count)")
+                infoStat(title: "Tasks", value: "\(entry.tasks.count)")
+            }
+        }
+        .padding(14)
+        .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromeBlue)
     }
 
     private func infoStat(title: String, value: String) -> some View {

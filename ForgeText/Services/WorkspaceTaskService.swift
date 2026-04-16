@@ -2,15 +2,24 @@ import Foundation
 
 enum WorkspaceTaskService {
     static func detectTasks(rootURL: URL?) -> [EditorPluginTask] {
-        guard let rootURL else {
+        detectTasks(rootURLs: rootURL.map { [$0] } ?? [])
+    }
+
+    static func detectTasks(rootURLs: [URL]) -> [EditorPluginTask] {
+        let standardizedRoots = rootURLs.map(\.standardizedFileURL)
+        guard !standardizedRoots.isEmpty else {
             return []
         }
 
+        let multipleRoots = standardizedRoots.count > 1
         var tasks: [EditorPluginTask] = []
-        tasks += swiftPackageTasks(in: rootURL)
-        tasks += nodeTasks(in: rootURL)
-        tasks += pythonTasks(in: rootURL)
-        tasks += makeTasks(in: rootURL)
+
+        for rootURL in standardizedRoots {
+            tasks += swiftPackageTasks(in: rootURL, multipleRoots: multipleRoots)
+            tasks += nodeTasks(in: rootURL, multipleRoots: multipleRoots)
+            tasks += pythonTasks(in: rootURL, multipleRoots: multipleRoots)
+            tasks += makeTasks(in: rootURL, multipleRoots: multipleRoots)
+        }
 
         var seenIDs = Set<String>()
         return tasks.filter { seenIDs.insert($0.id).inserted }
@@ -19,15 +28,17 @@ enum WorkspaceTaskService {
     static func run(
         _ task: EditorPluginTask,
         workspaceRoot: URL?,
-        currentDocument: EditorDocument?
+        currentDocument: EditorDocument?,
+        enableCoverage: Bool = false
     ) async -> PluginTaskRun {
         let startedAt = Date()
 
         do {
             let workingDirectory = resolveWorkingDirectory(for: task, workspaceRoot: workspaceRoot, currentDocument: currentDocument)
+            let execution = executionPlan(for: task, enableCoverage: enableCoverage)
             let result = try CommandExecutionService.execute(
                 "/usr/bin/env",
-                arguments: [task.executable] + task.arguments,
+                arguments: [execution.executable] + execution.arguments,
                 currentDirectoryURL: workingDirectory
             )
 
@@ -35,7 +46,7 @@ enum WorkspaceTaskService {
             return PluginTaskRun(
                 taskID: task.id,
                 taskTitle: task.title,
-                commandDescription: task.commandDescription,
+                commandDescription: ([execution.executable] + execution.arguments).joined(separator: " "),
                 startedAt: startedAt,
                 endedAt: Date(),
                 output: output.isEmpty ? "Task finished without output." : output,
@@ -56,40 +67,46 @@ enum WorkspaceTaskService {
         }
     }
 
-    private static func swiftPackageTasks(in rootURL: URL) -> [EditorPluginTask] {
+    private static func swiftPackageTasks(in rootURL: URL, multipleRoots: Bool) -> [EditorPluginTask] {
         guard FileManager.default.fileExists(atPath: rootURL.appendingPathComponent("Package.swift").path) else {
             return []
         }
 
+        let scope = taskScopePrefix(for: rootURL, multipleRoots: multipleRoots)
+
         return [
             EditorPluginTask(
-                id: "task.swift.build",
+                id: "task.swift.build.\(rootURL.path)",
                 pluginID: "forge.workspace-tasks",
                 pluginName: "Workspace Tasks",
-                title: "Swift Build",
+                title: "\(scope)Swift Build",
                 subtitle: "Run swift build for this package",
                 symbolName: "hammer",
                 executable: "swift",
                 arguments: ["build"],
                 workingDirectory: .workspaceRoot,
-                role: .build
+                role: .build,
+                rootPath: rootURL.path,
+                supportsCoverage: false
             ),
             EditorPluginTask(
-                id: "task.swift.test",
+                id: "task.swift.test.\(rootURL.path)",
                 pluginID: "forge.workspace-tasks",
                 pluginName: "Workspace Tasks",
-                title: "Swift Test",
+                title: "\(scope)Swift Test",
                 subtitle: "Run swift test for this package",
                 symbolName: "checkmark.circle",
                 executable: "swift",
                 arguments: ["test"],
                 workingDirectory: .workspaceRoot,
-                role: .test
+                role: .test,
+                rootPath: rootURL.path,
+                supportsCoverage: true
             ),
         ]
     }
 
-    private static func nodeTasks(in rootURL: URL) -> [EditorPluginTask] {
+    private static func nodeTasks(in rootURL: URL, multipleRoots: Bool) -> [EditorPluginTask] {
         let packageURL = rootURL.appendingPathComponent("package.json")
         guard
             FileManager.default.fileExists(atPath: packageURL.path),
@@ -101,23 +118,26 @@ enum WorkspaceTaskService {
         }
 
         let sortedScripts = scripts.keys.sorted()
+        let scope = taskScopePrefix(for: rootURL, multipleRoots: multipleRoots)
         return sortedScripts.map { name in
             EditorPluginTask(
-                id: "task.node.\(name)",
+                id: "task.node.\(name).\(rootURL.path)",
                 pluginID: "forge.workspace-tasks",
                 pluginName: "Workspace Tasks",
-                title: "npm \(name)",
+                title: "\(scope)npm \(name)",
                 subtitle: "Run the '\(name)' package.json script",
                 symbolName: symbolName(forNodeScript: name),
                 executable: "npm",
                 arguments: ["run", name],
                 workingDirectory: .workspaceRoot,
-                role: role(forNodeScript: name)
+                role: role(forNodeScript: name),
+                rootPath: rootURL.path,
+                supportsCoverage: role(forNodeScript: name) == .test
             )
         }
     }
 
-    private static func pythonTasks(in rootURL: URL) -> [EditorPluginTask] {
+    private static func pythonTasks(in rootURL: URL, multipleRoots: Bool) -> [EditorPluginTask] {
         let hasPythonProject = [
             "pyproject.toml",
             "requirements.txt",
@@ -129,35 +149,41 @@ enum WorkspaceTaskService {
             return []
         }
 
+        let scope = taskScopePrefix(for: rootURL, multipleRoots: multipleRoots)
+
         return [
             EditorPluginTask(
-                id: "task.python.test",
+                id: "task.python.test.\(rootURL.path)",
                 pluginID: "forge.workspace-tasks",
                 pluginName: "Workspace Tasks",
-                title: "Python Test",
+                title: "\(scope)Python Test",
                 subtitle: "Run pytest for this workspace",
                 symbolName: "checkmark.circle",
                 executable: "python3",
                 arguments: ["-m", "pytest"],
                 workingDirectory: .workspaceRoot,
-                role: .test
+                role: .test,
+                rootPath: rootURL.path,
+                supportsCoverage: true
             ),
             EditorPluginTask(
-                id: "task.python.lint",
+                id: "task.python.lint.\(rootURL.path)",
                 pluginID: "forge.workspace-tasks",
                 pluginName: "Workspace Tasks",
-                title: "Python Lint",
+                title: "\(scope)Python Lint",
                 subtitle: "Run Ruff checks for this workspace",
                 symbolName: "checklist",
                 executable: "python3",
                 arguments: ["-m", "ruff", "check", "."],
                 workingDirectory: .workspaceRoot,
-                role: .lint
+                role: .lint,
+                rootPath: rootURL.path,
+                supportsCoverage: false
             ),
         ]
     }
 
-    private static func makeTasks(in rootURL: URL) -> [EditorPluginTask] {
+    private static func makeTasks(in rootURL: URL, multipleRoots: Bool) -> [EditorPluginTask] {
         let makefileCandidates = ["Makefile", "makefile"]
         guard let makefileName = makefileCandidates.first(where: {
             FileManager.default.fileExists(atPath: rootURL.appendingPathComponent($0).path)
@@ -170,19 +196,23 @@ enum WorkspaceTaskService {
         let preferredTargets = targetNames.filter { target in
             ["build", "test", "lint", "run"].contains(target.lowercased())
         }
+        let hasCoverageTarget = targetNames.contains { $0.caseInsensitiveCompare("coverage") == .orderedSame }
+        let scope = taskScopePrefix(for: rootURL, multipleRoots: multipleRoots)
 
         return preferredTargets.map { target in
             EditorPluginTask(
-                id: "task.make.\(target)",
+                id: "task.make.\(target).\(rootURL.path)",
                 pluginID: "forge.workspace-tasks",
                 pluginName: "Workspace Tasks",
-                title: "make \(target)",
+                title: "\(scope)make \(target)",
                 subtitle: "Run the '\(target)' make target",
                 symbolName: symbolName(forMakeTarget: target),
                 executable: "make",
                 arguments: [target],
                 workingDirectory: .workspaceRoot,
-                role: role(forMakeTarget: target)
+                role: role(forMakeTarget: target),
+                rootPath: rootURL.path,
+                supportsCoverage: role(forMakeTarget: target) == .test && hasCoverageTarget
             )
         }
     }
@@ -216,10 +246,38 @@ enum WorkspaceTaskService {
     ) -> URL? {
         switch task.workingDirectory {
         case .workspaceRoot:
-            return workspaceRoot
+            return task.rootPath.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? workspaceRoot
         case .documentDirectory:
-            return currentDocument?.fileURL?.deletingLastPathComponent() ?? workspaceRoot
+            return currentDocument?.fileURL?.deletingLastPathComponent() ?? task.rootPath.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? workspaceRoot
         }
+    }
+
+    private static func executionPlan(for task: EditorPluginTask, enableCoverage: Bool) -> (executable: String, arguments: [String]) {
+        guard enableCoverage, task.supportsCoverage else {
+            return (task.executable, task.arguments)
+        }
+
+        if task.executable == "swift", task.arguments == ["test"] {
+            return ("swift", ["test", "--enable-code-coverage"])
+        }
+
+        if task.executable == "python3", task.arguments == ["-m", "pytest"] {
+            return ("python3", ["-m", "pytest", "--cov=."])
+        }
+
+        if task.executable == "npm", task.arguments == ["run", "test"] {
+            return ("npm", ["run", "test", "--", "--coverage"])
+        }
+
+        if task.executable == "make", task.arguments == ["test"] {
+            return ("make", ["coverage"])
+        }
+
+        return (task.executable, task.arguments)
+    }
+
+    private static func taskScopePrefix(for rootURL: URL, multipleRoots: Bool) -> String {
+        multipleRoots ? "[\(rootURL.lastPathComponent)] " : ""
     }
 
     private static func mergedOutput(from result: CommandExecutionService.CommandResult) -> String {

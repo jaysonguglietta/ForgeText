@@ -72,10 +72,14 @@ struct GitWorkbenchView: View {
 
                     ScrollView {
                         VStack(alignment: .leading, spacing: 14) {
+                            repositoryOverview
                             gitActions
                             commitSection
                             branchSection
                             stashSection
+                            remotesSection
+                            historySection
+                            conflictsSection
                         }
                         .padding(16)
                     }
@@ -111,6 +115,31 @@ struct GitWorkbenchView: View {
         }
         .padding(14)
         .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
+    }
+
+    private var repositoryOverview: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Repository Summary")
+                .font(.system(size: 14, weight: .black, design: .monospaced))
+                .foregroundStyle(RetroPalette.ink)
+
+            if let summary = appState.gitRepositorySummary {
+                HStack(spacing: 10) {
+                    RetroCapsuleLabel(text: summary.branchName, accent: RetroPalette.chromeCyan)
+                    RetroCapsuleLabel(text: "\(summary.modifiedCount) modified", accent: RetroPalette.warning)
+                    RetroCapsuleLabel(text: "\(summary.stagedCount) staged", accent: RetroPalette.success)
+                    if summary.conflictedCount > 0 {
+                        RetroCapsuleLabel(text: "\(summary.conflictedCount) conflicted", accent: RetroPalette.danger)
+                    }
+                }
+            } else {
+                Text("Open a Git-backed workspace to inspect repository state.")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
+            }
+        }
+        .padding(14)
+        .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeTeal)
     }
 
     private var commitSection: some View {
@@ -223,6 +252,169 @@ struct GitWorkbenchView: View {
         .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromePink)
     }
 
+    private var remotesSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Remotes")
+                .font(.system(size: 14, weight: .black, design: .monospaced))
+                .foregroundStyle(RetroPalette.ink)
+
+            if appState.gitPanelState.remotes.isEmpty {
+                Text("No remotes detected.")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
+            } else {
+                ForEach(appState.gitPanelState.remotes) { remote in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(remote.name)
+                            .font(.system(size: 12, weight: .black, design: .monospaced))
+                            .foregroundStyle(RetroPalette.ink)
+                        if let fetchURL = remote.fetchURL {
+                            Text("fetch \(fetchURL)")
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundStyle(RetroPalette.link)
+                                .textSelection(.enabled)
+                        }
+                        if let pushURL = remote.pushURL {
+                            Text("push  \(pushURL)")
+                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundStyle(RetroPalette.link)
+                                .textSelection(.enabled)
+                        }
+                    }
+                    .padding(10)
+                    .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromeBlue)
+                }
+            }
+        }
+        .padding(14)
+        .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
+    }
+
+    private var historySection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Recent History")
+                .font(.system(size: 14, weight: .black, design: .monospaced))
+                .foregroundStyle(RetroPalette.ink)
+
+            if appState.gitPanelState.graphEntries.isEmpty {
+                Text("No commit history available yet.")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
+            } else {
+                ForEach(appState.gitPanelState.graphEntries) { entry in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(entry.graphPrefix) \(entry.shortCommitHash) \(entry.summary)")
+                            .font(.system(size: 11, weight: .black, design: .monospaced))
+                            .foregroundStyle(RetroPalette.ink)
+                        Text("\(entry.author) • \(entry.relativeDate)")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(RetroPalette.link)
+                        if !entry.references.isEmpty {
+                            Text(entry.references)
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .foregroundStyle(RetroPalette.visited)
+                        }
+                    }
+                    .padding(10)
+                    .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromeTeal)
+                }
+            }
+        }
+        .padding(14)
+        .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeTeal)
+    }
+
+    private var conflictsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Merge Conflicts")
+                .font(.system(size: 14, weight: .black, design: .monospaced))
+                .foregroundStyle(RetroPalette.ink)
+
+            let conflictedFiles = appState.gitPanelState.changedFiles.filter(\.isConflicted)
+
+            if conflictedFiles.isEmpty {
+                Text("No conflicted files in the working tree.")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(conflictedFiles) { file in
+                            Button(file.displayName) {
+                                appState.selectGitConflictFile(file)
+                            }
+                            .buttonStyle(RetroActionButtonStyle(tone: appState.gitPanelState.selectedConflictFileID == file.id ? .primary : .secondary))
+                        }
+                    }
+                }
+
+                if appState.gitPanelState.conflictSections.isEmpty {
+                    Text("Pick a conflicted file to inspect its conflict blocks.")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(RetroPalette.link)
+                } else {
+                    HStack(spacing: 10) {
+                        Button("Use Current") {
+                            appState.resolveSelectedGitConflict(using: .current)
+                        }
+                        .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+
+                        Button("Use Incoming") {
+                            appState.resolveSelectedGitConflict(using: .incoming)
+                        }
+                        .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+
+                        Button("Use Both") {
+                            appState.resolveSelectedGitConflict(using: .both)
+                        }
+                        .buttonStyle(RetroActionButtonStyle(tone: .primary))
+                    }
+
+                    ForEach(appState.gitPanelState.conflictSections) { section in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(section.heading)
+                                .font(.system(size: 12, weight: .black, design: .monospaced))
+                                .foregroundStyle(RetroPalette.ink)
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(section.currentLabel)
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(RetroPalette.chromeCyan)
+                                Text(section.currentText.isEmpty ? "(empty)" : section.currentText)
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(RetroPalette.ink)
+                                    .textSelection(.enabled)
+                            }
+                            if let baseText = section.baseText {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Base")
+                                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                        .foregroundStyle(RetroPalette.visited)
+                                    Text(baseText.isEmpty ? "(empty)" : baseText)
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(RetroPalette.link)
+                                        .textSelection(.enabled)
+                                }
+                            }
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(section.incomingLabel)
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(RetroPalette.warning)
+                                Text(section.incomingText.isEmpty ? "(empty)" : section.incomingText)
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(RetroPalette.ink)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                        .padding(10)
+                        .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.danger)
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.danger)
+    }
+
     private func changedFileCard(_ file: GitChangedFile) -> some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
@@ -246,6 +438,13 @@ struct GitWorkbenchView: View {
                     appState.openGitChangedFile(file)
                 }
                 .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+
+                if file.isConflicted {
+                    Button("Conflict") {
+                        appState.selectGitConflictFile(file)
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+                }
 
                 Button("Stage") {
                     appState.stageGitChangedFile(file)

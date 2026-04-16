@@ -18,6 +18,14 @@ struct FileEditorCommands: Commands {
             }
             .keyboardShortcut("o")
 
+            Button("Open Workspace...") {
+                appState.openWorkspaceFilePanel()
+            }
+
+            Button("Workspace Center...") {
+                appState.showWorkspacePlatformPanel()
+            }
+
             Button("Clone Repository...") {
                 appState.showCloneRepositoryPanel()
             }
@@ -58,6 +66,13 @@ struct FileEditorCommands: Commands {
             }
             .keyboardShortcut("S", modifiers: [.command, .shift])
             .disabled(!appState.canSave)
+
+            Divider()
+
+            Button("Save Workspace...") {
+                appState.saveWorkspaceFile()
+            }
+            .disabled(appState.workspaceRootURLs.isEmpty)
 
             Button("Privileged Save") {
                 appState.saveDocumentPrivileged()
@@ -277,6 +292,21 @@ struct FileEditorCommands: Commands {
         }
 
         CommandMenu("Tools") {
+            Button("Workspace Center") {
+                appState.showWorkspacePlatformPanel()
+            }
+
+            Button(appState.workspaceTrustMode == .trusted ? "Restrict Workspace" : "Trust Workspace") {
+                if appState.workspaceTrustMode == .trusted {
+                    appState.restrictCurrentWorkspace()
+                } else {
+                    appState.trustCurrentWorkspace()
+                }
+            }
+            .disabled(appState.workspaceRootURLs.isEmpty)
+
+            Divider()
+
             Button(appState.selectedDocument?.followModeEnabled == true ? "Disable Follow Mode" : "Enable Follow Mode") {
                 appState.toggleFollowMode()
             }
@@ -311,6 +341,16 @@ struct FileEditorCommands: Commands {
 
             Button("Refresh Workspace Explorer") {
                 appState.refreshWorkspaceExplorer()
+            }
+
+            Divider()
+
+            Button("Export Sync Bundle...") {
+                appState.exportSyncBundle()
+            }
+
+            Button("Import Sync Bundle...") {
+                appState.importSyncBundle()
             }
 
             Divider()
@@ -362,6 +402,10 @@ struct FileEditorCommands: Commands {
 
             Button("Run Test Task") {
                 appState.runPrimaryWorkspaceTask(.test)
+            }
+
+            Button("Run Coverage Task") {
+                appState.runSelectedCoverageTask()
             }
 
             Button("Run Lint Task") {

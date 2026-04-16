@@ -6,12 +6,16 @@ enum GitService {
         let branches: [String]
         let changedFiles: [GitChangedFile]
         let stashes: [GitStashEntry]
+        let graphEntries: [GitGraphEntry]
+        let remotes: [GitRemote]
 
         static let empty = GitWorkspaceSnapshot(
             summary: nil,
             branches: [],
             changedFiles: [],
-            stashes: []
+            stashes: [],
+            graphEntries: [],
+            remotes: []
         )
     }
 
@@ -204,7 +208,9 @@ enum GitService {
             summary: summary(repositoryRoot: repositoryRoot),
             branches: branches(repositoryRoot: repositoryRoot),
             changedFiles: changedFiles(repositoryRoot: repositoryRoot),
-            stashes: stashes(repositoryRoot: repositoryRoot)
+            stashes: stashes(repositoryRoot: repositoryRoot),
+            graphEntries: graphEntries(repositoryRoot: repositoryRoot),
+            remotes: remotes(repositoryRoot: repositoryRoot)
         )
     }
 
@@ -414,6 +420,86 @@ enum GitService {
                     summary: String(parts[2]).trimmingCharacters(in: .whitespacesAndNewlines)
                 )
             }
+    }
+
+    private static func graphEntries(repositoryRoot: URL) -> [GitGraphEntry] {
+        guard let output = try? CommandExecutionService.runString(
+            "/usr/bin/git",
+            arguments: [
+                "-C",
+                repositoryRoot.path,
+                "log",
+                "--graph",
+                "--decorate",
+                "--date=relative",
+                "--format=%x01%H%x01%an%x01%ar%x01%d%x01%s",
+                "-n",
+                "24",
+            ]
+        ) else {
+            return []
+        }
+
+        return output
+            .split(whereSeparator: \.isNewline)
+            .compactMap { line in
+                let raw = String(line)
+                guard let markerIndex = raw.firstIndex(of: "\u{1}") else {
+                    return nil
+                }
+
+                let graphPrefix = String(raw[..<markerIndex]).trimmingCharacters(in: .whitespaces)
+                let payload = String(raw[markerIndex...])
+                let fields = payload
+                    .split(separator: "\u{1}", omittingEmptySubsequences: false)
+                    .dropFirst()
+                    .map(String.init)
+
+                guard fields.count >= 5 else {
+                    return nil
+                }
+
+                return GitGraphEntry(
+                    id: fields[0],
+                    graphPrefix: graphPrefix,
+                    commitHash: fields[0],
+                    author: fields[1],
+                    relativeDate: fields[2],
+                    references: fields[3].trimmingCharacters(in: .whitespacesAndNewlines),
+                    summary: fields[4]
+                )
+            }
+    }
+
+    private static func remotes(repositoryRoot: URL) -> [GitRemote] {
+        guard let output = try? CommandExecutionService.runString(
+            "/usr/bin/git",
+            arguments: ["-C", repositoryRoot.path, "remote", "-v"]
+        ) else {
+            return []
+        }
+
+        var remotes: [String: GitRemote] = [:]
+
+        for line in output.split(whereSeparator: \.isNewline).map(String.init) {
+            let parts = line.split(whereSeparator: \.isWhitespace).map(String.init)
+            guard parts.count >= 3 else {
+                continue
+            }
+
+            let name = parts[0]
+            let url = parts[1]
+            let kind = parts[2]
+            let existing = remotes[name] ?? GitRemote(id: name, name: name, fetchURL: nil, pushURL: nil)
+
+            if kind.contains("(fetch)") {
+                remotes[name] = GitRemote(id: name, name: name, fetchURL: url, pushURL: existing.pushURL)
+            } else if kind.contains("(push)") {
+                remotes[name] = GitRemote(id: name, name: name, fetchURL: existing.fetchURL, pushURL: url)
+            }
+        }
+
+        return remotes.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     private static func relativePath(for fileURL: URL, repositoryRoot: URL) throws -> String {

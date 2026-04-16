@@ -37,7 +37,12 @@ struct WorkspaceExplorerView: View {
                 .buttonStyle(RetroActionButtonStyle(tone: .secondary))
             }
 
-            if let rootURL = appState.activeWorkspaceURL {
+            if appState.workspaceRootURLs.count > 1 {
+                Text("\(appState.workspaceRootURLs.count) roots active • \(appState.activeWorkspaceURL?.lastPathComponent ?? "none") selected")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
+                    .lineLimit(2)
+            } else if let rootURL = appState.activeWorkspaceURL {
                 Text(rootURL.path(percentEncoded: false))
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
                     .foregroundStyle(RetroPalette.link)

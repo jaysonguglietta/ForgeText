@@ -214,6 +214,10 @@ struct WorkspaceSessionRecord: Identifiable, Codable, Hashable {
     var selectedFilePath: String?
     var selectedRemoteSpec: String?
     var workspaceRootPath: String?
+    var workspaceRootPaths: [String]
+    var activeWorkspaceRootPath: String?
+    var workspaceFilePath: String?
+    var selectedProfileID: UUID?
     var theme: EditorTheme
     var wrapLines: Bool
     var fontSize: Double
@@ -227,6 +231,10 @@ struct WorkspaceSessionRecord: Identifiable, Codable, Hashable {
         selectedFilePath: String?,
         selectedRemoteSpec: String?,
         workspaceRootPath: String?,
+        workspaceRootPaths: [String] = [],
+        activeWorkspaceRootPath: String? = nil,
+        workspaceFilePath: String? = nil,
+        selectedProfileID: UUID? = nil,
         theme: EditorTheme,
         wrapLines: Bool,
         fontSize: Double,
@@ -239,10 +247,53 @@ struct WorkspaceSessionRecord: Identifiable, Codable, Hashable {
         self.selectedFilePath = selectedFilePath
         self.selectedRemoteSpec = selectedRemoteSpec
         self.workspaceRootPath = workspaceRootPath
+        self.workspaceRootPaths = workspaceRootPaths
+        self.activeWorkspaceRootPath = activeWorkspaceRootPath
+        self.workspaceFilePath = workspaceFilePath
+        self.selectedProfileID = selectedProfileID
         self.theme = theme
         self.wrapLines = wrapLines
         self.fontSize = fontSize
         self.savedAt = savedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case openFilePaths
+        case openRemoteSpecs
+        case selectedFilePath
+        case selectedRemoteSpec
+        case workspaceRootPath
+        case workspaceRootPaths
+        case activeWorkspaceRootPath
+        case workspaceFilePath
+        case selectedProfileID
+        case theme
+        case wrapLines
+        case fontSize
+        case savedAt
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try container.decode(String.self, forKey: .name)
+        openFilePaths = try container.decodeIfPresent([String].self, forKey: .openFilePaths) ?? []
+        openRemoteSpecs = try container.decodeIfPresent([String].self, forKey: .openRemoteSpecs) ?? []
+        selectedFilePath = try container.decodeIfPresent(String.self, forKey: .selectedFilePath)
+        selectedRemoteSpec = try container.decodeIfPresent(String.self, forKey: .selectedRemoteSpec)
+        workspaceRootPath = try container.decodeIfPresent(String.self, forKey: .workspaceRootPath)
+        workspaceRootPaths = try container.decodeIfPresent([String].self, forKey: .workspaceRootPaths)
+            ?? workspaceRootPath.map { [$0] }
+            ?? []
+        activeWorkspaceRootPath = try container.decodeIfPresent(String.self, forKey: .activeWorkspaceRootPath) ?? workspaceRootPath
+        workspaceFilePath = try container.decodeIfPresent(String.self, forKey: .workspaceFilePath)
+        selectedProfileID = try container.decodeIfPresent(UUID.self, forKey: .selectedProfileID)
+        theme = try container.decodeIfPresent(EditorTheme.self, forKey: .theme) ?? .forge
+        wrapLines = try container.decodeIfPresent(Bool.self, forKey: .wrapLines) ?? false
+        fontSize = try container.decodeIfPresent(Double.self, forKey: .fontSize) ?? 14
+        savedAt = try container.decodeIfPresent(Date.self, forKey: .savedAt) ?? Date()
     }
 }
 
@@ -345,6 +396,7 @@ struct WorkspaceExplorerState {
     var nodes: [WorkspaceExplorerNode] = []
     var lastRefreshedAt: Date?
     var statusMessage: String?
+    var selectedRootPath: String?
 }
 
 enum EditorLineDecorationKind: String, Codable, Hashable {
@@ -424,6 +476,8 @@ struct RemoteWorkspaceState {
     var isRunningCommand = false
     var isSearching = false
     var statusMessage: String?
+    var executionMode: RemoteExecutionMode = .directShell
+    var agentStatus: RemoteAgentStatus?
 }
 
 struct CloneRepositoryState {
@@ -472,6 +526,10 @@ struct GitPanelState {
     var stashMessage = ""
     var isBusy = false
     var lastOperationMessage: String?
+    var graphEntries: [GitGraphEntry] = []
+    var remotes: [GitRemote] = []
+    var selectedConflictFileID: String?
+    var conflictSections: [GitConflictSection] = []
 }
 
 struct ProblemRecord: Identifiable, Hashable {
@@ -494,6 +552,7 @@ struct ProblemsPanelState {
 struct TestExplorerState {
     var selectedTaskID: String?
     var lastRun: PluginTaskRun?
+    var coverageSummary: TestCoverageSummary?
 }
 
 struct AIWorkbenchState {

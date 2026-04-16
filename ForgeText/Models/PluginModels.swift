@@ -141,6 +141,8 @@ struct EditorPluginTask: Identifiable, Hashable {
     let arguments: [String]
     let workingDirectory: PluginTaskWorkingDirectory
     let role: PluginTaskRole
+    let rootPath: String?
+    let supportsCoverage: Bool
 
     var commandDescription: String {
         ([executable] + arguments).joined(separator: " ")
@@ -205,6 +207,7 @@ struct PluginTaskPanelState {
     var tasks: [EditorPluginTask] = []
     var selectedTaskID: String?
     var lastRun: PluginTaskRun?
+    var lastCoverageSummary: TestCoverageSummary?
 }
 
 enum PluginDiagnosticSeverity: String, Codable, CaseIterable, Identifiable, Hashable {
@@ -284,6 +287,13 @@ struct GitRepositorySummary: Hashable {
     let modifiedCount: Int
     let untrackedCount: Int
     let conflictedCount: Int
+}
+
+struct GitRemote: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let fetchURL: String?
+    let pushURL: String?
 }
 
 struct EditorPlugin: Identifiable, Hashable {

@@ -1,6 +1,11 @@
 import Foundation
 
 enum ExternalPluginService {
+    private struct PluginDirectory {
+        let url: URL
+        let workspaceRoot: URL?
+    }
+
     private struct ManifestFile: Codable {
         struct SnippetRecord: Codable {
             let id: String
@@ -34,38 +39,44 @@ enum ExternalPluginService {
         let tasks: [TaskRecord]?
     }
 
-    static func discoverPlugins(workspaceRoot: URL?) -> [EditorPlugin] {
-        pluginDirectories(workspaceRoot: workspaceRoot)
+    static func discoverPlugins(workspaceRoots: [URL]) -> [EditorPlugin] {
+        pluginDirectories(workspaceRoots: workspaceRoots)
             .flatMap(loadPlugins(in:))
             .sorted { $0.manifest.name.localizedCaseInsensitiveCompare($1.manifest.name) == .orderedAscending }
     }
 
-    static func pluginDirectories(workspaceRoot: URL?) -> [URL] {
-        var directories: [URL] = []
+    static func discoverPlugins(workspaceRoot: URL?) -> [EditorPlugin] {
+        discoverPlugins(workspaceRoots: workspaceRoot.map { [$0] } ?? [])
+    }
 
-        if let workspaceRoot {
-            directories.append(workspaceRoot.appendingPathComponent(".forgetext", isDirectory: true).appendingPathComponent("plugins", isDirectory: true))
+    private static func pluginDirectories(workspaceRoots: [URL]) -> [PluginDirectory] {
+        var directories: [PluginDirectory] = []
+
+        for workspaceRoot in workspaceRoots.map(\.standardizedFileURL) {
+            directories.append(
+                PluginDirectory(
+                    url: workspaceRoot.appendingPathComponent(".forgetext", isDirectory: true).appendingPathComponent("plugins", isDirectory: true),
+                    workspaceRoot: workspaceRoot
+                )
+            )
         }
 
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-        if let base {
-            directories.append(base.appendingPathComponent("ForgeText", isDirectory: true).appendingPathComponent("Plugins", isDirectory: true))
-        }
+        directories.append(PluginDirectory(url: StoragePathService.userPluginDirectoryURL(), workspaceRoot: nil))
 
         return directories
     }
 
-    private static func loadPlugins(in directory: URL) -> [EditorPlugin] {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
+    private static func loadPlugins(in directory: PluginDirectory) -> [EditorPlugin] {
+        guard let files = try? FileManager.default.contentsOfDirectory(at: directory.url, includingPropertiesForKeys: nil) else {
             return []
         }
 
         return files
             .filter { $0.pathExtension.lowercased() == "json" }
-            .compactMap(loadPlugin)
+            .compactMap { loadPlugin(at: $0, workspaceRoot: directory.workspaceRoot) }
     }
 
-    private static func loadPlugin(at url: URL) -> EditorPlugin? {
+    private static func loadPlugin(at url: URL, workspaceRoot: URL?) -> EditorPlugin? {
         guard let data = try? Data(contentsOf: url),
               let manifestFile = try? JSONDecoder().decode(ManifestFile.self, from: data)
         else {
@@ -81,7 +92,7 @@ enum ExternalPluginService {
             category: manifestFile.category,
             capabilities: manifestFile.capabilities,
             isBuiltIn: false,
-            sourceDescription: url.deletingLastPathComponent().path(percentEncoded: false),
+            sourceDescription: url.path(percentEncoded: false),
             defaultEnabled: manifestFile.defaultEnabled ?? true
         )
 
@@ -108,7 +119,9 @@ enum ExternalPluginService {
                 executable: task.executable,
                 arguments: task.arguments,
                 workingDirectory: task.workingDirectory,
-                role: task.role
+                role: task.role,
+                rootPath: workspaceRoot?.path,
+                supportsCoverage: task.role == .test
             )
         }
 

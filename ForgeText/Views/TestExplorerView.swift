@@ -4,6 +4,14 @@ struct TestExplorerView: View {
     @ObservedObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
 
+    private var selectedTask: EditorPluginTask? {
+        guard let selectedTaskID = appState.testExplorerState.selectedTaskID else {
+            return appState.availableTestTasks.first
+        }
+
+        return appState.availableTestTasks.first(where: { $0.id == selectedTaskID }) ?? appState.availableTestTasks.first
+    }
+
     var body: some View {
         ZStack {
             RetroBackdropView()
@@ -20,6 +28,12 @@ struct TestExplorerView: View {
                         appState.runSelectedTestTask()
                     }
                     .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+
+                    Button("Run Coverage") {
+                        appState.runSelectedCoverageTask()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+                    .disabled(selectedTask?.supportsCoverage != true)
 
                     Button("Close") {
                         dismiss()
@@ -81,6 +95,15 @@ struct TestExplorerView: View {
                                     if let exitCode = lastRun.exitCode {
                                         RetroCapsuleLabel(text: "exit \(exitCode)", accent: RetroPalette.chromeBlue)
                                     }
+                                    if let coverageSummary = appState.testExplorerState.coverageSummary {
+                                        RetroCapsuleLabel(text: "\(coverageSummary.toolName) \(coverageSummary.formattedPercentage)", accent: RetroPalette.chromeGold)
+                                    }
+                                }
+
+                                if let coverageSummary = appState.testExplorerState.coverageSummary {
+                                    Text(coverageSummary.detail)
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(RetroPalette.link)
                                 }
 
                                 Text(lastRun.output)

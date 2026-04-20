@@ -2,7 +2,7 @@ import XCTest
 @testable import ForgeText
 
 final class PluginRegistryServiceTests: XCTestCase {
-    func testCatalogLoadsEnabledCustomRegistryEntries() throws {
+    func testCatalogLoadsEnabledCustomRegistryEntries() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -35,12 +35,12 @@ final class PluginRegistryServiceTests: XCTestCase {
             PluginRegistryConfiguration(name: "Example", source: registryURL.path, isEnabled: true)
         ]
 
-        let catalog = PluginRegistryService.catalog(using: settings)
+        let catalog = await PluginRegistryService.catalog(using: settings)
 
         XCTAssertTrue(catalog.contains(where: { $0.id == "example.registry-plugin" }))
     }
 
-    func testCatalogSkipsDisabledRegistryEntries() throws {
+    func testCatalogSkipsDisabledRegistryEntries() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -73,8 +73,27 @@ final class PluginRegistryServiceTests: XCTestCase {
             PluginRegistryConfiguration(name: "Disabled", source: registryURL.path, isEnabled: false)
         ]
 
-        let catalog = PluginRegistryService.catalog(using: settings)
+        let catalog = await PluginRegistryService.catalog(using: settings)
 
         XCTAssertFalse(catalog.contains(where: { $0.id == "example.disabled-plugin" }))
+    }
+
+    func testInstallRejectsPathTraversalInstallFileNames() {
+        let entry = PluginRegistryEntry(
+            id: "example.unsafe-plugin",
+            name: "Unsafe Plugin",
+            version: "1.0.0",
+            author: "ForgeText",
+            summary: "Attempts to escape the plugin directory.",
+            category: .snippets,
+            capabilities: [.snippets],
+            defaultEnabled: true,
+            sourceDescription: "Unsafe Registry",
+            snippets: [],
+            tasks: [],
+            installFileName: "../../tmp/unsafe-plugin.json"
+        )
+
+        XCTAssertThrowsError(try PluginRegistryService.install(entry))
     }
 }

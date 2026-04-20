@@ -37,8 +37,10 @@ for argument in "$@"; do
     --workspace|--profile|--diff|--help)
       needs_direct_launch=1
       ;;
-    *:[0-9]##)
-      needs_direct_launch=1
+    *)
+      if [[ "$argument" =~ ^.+:[0-9]+$ ]]; then
+        needs_direct_launch=1
+      fi
       ;;
   esac
 done

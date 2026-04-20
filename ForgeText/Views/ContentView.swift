@@ -544,6 +544,17 @@ private struct DocumentWorkspaceView: View {
         metrics.cursorLine
     }
 
+    private var lineDecorationRefreshKey: String {
+        let saveMarker = document.lastSavedAt?.timeIntervalSinceReferenceDate ?? -1
+        let locationMarker = document.fileURL?.path ?? document.remoteReference?.spec ?? document.untitledName
+        return "\(document.id.uuidString)|\(locationMarker)|\(document.isDirty)|\(saveMarker)"
+    }
+
+    private var gitBlameRefreshKey: String {
+        let saveMarker = document.lastSavedAt?.timeIntervalSinceReferenceDate ?? -1
+        return "\(lineDecorationRefreshKey)|\(currentLine)|\(saveMarker)"
+    }
+
     private var breadcrumbTrail: [String] {
         DocumentOutlineService.breadcrumbTrail(for: document, cursorLine: currentLine)
     }
@@ -674,6 +685,12 @@ private struct DocumentWorkspaceView: View {
             .padding(10)
         }
         .background(backgroundColor)
+        .task(id: lineDecorationRefreshKey) {
+            appState.prefetchLineDecorations(for: document)
+        }
+        .task(id: gitBlameRefreshKey) {
+            appState.prefetchGitBlame(for: document, lineNumber: currentLine)
+        }
         .toolbar {
             ToolbarItemGroup {
                 Button {

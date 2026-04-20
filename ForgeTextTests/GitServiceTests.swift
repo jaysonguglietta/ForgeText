@@ -48,4 +48,29 @@ final class GitServiceTests: XCTestCase {
         XCTAssertEqual(snapshot.changedFiles.count, 1)
         XCTAssertEqual(snapshot.changedFiles.first?.relativePath, "README.md")
     }
+
+    func testHeadContentsRejectsSiblingPathThatSharesRepositoryPrefix() throws {
+        let tempRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let repositoryRoot = tempRoot.appendingPathComponent("repo", isDirectory: true)
+        let siblingRoot = tempRoot.appendingPathComponent("repo-other", isDirectory: true)
+        try FileManager.default.createDirectory(at: repositoryRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: siblingRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: ["init", repositoryRoot.path])
+        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: ["-C", repositoryRoot.path, "config", "user.email", "forge@example.com"])
+        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: ["-C", repositoryRoot.path, "config", "user.name", "ForgeText"])
+
+        let trackedFileURL = repositoryRoot.appendingPathComponent("README.md")
+        try "# ForgeText\n".write(to: trackedFileURL, atomically: true, encoding: .utf8)
+        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: ["-C", repositoryRoot.path, "add", "README.md"])
+        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: ["-C", repositoryRoot.path, "commit", "-m", "Initial commit"])
+
+        let siblingFileURL = siblingRoot.appendingPathComponent("README.md")
+        try "outside repo\n".write(to: siblingFileURL, atomically: true, encoding: .utf8)
+
+        XCTAssertThrowsError(try GitService.headContents(for: siblingFileURL, workspaceRoot: repositoryRoot)) { error in
+            XCTAssertEqual(error as? GitService.GitError, .fileOutsideRepository)
+        }
+    }
 }

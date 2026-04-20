@@ -5,11 +5,22 @@ enum PluginRegistryService {
         let entries: [PluginRegistryEntry]
     }
 
-    static func catalog(using settings: AppSettings) -> [PluginRegistryEntry] {
+    enum RegistryError: LocalizedError {
+        case invalidInstallFileName(String)
+
+        var errorDescription: String? {
+            switch self {
+            case let .invalidInstallFileName(fileName):
+                return "ForgeText rejected the plugin install file name '\(fileName)' because it is not a safe direct child of the user plugin folder."
+            }
+        }
+    }
+
+    static func catalog(using settings: AppSettings) async -> [PluginRegistryEntry] {
         var entries = curatedEntries
 
         for registry in settings.pluginRegistries where registry.isEnabled {
-            entries.append(contentsOf: loadRegistryEntries(from: registry.source))
+            entries.append(contentsOf: await loadRegistryEntries(from: registry.source))
         }
 
         var seenIDs = Set<String>()
@@ -17,7 +28,7 @@ enum PluginRegistryService {
     }
 
     static func install(_ entry: PluginRegistryEntry) throws -> URL {
-        let manifestURL = StoragePathService.userPluginDirectoryURL().appendingPathComponent(entry.installFileName)
+        let manifestURL = try manifestURL(for: entry.installFileName)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(entry)
@@ -30,16 +41,16 @@ enum PluginRegistryService {
             return
         }
 
-        let sourceURL = URL(fileURLWithPath: sourceDescription)
-        let userPluginRoot = StoragePathService.userPluginDirectoryURL().standardizedFileURL.path
-        guard sourceURL.standardizedFileURL.path.hasPrefix(userPluginRoot) else {
+        let sourceURL = URL(fileURLWithPath: sourceDescription).standardizedFileURL
+        let userPluginRoot = StoragePathService.userPluginDirectoryURL().standardizedFileURL
+        guard sourceURL.deletingLastPathComponent() == userPluginRoot else {
             return
         }
 
         try FileManager.default.removeItem(at: sourceURL)
     }
 
-    private static func loadRegistryEntries(from source: String) -> [PluginRegistryEntry] {
+    private static func loadRegistryEntries(from source: String) async -> [PluginRegistryEntry] {
         let trimmedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedSource.isEmpty else {
             return []
@@ -55,13 +66,48 @@ enum PluginRegistryService {
             sourceURL = URL(fileURLWithPath: trimmedSource)
         }
 
-        guard let data = try? Data(contentsOf: sourceURL),
+        let data: Data?
+        if sourceURL.isFileURL {
+            data = try? Data(contentsOf: sourceURL)
+        } else {
+            let request = URLRequest(url: sourceURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 8)
+            let responseData = try? await URLSession.shared.data(for: request)
+            if let (_, response) = responseData,
+               let httpResponse = response as? HTTPURLResponse,
+               !(200 ..< 300).contains(httpResponse.statusCode)
+            {
+                data = nil
+            } else {
+                data = responseData?.0
+            }
+        }
+
+        guard let data,
               let file = try? JSONDecoder().decode(RegistryFile.self, from: data)
         else {
             return []
         }
 
         return file.entries
+    }
+
+    private static func manifestURL(for installFileName: String) throws -> URL {
+        let trimmedFileName = installFileName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sanitizedFileName = URL(fileURLWithPath: trimmedFileName).lastPathComponent
+        let isDirectChild = !trimmedFileName.isEmpty
+            && sanitizedFileName == trimmedFileName
+            && trimmedFileName != "."
+            && trimmedFileName != ".."
+            && !trimmedFileName.contains("/")
+            && !trimmedFileName.contains("\\")
+
+        guard isDirectChild else {
+            throw RegistryError.invalidInstallFileName(installFileName)
+        }
+
+        return StoragePathService.userPluginDirectoryURL()
+            .appendingPathComponent(sanitizedFileName, isDirectory: false)
+            .standardizedFileURL
     }
 
     private static let curatedEntries: [PluginRegistryEntry] = [

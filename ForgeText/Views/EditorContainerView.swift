@@ -56,7 +56,9 @@ struct EditorContainerView: NSViewRepresentable {
         let scrollView = EditorScrollView()
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
-        scrollView.autohidesScrollers = true
+        scrollView.hasHorizontalScroller = true
+        scrollView.autohidesScrollers = false
+        scrollView.scrollerStyle = .legacy
         scrollView.drawsBackground = true
         scrollView.usesPredominantAxisScrolling = false
 
@@ -218,7 +220,7 @@ struct EditorContainerView: NSViewRepresentable {
         scrollView.backgroundColor = theme.backgroundColor
 
         if wrapLines {
-            scrollView.hasHorizontalScroller = false
+            scrollView.hasHorizontalScroller = true
             textView.isHorizontallyResizable = false
             textView.isVerticallyResizable = true
             textView.autoresizingMask = [.width]

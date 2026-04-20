@@ -19,7 +19,7 @@ enum GitService {
         )
     }
 
-    enum GitError: LocalizedError {
+    enum GitError: LocalizedError, Equatable {
         case repositoryNotFound
         case fileOutsideRepository
         case noCommittedVersion(String)
@@ -503,13 +503,19 @@ enum GitService {
     }
 
     private static func relativePath(for fileURL: URL, repositoryRoot: URL) throws -> String {
-        let filePath = fileURL.standardizedFileURL.path
-        let rootPath = repositoryRoot.standardizedFileURL.path
-        guard filePath.hasPrefix(rootPath) else {
+        let standardizedFileURL = fileURL.standardizedFileURL
+        let standardizedRootURL = repositoryRoot.standardizedFileURL
+        let filePath = standardizedFileURL.path
+        let rootPath = standardizedRootURL.path
+        let rootPrefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
+
+        guard filePath.hasPrefix(rootPrefix) else {
             throw GitError.fileOutsideRepository
         }
 
-        let relativePath = String(filePath.dropFirst(rootPath.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let relativePath = standardizedFileURL.path(percentEncoded: false)
+            .replacingOccurrences(of: rootPrefix, with: "", options: [.anchored])
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard !relativePath.isEmpty else {
             throw GitError.fileOutsideRepository
         }

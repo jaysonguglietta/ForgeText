@@ -137,16 +137,20 @@ final class AppState: ObservableObject {
     @Published var workspacePlatformState = WorkspacePlatformState()
     @Published private var pluginCatalog: [EditorPlugin] = PluginHostService.builtInPlugins
     @Published private var documentDiagnosticsByID: [UUID: [PluginDiagnostic]] = [:]
+    @Published private var gitLineDecorationsByDocumentID: [UUID: [EditorLineDecoration]] = [:]
+    @Published private var gitBlameCache: [String: GitBlameInfo] = [:]
 
     private var pendingAction: PendingAction?
     private var autosaveTask: Task<Void, Never>?
     private var sessionSaveTask: Task<Void, Never>?
     private var projectSearchTask: Task<Void, Never>?
     private var gitRefreshTask: Task<Void, Never>?
+    private var gitLineDecorationTasks: [UUID: Task<Void, Never>] = [:]
+    private var gitBlameTasks: [String: Task<Void, Never>] = [:]
+    private var pluginRegistryRefreshTask: Task<Void, Never>?
     private var fileMonitorTimer: Timer?
     private var untitledCounter = 1
     private let hadUncleanShutdown: Bool
-    private var gitBlameCache: [String: GitBlameInfo] = [:]
     private var gitRefreshGeneration = 0
     private var processedLaunchArguments = false
 
@@ -171,6 +175,7 @@ final class AppState: ObservableObject {
         startFileMonitoring()
         refreshPluginWorkspaceState()
         refreshWorkspacePlatformState()
+        refreshPluginRegistry()
 
         if hadUncleanShutdown, documents.contains(where: \.hasRecoveredDraft) {
             alertContext = AlertContext(
@@ -339,11 +344,7 @@ final class AppState: ObservableObject {
     }
 
     func lineDecorations(for document: EditorDocument) -> [EditorLineDecoration] {
-        var decorations: [EditorLineDecoration] = []
-
-        if let fileURL = document.fileURL {
-            decorations = GitService.lineDecorations(for: fileURL, workspaceRoot: activeWorkspaceURL)
-        }
+        var decorations = document.isDirty ? [] : (gitLineDecorationsByDocumentID[document.id] ?? [])
 
         let diagnosticDecorations = inlineDiagnostics(for: document).compactMap { diagnostic -> EditorLineDecoration? in
             guard let lineNumber = diagnostic.lineNumber else {
@@ -374,20 +375,65 @@ final class AppState: ObservableObject {
     }
 
     func gitBlame(for document: EditorDocument, lineNumber: Int) -> GitBlameInfo? {
-        guard !document.isDirty, let fileURL = document.fileURL else {
+        guard !document.isDirty, document.fileURL != nil else {
             return nil
         }
 
-        let cacheKey = "\(document.id.uuidString)-\(lineNumber)"
-        if let cached = gitBlameCache[cacheKey] {
-            return cached
+        let cacheKey = gitBlameCacheKey(for: document.id, lineNumber: lineNumber)
+        return gitBlameCache[cacheKey]
+    }
+
+    func prefetchLineDecorations(for document: EditorDocument) {
+        guard !document.isDirty, let fileURL = document.fileURL else {
+            cancelGitLineDecorationRefresh(for: document.id, clearCache: document.fileURL == nil)
+            return
         }
 
-        let blame = GitService.blame(for: fileURL, lineNumber: lineNumber, workspaceRoot: activeWorkspaceURL)
-        if let blame {
-            gitBlameCache[cacheKey] = blame
+        guard gitLineDecorationTasks[document.id] == nil else {
+            return
         }
-        return blame
+
+        let documentID = document.id
+        let workspaceURL = activeWorkspaceURL
+        gitLineDecorationTasks[documentID] = Task.detached(priority: .utility) { [fileURL, weak self] in
+            let decorations = GitService.lineDecorations(for: fileURL, workspaceRoot: workspaceURL)
+            guard !Task.isCancelled else {
+                return
+            }
+
+            await MainActor.run {
+                guard let self else { return }
+                self.gitLineDecorationTasks[documentID] = nil
+                self.gitLineDecorationsByDocumentID[documentID] = decorations
+            }
+        }
+    }
+
+    func prefetchGitBlame(for document: EditorDocument, lineNumber: Int) {
+        guard lineNumber > 0, !document.isDirty, let fileURL = document.fileURL else {
+            return
+        }
+
+        let cacheKey = gitBlameCacheKey(for: document.id, lineNumber: lineNumber)
+        guard gitBlameCache[cacheKey] == nil, gitBlameTasks[cacheKey] == nil else {
+            return
+        }
+
+        let workspaceURL = activeWorkspaceURL
+        gitBlameTasks[cacheKey] = Task.detached(priority: .utility) { [fileURL, weak self] in
+            let blame = GitService.blame(for: fileURL, lineNumber: lineNumber, workspaceRoot: workspaceURL)
+            guard !Task.isCancelled else {
+                return
+            }
+
+            await MainActor.run {
+                guard let self else { return }
+                self.gitBlameTasks[cacheKey] = nil
+                if let blame {
+                    self.gitBlameCache[cacheKey] = blame
+                }
+            }
+        }
     }
 
     func newDocument() {
@@ -760,6 +806,7 @@ final class AppState: ObservableObject {
 
     func showWorkspacePlatformPanel() {
         refreshWorkspacePlatformState()
+        refreshPluginRegistry()
         showingWorkspacePlatform = true
     }
 
@@ -912,9 +959,23 @@ final class AppState: ObservableObject {
 
     func refreshPluginRegistry() {
         workspacePlatformState.isRefreshingRegistry = true
-        workspacePlatformState.registryEntries = PluginRegistryService.catalog(using: settings)
-        workspacePlatformState.lastRegistryRefreshAt = Date()
-        workspacePlatformState.isRefreshingRegistry = false
+        pluginRegistryRefreshTask?.cancel()
+        let settingsSnapshot = settings
+
+        pluginRegistryRefreshTask = Task.detached(priority: .utility) { [weak self] in
+            let entries = await PluginRegistryService.catalog(using: settingsSnapshot)
+            guard !Task.isCancelled else {
+                return
+            }
+
+            await MainActor.run {
+                guard let self else { return }
+                self.workspacePlatformState.registryEntries = entries
+                self.workspacePlatformState.lastRegistryRefreshAt = Date()
+                self.workspacePlatformState.isRefreshingRegistry = false
+                self.pluginRegistryRefreshTask = nil
+            }
+        }
     }
 
     func addPluginRegistry(named name: String, source: String) {
@@ -1042,6 +1103,7 @@ final class AppState: ObservableObject {
                     WorkspaceSessionStore.save(self.workspaceSessions)
                     AIConversationStore.save(self.aiWorkbenchState.sessions)
                     self.refreshPluginWorkspaceState()
+                    self.refreshPluginRegistry()
                     self.workspacePlatformState.lastStatusMessage = "Imported sync bundle"
                 } catch {
                     self.present(error: error, title: "Couldn’t Import Sync Bundle")
@@ -1228,6 +1290,7 @@ final class AppState: ObservableObject {
             recomputeFindState(for: &document)
         }
 
+        invalidateGitInsightState(for: id, clearLineDecorations: true)
         scheduleAutosave()
         refreshDocumentDiagnostics(for: id)
     }
@@ -2755,6 +2818,7 @@ final class AppState: ObservableObject {
                     self?.settings = importedSettings
                     AppSettingsStore.save(importedSettings)
                     self?.refreshPluginWorkspaceState()
+                    self?.refreshPluginRegistry()
                 }
             } catch {
                 Task { @MainActor in
@@ -3170,6 +3234,7 @@ final class AppState: ObservableObject {
 
         do {
             try TextFileCodec.save(document: document, to: url)
+            invalidateGitInsightState(for: id, clearLineDecorations: true)
 
             updateDocument(id: id) { updatedDocument in
                 updatedDocument.fileURL = url
@@ -3241,7 +3306,7 @@ final class AppState: ObservableObject {
         RecoveryService.deleteSnapshot(for: id)
         documents.removeAll { $0.id == id }
         documentDiagnosticsByID[id] = nil
-        gitBlameCache = gitBlameCache.filter { !$0.key.hasPrefix(id.uuidString) }
+        invalidateGitInsightState(for: id, clearLineDecorations: true)
 
         if selectedDocumentID == id {
             selectedDocumentID = documents.last?.id
@@ -3378,6 +3443,7 @@ final class AppState: ObservableObject {
 
         do {
             let file = try TextFileCodec.open(from: fileURL)
+            invalidateGitInsightState(for: id, clearLineDecorations: true)
 
             updateDocument(id: id) { updatedDocument in
                 let restoredSelection: NSRange
@@ -3743,6 +3809,7 @@ final class AppState: ObservableObject {
         workspacePlatformState.selectedProfileID = descriptor.selectedProfileID
         projectSearchState.rootURL = descriptor.activeRootURL ?? descriptor.rootURLs.first
         workspaceExplorerState.selectedRootPath = descriptor.activeRootURL?.path
+        invalidateAllGitInsightState()
         scheduleSessionSave()
     }
 
@@ -3753,8 +3820,6 @@ final class AppState: ObservableObject {
         workspacePlatformState.workspaceName = workspacePlatformState.workspaceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? WorkspacePlatformService.preferredWorkspaceName(for: roots)
             : workspacePlatformState.workspaceName
-        workspacePlatformState.registryEntries = PluginRegistryService.catalog(using: settings)
-        workspacePlatformState.lastRegistryRefreshAt = Date()
     }
 
     private func openRestoredRemoteDocument(_ spec: String) {
@@ -3793,6 +3858,41 @@ final class AppState: ObservableObject {
 
     private func document(withID id: UUID) -> EditorDocument? {
         documents.first { $0.id == id }
+    }
+
+    private func gitBlameCacheKey(for documentID: UUID, lineNumber: Int) -> String {
+        "\(documentID.uuidString)-\(lineNumber)"
+    }
+
+    private func cancelGitLineDecorationRefresh(for documentID: UUID, clearCache: Bool) {
+        gitLineDecorationTasks[documentID]?.cancel()
+        gitLineDecorationTasks[documentID] = nil
+
+        if clearCache {
+            gitLineDecorationsByDocumentID[documentID] = nil
+        }
+    }
+
+    private func invalidateGitInsightState(for documentID: UUID, clearLineDecorations: Bool) {
+        cancelGitLineDecorationRefresh(for: documentID, clearCache: clearLineDecorations)
+        gitBlameCache = gitBlameCache.filter { !$0.key.hasPrefix(documentID.uuidString) }
+        for key in Array(gitBlameTasks.keys).filter({ $0.hasPrefix(documentID.uuidString) }) {
+            gitBlameTasks[key]?.cancel()
+            gitBlameTasks[key] = nil
+        }
+    }
+
+    private func invalidateAllGitInsightState() {
+        for documentID in Array(gitLineDecorationTasks.keys) {
+            cancelGitLineDecorationRefresh(for: documentID, clearCache: true)
+        }
+        gitLineDecorationsByDocumentID.removeAll()
+
+        for key in Array(gitBlameTasks.keys) {
+            gitBlameTasks[key]?.cancel()
+            gitBlameTasks[key] = nil
+        }
+        gitBlameCache.removeAll()
     }
 
     private func nextUntitledName() -> String {

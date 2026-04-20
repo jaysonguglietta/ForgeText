@@ -1,6 +1,40 @@
 import AppKit
 import SwiftUI
 
+private final class EditorScroller: NSScroller {
+    var theme: EditorTheme = .forge {
+        didSet {
+            needsDisplay = true
+        }
+    }
+
+    override class func scrollerWidth(for controlSize: NSControl.ControlSize, scrollerStyle: NSScroller.Style) -> CGFloat {
+        18
+    }
+
+    override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {
+        let trackRect = slotRect.insetBy(dx: 2, dy: 2)
+        let trackPath = NSBezierPath(roundedRect: trackRect, xRadius: 6, yRadius: 6)
+        theme.gutterBackgroundColor.withAlphaComponent(0.95).setFill()
+        trackPath.fill()
+
+        theme.borderColor.withAlphaComponent(0.9).setStroke()
+        trackPath.lineWidth = 1
+        trackPath.stroke()
+    }
+
+    override func drawKnob() {
+        let knobRect = rect(for: .knob).insetBy(dx: 2, dy: 2)
+        guard knobRect.width > 0, knobRect.height > 0 else {
+            return
+        }
+
+        let knobPath = NSBezierPath(roundedRect: knobRect, xRadius: 6, yRadius: 6)
+        theme.accentColor.withAlphaComponent(0.92).setFill()
+        knobPath.fill()
+    }
+}
+
 private final class EditorScrollView: NSScrollView {
     weak var preferredFirstResponder: NSResponder?
     private var hasAppliedInitialFocus = false
@@ -54,6 +88,12 @@ struct EditorContainerView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = EditorScrollView()
+        let verticalScroller = EditorScroller()
+        let horizontalScroller = EditorScroller()
+        verticalScroller.theme = theme
+        horizontalScroller.theme = theme
+        scrollView.verticalScroller = verticalScroller
+        scrollView.horizontalScroller = horizontalScroller
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = true
@@ -144,6 +184,8 @@ struct EditorContainerView: NSViewRepresentable {
         textView.completionSourceURL = sourceURL
         textView.isEditable = isEditable
         configureLayout(for: textView, in: scrollView)
+        (scrollView.verticalScroller as? EditorScroller)?.theme = theme
+        (scrollView.horizontalScroller as? EditorScroller)?.theme = theme
         context.coordinator.rulerView?.theme = theme
         context.coordinator.rulerView?.lineDecorations = lineDecorations
 

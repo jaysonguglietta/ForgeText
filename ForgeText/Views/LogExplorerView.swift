@@ -143,6 +143,13 @@ struct LogExplorerView: View {
                                 }
                                 .padding(.vertical, 18)
                             }
+                            .background(
+                                StructuredScrollViewConfigurator(
+                                    theme: theme,
+                                    showsHorizontal: false,
+                                    showsVertical: true
+                                )
+                            )
                             .background(Color(nsColor: theme.backgroundColor))
                             .onChange(of: filteredEntries.last?.id) { _, latestID in
                                 guard document.followModeEnabled, let latestID else {

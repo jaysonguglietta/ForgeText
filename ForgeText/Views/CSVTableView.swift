@@ -50,6 +50,13 @@ struct CSVTableView: View {
                             }
                         }
                     }
+                    .background(
+                        StructuredScrollViewConfigurator(
+                            theme: theme,
+                            showsHorizontal: true,
+                            showsVertical: true
+                        )
+                    )
                     .background(Color(nsColor: theme.backgroundColor))
                 }
             } else {

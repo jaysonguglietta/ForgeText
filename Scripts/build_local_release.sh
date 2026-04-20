@@ -83,6 +83,7 @@ if [[ -n "$INSTALL_DIR" ]]; then
   mkdir -p "$INSTALL_DIR"
   rm -rf "$INSTALL_DIR/ForgeText.app"
   ditto "$APP_PATH" "$INSTALL_DIR/ForgeText.app"
+  touch "$INSTALL_DIR/ForgeText.app"
   echo "Installed app:"
   echo "  $INSTALL_DIR/ForgeText.app"
 fi

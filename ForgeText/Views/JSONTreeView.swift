@@ -53,6 +53,13 @@ struct JSONTreeView: View {
                             }
                         }
                         .listStyle(.inset)
+                        .background(
+                            StructuredScrollViewConfigurator(
+                                theme: theme,
+                                showsHorizontal: false,
+                                showsVertical: true
+                            )
+                        )
                         .scrollContentBackground(.hidden)
                         .background(Color(nsColor: theme.backgroundColor))
                     }

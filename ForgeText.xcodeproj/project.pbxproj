@@ -120,6 +120,7 @@
 		F5D11A9DFDCAD2A737FA6040 /* ProblemsPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 003CDE73B7757A606659729D /* ProblemsPanelView.swift */; };
 		FCEEFE4BC117F5A05C0F3E56 /* GitConflictService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 356D3F1F49DCE310190AA059 /* GitConflictService.swift */; };
 		FD43620611BFCF78DA707ADC /* StatusBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A2C61D159B578B418C99EE7 /* StatusBarView.swift */; };
+		FDB172117511DECF981A1F39 /* StructuredScrollViewConfigurator.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF993177BA97E6F2D35EEEF7 /* StructuredScrollViewConfigurator.swift */; };
 		FE4BD618F059F86625EFD47C /* EditorDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44A5C1725038C14A85EADECF /* EditorDocument.swift */; };
 		FFA3A75ECF0109B740BCCF44 /* WorkspacePlatformModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0A29E91A18C10E41A4E9ECD /* WorkspacePlatformModels.swift */; };
 /* End PBXBuildFile section */
@@ -222,6 +223,7 @@
 		B861470FE81FC3465D8890EF /* LaunchCommandService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchCommandService.swift; sourceTree = "<group>"; };
 		B8ABEAFAA43B2793CE02784C /* ProductionReadinessTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductionReadinessTests.swift; sourceTree = "<group>"; };
 		BC7112141821CBF300559E4E /* DelimitedTextTableServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DelimitedTextTableServiceTests.swift; sourceTree = "<group>"; };
+		BF993177BA97E6F2D35EEEF7 /* StructuredScrollViewConfigurator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StructuredScrollViewConfigurator.swift; sourceTree = "<group>"; };
 		C05DE779BDB5A9CD1A8B65DD /* PrivilegedFileService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivilegedFileService.swift; sourceTree = "<group>"; };
 		C0A29E91A18C10E41A4E9ECD /* WorkspacePlatformModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePlatformModels.swift; sourceTree = "<group>"; };
 		C2B33B5F166219169488B950 /* BrandMarkView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandMarkView.swift; sourceTree = "<group>"; };
@@ -356,6 +358,7 @@
 				B08DC2DA3FC27961709766C1 /* RetroChrome.swift */,
 				004D2FF75BA6FAF01CFD4B35 /* SnippetLibraryView.swift */,
 				1A2C61D159B578B418C99EE7 /* StatusBarView.swift */,
+				BF993177BA97E6F2D35EEEF7 /* StructuredScrollViewConfigurator.swift */,
 				7FF6529ED492D441008786F8 /* TaskRunnerView.swift */,
 				E7E29D444CCD4D2BA0555026 /* TerminalConsoleView.swift */,
 				51CA9A7AEAFC4F1D9752F777 /* TestExplorerView.swift */,
@@ -605,6 +608,7 @@
 				FD43620611BFCF78DA707ADC /* StatusBarView.swift in Sources */,
 				72765BCA7B80504ED929228A /* StoragePathService.swift in Sources */,
 				D9AADDB512873C48AF55D8F5 /* StructuredConfigService.swift in Sources */,
+				FDB172117511DECF981A1F39 /* StructuredScrollViewConfigurator.swift in Sources */,
 				F01ABA3CD22A3B5FA391FC94 /* SyntaxHighlighter.swift in Sources */,
 				43A0CFBECE505E7FBEA99EAA /* TaskRunnerView.swift in Sources */,
 				8AA707417582BBCB67B0A6F2 /* TerminalConsoleView.swift in Sources */,

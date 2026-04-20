@@ -41,6 +41,13 @@ struct CSVTableView: View {
 
                     ScrollView([.horizontal, .vertical]) {
                         LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                            StructuredScrollViewConfigurator(
+                                theme: theme,
+                                showsHorizontal: true,
+                                showsVertical: true
+                            )
+                            .frame(width: 0, height: 0)
+
                             Section {
                                 ForEach(Array(tableDocument.rows.enumerated()), id: \.offset) { rowIndex, row in
                                     rowView(rowIndex: rowIndex, row: row)
@@ -50,13 +57,6 @@ struct CSVTableView: View {
                             }
                         }
                     }
-                    .background(
-                        StructuredScrollViewConfigurator(
-                            theme: theme,
-                            showsHorizontal: true,
-                            showsVertical: true
-                        )
-                    )
                     .background(Color(nsColor: theme.backgroundColor))
                 }
             } else {

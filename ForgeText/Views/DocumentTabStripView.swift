@@ -5,18 +5,20 @@ struct DocumentTabStripView: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(alignment: .bottom, spacing: 8) {
+            HStack(alignment: .bottom, spacing: 6) {
                 ForEach(appState.documents) { document in
                     let isSelected = appState.selectedDocumentID == document.id
 
-                    HStack(spacing: 8) {
+                    HStack(spacing: 7) {
                         Label(document.displayName, systemImage: document.language.symbolName)
                             .font(.system(size: 12, weight: .bold, design: .monospaced))
                             .lineLimit(1)
                             .foregroundStyle(isSelected ? RetroPalette.ink : RetroPalette.mutedInk)
 
                         if document.isDirty {
-                            RetroCapsuleLabel(text: "edit", accent: RetroPalette.warning)
+                            Circle()
+                                .fill(RetroPalette.warning)
+                                .frame(width: 7, height: 7)
                         }
 
                         Button {
@@ -25,20 +27,20 @@ struct DocumentTabStripView: View {
                             Image(systemName: "xmark")
                                 .font(.system(size: 9, weight: .bold))
                         }
-                        .buttonStyle(RetroIconButtonStyle(accent: isSelected ? RetroPalette.chromePink : RetroPalette.chromeTeal))
+                        .buttonStyle(RetroIconButtonStyle(accent: isSelected ? RetroPalette.chromeBlue : RetroPalette.chromeTeal))
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .frame(minWidth: 170, alignment: .leading)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 7)
+                    .frame(minWidth: 150, alignment: .leading)
                     .background(
                         VStack(spacing: 0) {
                             Rectangle()
-                                .fill(isSelected ? RetroPalette.chromeGold : RetroPalette.chromeTeal.opacity(0.55))
-                                .frame(height: 4)
+                                .fill(isSelected ? RetroPalette.chromeGold.opacity(0.72) : RetroPalette.chromeTeal.opacity(0.28))
+                                .frame(height: 2)
 
                             RetroPanelBackground(
                                 fill: isSelected ? RetroPalette.panelFill : RetroPalette.panelFillMuted,
-                                accent: isSelected ? RetroPalette.chromePink : RetroPalette.chromeBlue
+                                accent: isSelected ? RetroPalette.chromeBlue : RetroPalette.chromeBlue.opacity(0.72)
                             )
                         }
                     )
@@ -56,14 +58,14 @@ struct DocumentTabStripView: View {
                         Text("NEW")
                     }
                     .font(.system(size: 12, weight: .bold, design: .monospaced))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
                 }
-                .buttonStyle(RetroActionButtonStyle(tone: .accent))
+                .buttonStyle(RetroActionButtonStyle(tone: .secondary))
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
         }
-        .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromeTeal)
+        .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromeBlue)
     }
 }

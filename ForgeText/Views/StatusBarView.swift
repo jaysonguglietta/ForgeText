@@ -49,12 +49,14 @@ struct StatusBarView: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            RetroSectionHeader(title: "Status", accent: RetroPalette.chromeBlue)
-                .frame(width: 116)
+        HStack(spacing: 10) {
+            Text("STATUS")
+                .font(.system(size: 10, weight: .black, design: .monospaced))
+                .tracking(0.9)
+                .foregroundStyle(RetroPalette.mutedInk)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     statusPill("Ln \(metrics.cursorLine), Col \(metrics.cursorColumn)", tone: .accent)
                     statusPill("\(metrics.lineCount) lines")
                     statusPill("\(metrics.wordCount) words")
@@ -129,17 +131,17 @@ struct StatusBarView: View {
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
         .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromeBlue)
     }
 
     private func statusPill(_ text: String, tone: PluginStatusTone = .neutral) -> some View {
         Text(text)
-            .font(.system(size: 11, weight: .bold, design: .monospaced))
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
             .foregroundStyle(RetroPalette.ink)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
             .retroInsetPanel(fill: RetroPalette.fieldFill, accent: accent(for: tone))
     }
 

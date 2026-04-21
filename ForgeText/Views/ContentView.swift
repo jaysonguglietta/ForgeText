@@ -103,25 +103,23 @@ private struct DocumentSidebarView: View {
             RetroBackdropView()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 15) {
+                    VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 12) {
-                            BrandMarkView(size: 40)
+                            BrandMarkView(size: 34)
 
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("ForgeText")
-                                    .font(.system(size: 24, weight: .black, design: .monospaced))
-                                    .tracking(1.0)
+                                    .font(.system(size: 21, weight: .black, design: .monospaced))
+                                    .tracking(0.7)
                                     .foregroundStyle(RetroPalette.ink)
 
-                                Text("native developer workbench :: webclass of '99")
+                                Text("developer workbench :: webclass of '99")
                                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                                     .foregroundStyle(RetroPalette.link)
                             }
 
                             Spacer(minLength: 0)
-
-                            RetroCapsuleLabel(text: "local", accent: RetroPalette.chromeCyan)
                         }
 
                         Text("Text, code, logs, configs, Git, tasks, and AI in one portal-era Mac editor.")
@@ -129,12 +127,12 @@ private struct DocumentSidebarView: View {
                             .foregroundStyle(RetroPalette.mutedInk)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    .padding(14)
-                    .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromePink)
+                    .padding(12)
+                    .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromeBlue)
 
                     LazyVGrid(
                         columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3),
-                        spacing: 10
+                        spacing: 8
                     ) {
                         sidebarAction(
                             "New",
@@ -381,7 +379,7 @@ private struct DocumentSidebarView: View {
                         .accessibilityLabel("Open snippet library")
                     }
                 }
-                .padding(16)
+                .padding(13)
             }
         }
         .frame(minWidth: 292)
@@ -396,15 +394,10 @@ private struct DocumentSidebarView: View {
     ) -> some View {
         Button(action: action) {
             VStack(spacing: 0) {
-                Rectangle()
-                    .fill(RetroPalette.chromeGold)
-                    .frame(height: 4)
-
-                VStack(spacing: 8) {
+                VStack(spacing: 6) {
                     Image(systemName: systemImage)
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(width: 34, height: 34)
-                        .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromePink)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(RetroPalette.chromeBlue)
 
                     VStack(spacing: 2) {
                         Text(title)
@@ -418,22 +411,21 @@ private struct DocumentSidebarView: View {
                     }
                     .multilineTextAlignment(.center)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 9)
             }
-            .frame(maxWidth: .infinity, minHeight: 86)
-            .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromeBlue)
+            .frame(maxWidth: .infinity, minHeight: 68)
+            .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
         }
         .buttonStyle(.plain)
     }
 
     private func fileCard(title: String, subtitle: String, symbolName: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 9) {
             Image(systemName: symbolName)
                 .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(RetroPalette.chromePink)
-                .frame(width: 26, height: 26)
-                .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromeTeal)
+                .foregroundStyle(RetroPalette.chromeBlue)
+                .frame(width: 18, height: 20)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
@@ -450,15 +442,16 @@ private struct DocumentSidebarView: View {
 
             Image(systemName: "chevron.right")
                 .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(RetroPalette.chromeBlue.opacity(0.7))
+                .foregroundStyle(RetroPalette.chromeBlue.opacity(0.45))
         }
-        .padding(11)
-        .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeTeal)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
     }
 
     private func sidebarSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            RetroSectionHeader(title: title, accent: RetroPalette.chromePink)
+        VStack(alignment: .leading, spacing: 8) {
+            RetroSectionHeader(title: title, accent: RetroPalette.chromeBlue)
             content()
         }
     }
@@ -474,9 +467,8 @@ private struct DocumentSidebarRow: View {
         HStack(spacing: 10) {
             Image(systemName: documentIconName)
                 .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(isSelected ? RetroPalette.chromePink : RetroPalette.link)
-                .frame(width: 26, height: 26)
-                .retroInsetPanel(fill: RetroPalette.fieldFill, accent: isSelected ? RetroPalette.chromePink : RetroPalette.chromeTeal)
+                .foregroundStyle(isSelected ? RetroPalette.chromeBlue : RetroPalette.link)
+                .frame(width: 18, height: 22)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
@@ -502,17 +494,18 @@ private struct DocumentSidebarRow: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 10, weight: .bold))
             }
-            .buttonStyle(RetroIconButtonStyle(accent: isSelected ? RetroPalette.chromePink : RetroPalette.chromeTeal))
+            .buttonStyle(RetroIconButtonStyle(accent: isSelected ? RetroPalette.chromeBlue : RetroPalette.chromeTeal))
         }
-        .padding(10)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
         .retroPanel(
             fill: isSelected ? RetroPalette.panelFill : RetroPalette.panelFillMuted,
-            accent: isSelected ? RetroPalette.chromePink : RetroPalette.chromeTeal
+            accent: isSelected ? RetroPalette.chromeBlue : RetroPalette.chromeTeal
         )
         .overlay(alignment: .leading) {
             Rectangle()
-                .fill(isSelected ? RetroPalette.chromeGold : Color.clear)
-                .frame(width: 4)
+                .fill(isSelected ? RetroPalette.chromeGold.opacity(0.75) : Color.clear)
+                .frame(width: 3)
         }
         .contentShape(Rectangle())
         .onTapGesture(perform: onSelect)
@@ -605,7 +598,6 @@ private struct DocumentWorkspaceView: View {
 
             VStack(spacing: 0) {
                 DocumentTabStripView(appState: appState)
-                RetroRule()
                 header
 
                 if appState.settings.showsBreadcrumbs, !breadcrumbTrail.isEmpty {
@@ -673,8 +665,6 @@ private struct DocumentWorkspaceView: View {
                     RetroRule()
                     editorInsightBar
                 }
-
-                RetroRule()
 
                 workspaceArea
 
@@ -757,14 +747,14 @@ private struct DocumentWorkspaceView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 14) {
-                BrandMarkView(size: 28)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                BrandMarkView(size: 24)
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text(document.displayName)
-                        .font(.system(size: 22, weight: .black, design: .monospaced))
-                        .tracking(0.8)
+                        .font(.system(size: 19, weight: .black, design: .monospaced))
+                        .tracking(0.45)
                         .foregroundStyle(RetroPalette.ink)
 
                     FlowBadgeRow {
@@ -795,7 +785,7 @@ private struct DocumentWorkspaceView: View {
 
                     Text(document.pathDescription)
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(RetroPalette.link)
+                        .foregroundStyle(RetroPalette.mutedInk)
                         .textSelection(.enabled)
                 }
 
@@ -979,9 +969,9 @@ private struct DocumentWorkspaceView: View {
                 .padding(.horizontal, 1)
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 14)
-        .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromePink)
+        .padding(.horizontal, 15)
+        .padding(.vertical, 11)
+        .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromeBlue)
     }
 
     private var editorInsightBar: some View {
@@ -1016,9 +1006,9 @@ private struct DocumentWorkspaceView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeTeal)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
     }
 
     private var breadcrumbBar: some View {
@@ -1028,7 +1018,7 @@ private struct DocumentWorkspaceView: View {
                     if index > 0 {
                         Image(systemName: "chevron.right")
                             .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(RetroPalette.chromePink)
+                            .foregroundStyle(RetroPalette.mutedInk)
                     }
 
                     Text(crumb)
@@ -1036,11 +1026,11 @@ private struct DocumentWorkspaceView: View {
                         .foregroundStyle(RetroPalette.ink)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 5)
-                        .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromeTeal)
+                        .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromeBlue)
                 }
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 15)
+            .padding(.vertical, 8)
         }
         .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
     }
@@ -1175,8 +1165,8 @@ private struct DocumentWorkspaceView: View {
                     }
                 }
                 .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeTeal)
+                .padding(.vertical, 8)
+                .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
 
                 RetroRule()
             }
@@ -1316,25 +1306,25 @@ private struct DocumentWorkspaceView: View {
         Label(text, systemImage: systemImage)
             .font(.system(size: 12, weight: .bold, design: .monospaced))
             .foregroundStyle(RetroPalette.ink)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromeBlue)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromeBlue.opacity(0.75))
     }
 
     private var structuredBadge: (text: String, color: Color)? {
         switch document.presentationMode {
         case .structuredTable:
-            return ("Table", .blue)
+            return ("Table", RetroPalette.chromeBlue)
         case .structuredJSON:
-            return ("JSON Tree", .teal)
+            return ("JSON Tree", RetroPalette.chromeTeal)
         case .logExplorer:
-            return ("Log Explorer", .mint)
+            return ("Log Explorer", RetroPalette.chromeTeal)
         case .structuredConfig:
-            return ("Config", .green)
+            return ("Config", RetroPalette.success)
         case .archiveBrowser:
-            return ("Archive", .indigo)
+            return ("Archive", RetroPalette.visited)
         case .httpRequest:
-            return ("HTTP", .cyan)
+            return ("HTTP", RetroPalette.chromeCyan)
         case .editor, .readOnlyPreview, .binaryHex:
             return nil
         }
@@ -1373,9 +1363,9 @@ private struct DocumentWorkspaceView: View {
             }
             .buttonStyle(RetroActionButtonStyle(tone: .secondary))
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .retroPanel(fill: RetroPalette.panelFill, accent: accent)
+        .padding(.horizontal, 15)
+        .padding(.vertical, 10)
+        .retroPanel(fill: RetroPalette.panelFillMuted, accent: accent)
     }
 }
 
@@ -1415,9 +1405,9 @@ private struct PredictionStripView: View {
                 .padding(.vertical, 1)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromeTeal)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
     }
 }
 

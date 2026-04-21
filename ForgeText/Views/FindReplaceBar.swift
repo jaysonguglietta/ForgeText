@@ -5,10 +5,12 @@ struct FindReplaceBar: View {
     let document: EditorDocument
 
     var body: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                RetroSectionHeader(title: "Find / Replace", systemImage: "magnifyingglass", accent: RetroPalette.chromeTeal)
-                    .frame(width: 168)
+        VStack(spacing: 8) {
+            HStack(spacing: 9) {
+                Label("Find / Replace", systemImage: "magnifyingglass")
+                    .font(.system(size: 11, weight: .black, design: .monospaced))
+                    .foregroundStyle(RetroPalette.ink)
+                    .frame(width: 132, alignment: .leading)
 
                 labeledField(
                     title: "Find",
@@ -35,7 +37,7 @@ struct FindReplaceBar: View {
                     ))
                     .toggleStyle(.button)
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
-                    .tint(RetroPalette.chromePink)
+                    .tint(RetroPalette.chromeBlue)
 
                     Toggle(".*", isOn: Binding(
                         get: { document.findState.usesRegularExpression },
@@ -45,8 +47,8 @@ struct FindReplaceBar: View {
                     .font(.system(size: 11, weight: .bold, design: .monospaced))
                     .tint(RetroPalette.chromeTeal)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 5)
                 .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
 
                 Spacer(minLength: 0)
@@ -76,14 +78,14 @@ struct FindReplaceBar: View {
                         appState.replaceAllMatches()
                     }
                     .disabled(document.findState.matchRanges.isEmpty)
-                    .buttonStyle(RetroActionButtonStyle(tone: .accent))
+                    .buttonStyle(RetroActionButtonStyle(tone: .primary))
 
                     Button {
                         appState.hideFindReplace()
                     } label: {
                         Image(systemName: "xmark")
                     }
-                    .buttonStyle(RetroIconButtonStyle(accent: RetroPalette.chromePink))
+                    .buttonStyle(RetroIconButtonStyle(accent: RetroPalette.chromeBlue))
                 }
             }
 
@@ -101,9 +103,9 @@ struct FindReplaceBar: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromeTeal)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromeBlue)
     }
 
     private func labeledField(title: String, text: Binding<String>, submit: @escaping () -> Void) -> some View {
@@ -118,6 +120,6 @@ struct FindReplaceBar: View {
                 .retroTextField()
                 .onSubmit(submit)
         }
-        .frame(maxWidth: 240, alignment: .leading)
+        .frame(maxWidth: 230, alignment: .leading)
     }
 }

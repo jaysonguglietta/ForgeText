@@ -7,6 +7,7 @@ struct CSVTableView: View {
 
     private let tableDocument: DelimitedTableDocument?
     private let columnWidths: [CGFloat]
+    private let tableWidth: CGFloat
 
     init(
         document: EditorDocument,
@@ -30,6 +31,7 @@ struct CSVTableView: View {
         let parsedTable = DelimitedTextTableService.parse(document.text, preferredDelimiter: preferredDelimiter)
         tableDocument = parsedTable
         columnWidths = Self.makeColumnWidths(for: parsedTable)
+        tableWidth = Self.makeTableWidth(for: columnWidths)
     }
 
     var body: some View {
@@ -40,25 +42,31 @@ struct CSVTableView: View {
                     Divider()
 
                     ScrollView([.horizontal, .vertical]) {
-                        LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            headerRow(tableDocument)
+
+                            if tableDocument.rows.isEmpty {
+                                emptyRowsView
+                            } else {
+                                ForEach(Array(tableDocument.rows.enumerated()), id: \.offset) { rowIndex, row in
+                                    rowView(rowIndex: rowIndex, row: row)
+                                }
+                            }
+                        }
+                        .frame(minWidth: tableWidth, alignment: .topLeading)
+                        .background(
                             StructuredScrollViewConfigurator(
                                 theme: theme,
                                 showsHorizontal: true,
                                 showsVertical: true
                             )
                             .frame(width: 0, height: 0)
-
-                            Section {
-                                ForEach(Array(tableDocument.rows.enumerated()), id: \.offset) { rowIndex, row in
-                                    rowView(rowIndex: rowIndex, row: row)
-                                }
-                            } header: {
-                                headerRow(tableDocument)
-                            }
-                        }
+                        )
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .background(Color(nsColor: theme.backgroundColor))
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ContentUnavailableView(
                     "Couldn’t Parse as CSV",
@@ -158,6 +166,24 @@ struct CSVTableView: View {
         )
     }
 
+    private var emptyRowsView: some View {
+        HStack(spacing: 0) {
+            Text(" ")
+                .frame(width: 54, alignment: .trailing)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 18)
+                .background(Color(nsColor: theme.gutterBackgroundColor).opacity(0.72))
+
+            Text("No data rows found. The header is still shown above; switch to Raw Text to edit the source directly.")
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .foregroundStyle(Color(nsColor: theme.secondaryTextColor))
+                .frame(width: max(tableWidth - 74, 260), alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 18)
+        }
+        .background(Color(nsColor: theme.backgroundColor))
+    }
+
     private func cell(text: String, width: CGFloat, isHeader: Bool) -> some View {
         Text(text.isEmpty ? " " : text)
             .font(.system(size: 12, weight: isHeader ? .semibold : .regular, design: .monospaced))
@@ -197,6 +223,12 @@ struct CSVTableView: View {
             let maxLength = max(header.count, candidateLengths.max() ?? 0)
             let width = CGFloat(maxLength * 8 + 36)
             return min(max(width, 110), 320)
+        }
+    }
+
+    private static func makeTableWidth(for columnWidths: [CGFloat]) -> CGFloat {
+        74 + columnWidths.reduce(0) { partialResult, width in
+            partialResult + width + 24
         }
     }
 }

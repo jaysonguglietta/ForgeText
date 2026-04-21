@@ -1,67 +1,72 @@
 # ForgeText Roadmap
 
-ForgeText should aim to be the native macOS editor system engineers trust when they are editing live configs, triaging logs, comparing files, and moving quickly through text-heavy workflows.
+ForgeText should be the native macOS editor system engineers and developers trust when editing live configs, triaging logs, comparing files, navigating repositories, running checks, and using AI without losing control of the underlying text.
 
-## Product pillars
+## Product Pillars
 
 - Trust the file: safe saves, recovery, external-change handling, encoding clarity, and predictable behavior.
-- See the structure: give JSON, CSV, logs, and config formats views that surface meaning without hiding the raw text.
-- Move fast: keyboard-first commands, quick switching, strong search, and low-latency handling of big operational files.
-- Stay native: preserve the feel of a Mac editor instead of turning the app into a browser-shaped IDE.
+- See the structure: give JSON, CSV, logs, HTTP, archives, and config formats useful views without hiding raw text.
+- Move fast: keyboard-first commands, Quick Open, command palette modes, project search, symbol search, and low-latency workbench panels.
+- Stay native: preserve Mac editing behavior instead of turning the app into a browser-shaped IDE.
+- Keep context local-first: workspace index, Git status, AI rules, release checks, and diagnostics should be useful without cloud dependencies.
 
-## Shipped already
+## Shipped In 1.0
+
+ForgeText 1.0 established the core workbench:
 
 - Native AppKit-backed editor surface with multi-document tabs and document sidebar.
 - Encoding, BOM, and line-ending preservation.
 - Autosave recovery, session restore, crash recovery, and external-change handling.
 - Find/replace, go-to-line, command palette, and project search.
 - Outline rail, breadcrumbs, split-pane workbench modes, and status metrics.
-- Structured views for CSV, JSON, logs, and config-oriented workflows.
+- Structured views for CSV, JSON, logs, HTTP request files, archives, and config-oriented formats.
 - Large-file previews, binary hex fallback, archive browsing, and follow-mode support.
 - Local install workflow for `/Applications`.
-- A full retro-web shell direction layered on top of the native editor core.
-- A built-in plugin layer with snippet, task-runner, diagnostics, formatting, and Git-aware IDE features.
-- Workspace explorer, embedded terminal, HTTP request runner, remote grep/command workflows, and external plugin manifests.
-- Inline diagnostics, diff-gutter markers, Git blame context, and secret-aware warnings for risky file contents.
+- Retro-web shell direction layered on top of the native editor core.
+- Plugin layer with snippets, task runner, diagnostics, formatting, and Git-aware IDE features.
+- Workspace explorer, embedded terminal, remote grep/command workflows, and external plugin manifests.
+- Inline diagnostics, diff-gutter markers, Git blame context, and secret-aware warnings.
+- Provider-neutral AI workbench with workspace rules, provider profiles, quick actions, and reusable sessions.
 
-## ForgeText 1.0 shipped scope
+## Shipped In 1.1
 
-ForgeText 1.0 now includes:
+ForgeText 1.1 adds the productivity and production-readiness layer:
 
-- A native editor workbench with tabs, split panes, outline, breadcrumbs, command palette, and project search.
-- Structured viewing for CSV, JSON, logs, HTTP request files, archives, and config-oriented formats.
-- Workspace explorer, embedded terminal, task runner, problems panel, and test explorer.
-- Local Git workflows including clone, fetch, pull, push, commit, branch creation, stash flows, compare, blame context, and diff markers.
-- A provider-neutral AI workbench with reusable sessions, workspace rules, provider profiles, and quick editor actions.
-- Plugin surfaces for snippets, diagnostics, formatting hooks, and external plugin manifests.
-- Recovery-oriented file handling for encodings, line endings, large files, binary fallbacks, crash recovery, and session restore.
+- Quick Open for indexed workspace files and symbols.
+- Command Palette 2.0 with `> commands`, `@ files`, and `# symbols`.
+- Workspace Indexer for file, symbol, TODO/FIXME/HACK, and warning summaries.
+- Activity Center for local editor and workspace event history.
+- First-Run Setup checklist for onboarding a workspace.
+- AI Context Center for workspace rules and reusable prompt files.
+- GitHub Workflow panel for detected GitHub remotes and compare-page launch.
+- Release Readiness panel for Sparkle, appcast, DMG, docs, and version checks.
+- Performance HUD for local app and workspace snapshot metrics.
+- Theme Lab for retro chrome, density, editor theme, focus mode, and inspector controls.
+- Safe diagnostic bundle export for support without document contents or AI API keys.
 
-## Post-1.0 priorities
+## Current Strengths
 
-- Parser-backed language intelligence, symbol indexing, and deeper formatter/linter integrations.
-- GitHub-native workflows like pull requests, issue context, and richer repo collaboration surfaces.
-- Safer privileged save paths, remote editing depth, and stronger metadata-preserving write behavior.
-- More advanced structured data tooling for tables, logs, config schemas, and diff-heavy reviews.
-- Packaging, notarization, auto-update, accessibility, telemetry, and UI regression coverage.
+- ForgeText is now credible as a local developer text workbench, not just a raw text editor.
+- The app has broad support for system-engineer file types: logs, configs, CSV, JSON, HTTP, shell, SQL, and source code.
+- Git, AI, plugins, tasks, diagnostics, test output, and terminal output are all surfaced in native panels.
+- The retro UI has enough structure to be a real product direction rather than a novelty skin.
 
-## System engineer features to deepen next
+## Next Priorities
 
-- Privileged save flow for protected files under `/etc`, `/Library`, and similar paths.
-- Remote SSH/SFTP editing with richer local UI, remote file operations, and safer credential handling.
-- Compressed-file and archive browsing for `.gz`, `.tar`, and related operational assets.
-- Terminal/task integration for running checks and opening the current workspace in shell tools.
-- Log views with timestamp parsing, severity filters, field extraction, and follow mode.
+- Add parser-backed language intelligence and broader symbol extraction.
+- Add direct GitHub PR creation, issue context, review comments, and release drafting.
+- Add real shortcut rebinding beyond the current shortcut reference.
+- Deepen table tooling: sorting, filtering, frozen columns, typed columns, and export/copy helpers.
+- Deepen log tooling: timestamp parsing, saved filters, field extraction, timeline clustering, and multi-file sessions.
+- Improve remote editing with richer SSH/SFTP operations and safer credential handling.
+- Add schema-aware config support for common infrastructure files.
+- Add accessibility and UI regression coverage for the retro shell.
+- Add public distribution hardening: Developer ID signing, hardened runtime, notarization, and release automation.
 
-## UX and workbench next pass
+## Longer-Term Bets
 
-- Richer CSV and structured-data interactions: sort, filter, freeze columns, and copy helpers.
-- Better diff and compare workflows for system config reviews.
-- Saved searches, pinned documents, and more session-oriented workbench behavior.
-- More file-aware empty states and better disclosure around read-only and preview modes.
-- Plugin-manager polish, richer task output handling, deeper diagnostics panels, and tighter AI/Git workbench ergonomics.
-
-## Longer-term bets
-
-- Plugin manifests for user-defined snippet packs, tasks, and formatter/linter integrations.
-- Parser-backed outlines, real LSP-style language packs, and symbol navigation for more languages.
-- Session workspaces and saved dashboards for common ops investigations.
+- LSP-style language packs while preserving ForgeText's native editing core.
+- User-defined plugin bundles for snippet packs, tasks, diagnostics, and formatter/linter integrations.
+- Saved investigation dashboards for common ops workflows.
+- AI context scopes per workspace, folder, file type, and task.
+- Repository dashboards that combine Git status, GitHub PRs, tests, problems, and release readiness.

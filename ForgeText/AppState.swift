@@ -78,6 +78,16 @@ final class AppState: ObservableObject {
         case setSplitMode(WorkspaceSecondaryPaneMode)
         case saveWorkspaceSession
         case showWorkspaceSessions
+        case showQuickOpen
+        case showActivityCenter
+        case refreshWorkspaceIndex
+        case showReleaseReadiness
+        case showPerformanceHUD
+        case showAIContextCenter
+        case showGitHubWorkflow
+        case showFirstRunSetup
+        case showThemeLab
+        case exportDiagnosticBundle
         case increaseFontSize
         case decreaseFontSize
         case setEncoding(String.Encoding)
@@ -87,6 +97,8 @@ final class AppState: ObservableObject {
         case setLanguage(DocumentLanguage)
         case switchDocument(UUID)
         case openRecent(URL)
+        case openIndexedFile(URL)
+        case openIndexedSymbol(URL, Int)
     }
 
     struct PaletteItem: Identifiable {
@@ -95,6 +107,23 @@ final class AppState: ObservableObject {
         let subtitle: String
         let symbolName: String
         let action: PaletteAction
+        let kind: CommandPaletteItemKind
+
+        init(
+            id: String,
+            title: String,
+            subtitle: String,
+            symbolName: String,
+            action: PaletteAction,
+            kind: CommandPaletteItemKind = .command
+        ) {
+            self.id = id
+            self.title = title
+            self.subtitle = subtitle
+            self.symbolName = symbolName
+            self.action = action
+            self.kind = kind
+        }
     }
 
     @Published var documents: [EditorDocument] = []
@@ -117,6 +146,14 @@ final class AppState: ObservableObject {
     @Published var showingWorkspaceSessions = false
     @Published var showingAppearancePreferences = false
     @Published var showingKeyboardShortcuts = false
+    @Published var showingQuickOpen = false
+    @Published var showingActivityCenter = false
+    @Published var showingReleaseReadiness = false
+    @Published var showingPerformanceHUD = false
+    @Published var showingAIContextCenter = false
+    @Published var showingGitHubWorkflow = false
+    @Published var showingFirstRunSetup = false
+    @Published var showingThemeLab = false
     @Published var showingPluginManager = false
     @Published var showingSnippetLibrary = false
     @Published var showingTaskRunner = false
@@ -141,6 +178,13 @@ final class AppState: ObservableObject {
     @Published var terminalPanelState = EmbeddedTerminalPanelState()
     @Published var remoteWorkspaceState = RemoteWorkspaceState()
     @Published var workspacePlatformState = WorkspacePlatformState()
+    @Published var workspaceIndexSummary = WorkspaceIndexSummary.empty
+    @Published var activityRecords: [ActivityRecord] = []
+    @Published var releaseReadinessState = ReleaseReadinessState()
+    @Published var performanceSnapshot: PerformanceSnapshot?
+    @Published var diagnosticBundleSummary: DiagnosticBundleSummary?
+    @Published var aiContextState = AIContextState()
+    @Published var githubWorkflowState = GitHubWorkflowState()
     @Published private var pluginCatalog: [EditorPlugin] = PluginHostService.builtInPlugins
     @Published private var documentDiagnosticsByID: [UUID: [PluginDiagnostic]] = [:]
     @Published private var gitLineDecorationsByDocumentID: [UUID: [EditorLineDecoration]] = [:]
@@ -151,6 +195,7 @@ final class AppState: ObservableObject {
     private var sessionSaveTask: Task<Void, Never>?
     private var projectSearchTask: Task<Void, Never>?
     private var gitRefreshTask: Task<Void, Never>?
+    private var workspaceIndexTask: Task<Void, Never>?
     private var gitLineDecorationTasks: [UUID: Task<Void, Never>] = [:]
     private var gitBlameTasks: [String: Task<Void, Never>] = [:]
     private var pluginRegistryRefreshTask: Task<Void, Never>?
@@ -446,6 +491,7 @@ final class AppState: ObservableObject {
         let document = EditorDocument.untitled(named: nextUntitledName())
         documents.append(document)
         selectedDocumentID = document.id
+        recordActivity("New Document", detail: document.displayName, status: .success)
         requestEditorFocus()
         scheduleSessionSave()
         refreshPluginWorkspaceState()
@@ -612,6 +658,8 @@ final class AppState: ObservableObject {
     }
 
     func openDocuments(at urls: [URL]) {
+        discardSingleCleanDocumentIfNeeded(beforeOpening: urls)
+
         var selectedID: UUID?
 
         for url in urls {
@@ -633,6 +681,7 @@ final class AppState: ObservableObject {
                 let document = EditorDocument.loaded(file: file, url: standardizedURL)
                 documents.append(document)
                 recordRecentFile(standardizedURL)
+                recordActivity("Opened File", detail: standardizedURL.path, status: .success)
                 selectedID = document.id
                 refreshDocumentDiagnostics(for: document.id)
             } catch {
@@ -835,6 +884,198 @@ final class AppState: ObservableObject {
 
     func showAppearancePreferences() {
         showingAppearancePreferences = true
+    }
+
+    func showQuickOpenPanel() {
+        if workspaceIndexSummary.entries.isEmpty, !workspaceRootURLs.isEmpty {
+            refreshWorkspaceIndex()
+        }
+        showingQuickOpen = true
+    }
+
+    func showActivityCenterPanel() {
+        showingActivityCenter = true
+    }
+
+    func showReleaseReadinessPanel() {
+        refreshReleaseReadiness()
+        showingReleaseReadiness = true
+    }
+
+    func showPerformanceHUDPanel() {
+        refreshPerformanceSnapshot()
+        showingPerformanceHUD = true
+    }
+
+    func showAIContextCenterPanel() {
+        refreshAIContextState()
+        showingAIContextCenter = true
+    }
+
+    func showGitHubWorkflowPanel() {
+        refreshGitHubWorkflow()
+        showingGitHubWorkflow = true
+    }
+
+    func showFirstRunSetupPanel() {
+        refreshReleaseReadiness()
+        refreshAIContextState()
+        if workspaceIndexSummary.entries.isEmpty, !workspaceRootURLs.isEmpty {
+            refreshWorkspaceIndex()
+        }
+        showingFirstRunSetup = true
+    }
+
+    func showThemeLabPanel() {
+        showingThemeLab = true
+    }
+
+    func recordActivity(_ title: String, detail: String, status: ActivityStatus = .info) {
+        activityRecords.insert(ActivityRecord(title: title, detail: detail, status: status), at: 0)
+        if activityRecords.count > 120 {
+            activityRecords = Array(activityRecords.prefix(120))
+        }
+    }
+
+    func refreshWorkspaceIndex() {
+        let roots = workspaceRootURLs
+        guard !roots.isEmpty else {
+            workspaceIndexTask?.cancel()
+            workspaceIndexSummary = .empty
+            recordActivity("Workspace Index", detail: "No workspace root is active.", status: .warning)
+            return
+        }
+
+        workspaceIndexTask?.cancel()
+        workspaceIndexSummary.isIndexing = true
+        workspaceIndexSummary.statusMessage = "Indexing \(roots.count) workspace root\(roots.count == 1 ? "" : "s")..."
+        recordActivity("Workspace Index", detail: "Started indexing \(roots.count) root\(roots.count == 1 ? "" : "s").", status: .running)
+
+        let includeHiddenFiles = settings.showHiddenFilesInExplorer
+        workspaceIndexTask = Task.detached(priority: .utility) {
+            let summary = WorkspaceIndexService.index(
+                roots: roots,
+                includeHiddenFiles: includeHiddenFiles
+            )
+
+            await MainActor.run {
+                self.workspaceIndexTask = nil
+                self.workspaceIndexSummary = summary
+                self.recordActivity(
+                    "Workspace Index",
+                    detail: summary.statusMessage ?? "Index refreshed.",
+                    status: summary.entries.isEmpty ? .warning : .success
+                )
+            }
+        }
+    }
+
+    func openIndexedFile(_ url: URL) {
+        openDocuments(at: [url])
+        recordActivity("Quick Open", detail: url.lastPathComponent, status: .success)
+    }
+
+    func openIndexedSymbol(_ symbol: WorkspaceSymbolEntry) {
+        openIndexedSymbol(fileURL: symbol.fileURL, lineNumber: symbol.lineNumber)
+    }
+
+    func openIndexedSymbol(fileURL: URL, lineNumber: Int) {
+        openDocuments(at: [fileURL])
+        guard let document = documents.first(where: { $0.fileURL?.standardizedFileURL == fileURL.standardizedFileURL }) else {
+            return
+        }
+
+        let selectedRange = Self.rangeForLineColumn(lineNumber, column: 1, length: 0, in: document.text)
+        updateDocument(id: document.id) { updatedDocument in
+            updatedDocument.selectedRange = selectedRange
+        }
+        selectedDocumentID = document.id
+        requestEditorFocus()
+        recordActivity("Jump to Symbol", detail: "\(fileURL.lastPathComponent):\(lineNumber)", status: .success)
+    }
+
+    func refreshReleaseReadiness() {
+        releaseReadinessState = ReleaseReadinessService.state(workspaceRoots: workspaceRootURLs)
+        recordActivity(
+            "Release Readiness",
+            detail: releaseReadinessState.isReady ? "Release checklist is passing." : "\(releaseReadinessState.failureCount) blocker\(releaseReadinessState.failureCount == 1 ? "" : "s") found.",
+            status: releaseReadinessState.isReady ? .success : .warning
+        )
+    }
+
+    func refreshPerformanceSnapshot() {
+        performanceSnapshot = PerformanceSnapshotService.snapshot(
+            openDocumentCount: documents.count,
+            dirtyDocumentCount: documents.filter(\.isDirty).count,
+            workspaceRootCount: workspaceRootURLs.count,
+            enabledPluginCount: enabledPlugins.count,
+            taskCount: pluginTaskState.tasks.count,
+            activityCount: activityRecords.count,
+            workspaceIndex: workspaceIndexSummary
+        )
+    }
+
+    func refreshAIContextState() {
+        aiContextState = AIRulesService.contextState(for: activeWorkspaceURL)
+    }
+
+    func refreshGitHubWorkflow() {
+        githubWorkflowState = GitHubWorkflowService.state(for: activeWorkspaceURL)
+    }
+
+    func openGitHubRepositoryPage() {
+        refreshGitHubWorkflow()
+        if let url = githubWorkflowState.repositoryURL {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    func openGitHubComparePage() {
+        refreshGitHubWorkflow()
+        if let url = githubWorkflowState.compareURL {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    func exportDiagnosticBundle() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Export"
+        panel.message = "Choose a folder for the ForgeText diagnostic bundle."
+
+        panel.begin { [weak self] response in
+            guard response == .OK, let directoryURL = panel.url else {
+                return
+            }
+
+            Task { @MainActor in
+                guard let self else { return }
+                self.refreshReleaseReadiness()
+                do {
+                    let summary = try DiagnosticBundleService.export(
+                        to: directoryURL,
+                        documents: self.documents,
+                        workspaceRoots: self.workspaceRootURLs,
+                        settings: self.settings,
+                        workspaceIndex: self.workspaceIndexSummary,
+                        releaseReadiness: self.releaseReadinessState,
+                        activityRecords: self.activityRecords,
+                        gitSummary: self.gitRepositorySummary
+                    )
+                    self.diagnosticBundleSummary = summary
+                    self.recordActivity("Diagnostic Bundle", detail: summary.url.path, status: .success)
+                    self.alertContext = AlertContext(
+                        title: "Diagnostic Bundle Exported",
+                        message: "ForgeText wrote a safe diagnostic bundle to:\n\(summary.url.path)"
+                    )
+                } catch {
+                    self.present(error: error, title: "Couldn’t Export Diagnostic Bundle")
+                }
+            }
+        }
     }
 
     func showWorkspacePlatformPanel() {
@@ -2876,7 +3117,7 @@ final class AppState: ObservableObject {
         AppSettingsStore.save(settings)
     }
 
-    func paletteItems(matching query: String) -> [PaletteItem] {
+    func paletteItems(matching query: String, mode: CommandPaletteMode = .all) -> [PaletteItem] {
         var items: [PaletteItem] = [
             PaletteItem(id: "new", title: "New Document", subtitle: "Create a fresh untitled document", symbolName: "plus.square", action: .newDocument),
             PaletteItem(id: "open", title: "Open Files", subtitle: "Choose files from disk", symbolName: "folder", action: .openDocuments),
@@ -2884,6 +3125,16 @@ final class AppState: ObservableObject {
             PaletteItem(id: "saveWorkspace", title: "Save Workspace File", subtitle: "Persist the current roots and profile into a workspace file", symbolName: "square.3.layers.3d.top.filled", action: .saveWorkspaceFile),
             PaletteItem(id: "workspaceCenter", title: "Workspace Center", subtitle: "Manage workspace roots, trust, profiles, and sync", symbolName: "square.3.layers.3d", action: .showWorkspacePlatform),
             PaletteItem(id: "appearancePreferences", title: "Appearance Preferences", subtitle: "Tune Retro Pro, density, focus mode, and inspector settings", symbolName: "paintbrush.pointed", action: .showAppearancePreferences),
+            PaletteItem(id: "quickOpen", title: "Quick Open", subtitle: "Jump to indexed workspace files", symbolName: "doc.text.magnifyingglass", action: .showQuickOpen),
+            PaletteItem(id: "activityCenter", title: "Activity Center", subtitle: "Review recent editor, Git, AI, and workspace events", symbolName: "list.bullet.rectangle.portrait", action: .showActivityCenter),
+            PaletteItem(id: "refreshWorkspaceIndex", title: "Refresh Workspace Index", subtitle: "Rebuild the file, symbol, TODO, and warning index", symbolName: "tray.full", action: .refreshWorkspaceIndex),
+            PaletteItem(id: "firstRunSetup", title: "First-Run Setup", subtitle: "Walk through workspace, Git, AI, update, and plugin readiness", symbolName: "checklist", action: .showFirstRunSetup),
+            PaletteItem(id: "aiContextCenter", title: "AI Context Center", subtitle: "Review workspace rules and reusable prompt files", symbolName: "brain.head.profile", action: .showAIContextCenter),
+            PaletteItem(id: "githubWorkflow", title: "GitHub Workflow", subtitle: "Open repository, compare branch, and prepare PR flow", symbolName: "arrow.triangle.branch", action: .showGitHubWorkflow),
+            PaletteItem(id: "releaseReadiness", title: "Release Readiness", subtitle: "Check version, Sparkle, appcast, DMG, and docs status", symbolName: "shippingbox", action: .showReleaseReadiness),
+            PaletteItem(id: "performanceHUD", title: "Performance HUD", subtitle: "Inspect open docs, index size, plugins, tasks, and system memory", symbolName: "speedometer", action: .showPerformanceHUD),
+            PaletteItem(id: "themeLab", title: "Theme Lab", subtitle: "Fine-tune the retro UI vibe from one place", symbolName: "paintpalette", action: .showThemeLab),
+            PaletteItem(id: "exportDiagnostics", title: "Export Diagnostic Bundle", subtitle: "Create a safe local support bundle without document contents or API keys", symbolName: "cross.case", action: .exportDiagnosticBundle),
             PaletteItem(id: "cloneRepository", title: "Clone Repository", subtitle: "Clone a GitHub or Git repository and open it as a workspace", symbolName: "square.and.arrow.down.on.square", action: .cloneRepository),
             PaletteItem(id: "openRemote", title: "Open Remote File", subtitle: "Open a document over SSH", symbolName: "network", action: .openRemote),
             PaletteItem(id: "gitWorkbench", title: "Git Workbench", subtitle: "Commit, push, pull, stash, and inspect repository changes", symbolName: "point.topleft.down.curvedto.point.bottomright.up", action: .showGitWorkbench),
@@ -2946,7 +3197,8 @@ final class AppState: ObservableObject {
                 title: "Theme: \($0.displayName)",
                 subtitle: "Apply the \($0.displayName) editor theme",
                 symbolName: "paintpalette",
-                action: .setTheme($0)
+                action: .setTheme($0),
+                kind: .theme
             )
         }
 
@@ -2956,7 +3208,8 @@ final class AppState: ObservableObject {
                 title: "Appearance: \($0.displayName)",
                 subtitle: $0.summary,
                 symbolName: "paintbrush.pointed",
-                action: .setChromeStyle($0)
+                action: .setChromeStyle($0),
+                kind: .theme
             )
         }
 
@@ -2966,7 +3219,8 @@ final class AppState: ObservableObject {
                 title: "Density: \($0.displayName)",
                 subtitle: "Use the \($0.displayName.lowercased()) interface density",
                 symbolName: "rectangle.compress.vertical",
-                action: .setInterfaceDensity($0)
+                action: .setInterfaceDensity($0),
+                kind: .theme
             )
         }
 
@@ -3043,7 +3297,8 @@ final class AppState: ObservableObject {
                     title: $0.displayName,
                     subtitle: $0.pathDescription,
                     symbolName: $0.language.symbolName,
-                    action: .switchDocument($0.id)
+                    action: .switchDocument($0.id),
+                    kind: .document
                 )
             }
 
@@ -3054,7 +3309,8 @@ final class AppState: ObservableObject {
                         title: "Current Document",
                         subtitle: selectedDocument.displayName,
                         symbolName: selectedDocument.language.symbolName,
-                        action: .switchDocument(selectedDocument.id)
+                        action: .switchDocument(selectedDocument.id),
+                        kind: .document
                     )
                 )
             }
@@ -3066,7 +3322,30 @@ final class AppState: ObservableObject {
                 title: $0.lastPathComponent,
                 subtitle: $0.path(percentEncoded: false),
                 symbolName: "clock.arrow.circlepath",
-                action: .openRecent($0)
+                action: .openRecent($0),
+                kind: .recentFile
+            )
+        }
+
+        items += workspaceIndexSummary.entries.prefix(400).map { entry in
+            PaletteItem(
+                id: "indexed-file-\(entry.id)",
+                title: entry.displayName,
+                subtitle: entry.subtitle,
+                symbolName: entry.language.symbolName,
+                action: .openIndexedFile(entry.url),
+                kind: .workspaceFile
+            )
+        }
+
+        items += workspaceIndexSummary.symbols.prefix(400).map { symbol in
+            PaletteItem(
+                id: "indexed-symbol-\(symbol.id)",
+                title: symbol.title,
+                subtitle: symbol.subtitle,
+                symbolName: symbol.language.symbolName,
+                action: .openIndexedSymbol(symbol.fileURL, symbol.lineNumber),
+                kind: .symbol
             )
         }
 
@@ -3076,7 +3355,8 @@ final class AppState: ObservableObject {
                 title: $0.displayName,
                 subtitle: $0.pathDescription,
                 symbolName: "network",
-                action: .openRemoteSpec($0.spec)
+                action: .openRemoteSpec($0.spec),
+                kind: .recentFile
             )
         }
 
@@ -3086,7 +3366,8 @@ final class AppState: ObservableObject {
                 title: command.title,
                 subtitle: command.subtitle,
                 symbolName: command.symbolName,
-                action: paletteAction(for: command.action)
+                action: paletteAction(for: command.action),
+                kind: .plugin
             )
         }
 
@@ -3096,7 +3377,8 @@ final class AppState: ObservableObject {
                 title: task.title,
                 subtitle: task.subtitle,
                 symbolName: task.symbolName,
-                action: .runWorkspaceTask(task.id)
+                action: .runWorkspaceTask(task.id),
+                kind: .task
             )
         }
 
@@ -3116,11 +3398,30 @@ final class AppState: ObservableObject {
                 title: "Snippet: \(snippet.title)",
                 subtitle: snippet.detail,
                 symbolName: snippet.symbolName,
-                action: .insertSnippet(snippet.id)
+                action: .insertSnippet(snippet.id),
+                kind: .plugin
             )
         }
 
-        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parsed = CommandPaletteMode.modeAndSearchText(for: query, fallback: mode)
+        let activeMode = parsed.0
+        let trimmedQuery = parsed.1
+
+        if activeMode != .all {
+            items = items.filter { item in
+                switch activeMode {
+                case .all:
+                    return true
+                case .commands:
+                    return item.kind != .workspaceFile && item.kind != .symbol && item.kind != .document && item.kind != .recentFile
+                case .files:
+                    return item.kind == .workspaceFile || item.kind == .document || item.kind == .recentFile
+                case .symbols:
+                    return item.kind == .symbol
+                }
+            }
+        }
+
         guard !trimmedQuery.isEmpty else {
             return items
         }
@@ -3272,6 +3573,26 @@ final class AppState: ObservableObject {
             showingWorkspaceSessions = true
         case .showWorkspaceSessions:
             showWorkspaceSessionsPanel()
+        case .showQuickOpen:
+            showQuickOpenPanel()
+        case .showActivityCenter:
+            showActivityCenterPanel()
+        case .refreshWorkspaceIndex:
+            refreshWorkspaceIndex()
+        case .showReleaseReadiness:
+            showReleaseReadinessPanel()
+        case .showPerformanceHUD:
+            showPerformanceHUDPanel()
+        case .showAIContextCenter:
+            showAIContextCenterPanel()
+        case .showGitHubWorkflow:
+            showGitHubWorkflowPanel()
+        case .showFirstRunSetup:
+            showFirstRunSetupPanel()
+        case .showThemeLab:
+            showThemeLabPanel()
+        case .exportDiagnosticBundle:
+            exportDiagnosticBundle()
         case .increaseFontSize:
             increaseFontSize()
         case .decreaseFontSize:
@@ -3290,6 +3611,10 @@ final class AppState: ObservableObject {
             selectDocument(id)
         case let .openRecent(url):
             openDocuments(at: [url])
+        case let .openIndexedFile(url):
+            openIndexedFile(url)
+        case let .openIndexedSymbol(url, lineNumber):
+            openIndexedSymbol(fileURL: url, lineNumber: lineNumber)
         }
     }
 
@@ -3323,6 +3648,7 @@ final class AppState: ObservableObject {
 
             RecoveryService.deleteSnapshot(for: id)
             recordRecentFile(url)
+            recordActivity("Saved File", detail: url.path, status: .success)
             refreshPluginWorkspaceState()
             refreshDocumentDiagnostics(for: id)
         } catch {
@@ -3388,6 +3714,53 @@ final class AppState: ObservableObject {
 
         scheduleSessionSave()
         refreshPluginWorkspaceState()
+    }
+
+    private func discardSingleCleanDocumentIfNeeded(beforeOpening urls: [URL]) {
+        guard documents.count == 1, let document = documents.first else {
+            return
+        }
+
+        guard canDiscardForReplacementOpen(document) else {
+            return
+        }
+
+        let incomingFilePaths = Set(
+            urls
+                .map(\.standardizedFileURL)
+                .filter { $0.pathExtension != WorkspacePlatformService.workspaceFileExtension }
+                .map(\.path)
+        )
+
+        guard !incomingFilePaths.isEmpty else {
+            return
+        }
+
+        if let currentPath = document.fileURL?.standardizedFileURL.path,
+           incomingFilePaths.contains(currentPath) {
+            return
+        }
+
+        discardDocumentWithoutReplacement(id: document.id)
+        recordActivity("Closed Previous File", detail: document.displayName, status: .info)
+    }
+
+    private func canDiscardForReplacementOpen(_ document: EditorDocument) -> Bool {
+        !document.isDirty
+            && !document.hasRecoveredDraft
+            && !document.hasExternalChanges
+            && !document.fileMissingOnDisk
+    }
+
+    private func discardDocumentWithoutReplacement(id: UUID) {
+        RecoveryService.deleteSnapshot(for: id)
+        documents.removeAll { $0.id == id }
+        documentDiagnosticsByID[id] = nil
+        invalidateGitInsightState(for: id, clearLineDecorations: true)
+
+        if selectedDocumentID == id {
+            selectedDocumentID = nil
+        }
     }
 
     private func restoreWorkspace() {

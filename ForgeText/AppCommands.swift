@@ -129,6 +129,11 @@ struct FileEditorCommands: Commands {
 
             Divider()
 
+            Button("Quick Open...") {
+                appState.showQuickOpenPanel()
+            }
+            .keyboardShortcut("p")
+
             Button("Command Palette...") {
                 appState.showingCommandPalette = true
             }
@@ -185,6 +190,10 @@ struct FileEditorCommands: Commands {
 
             Button("Refresh Git Status") {
                 appState.refreshGitStatus()
+            }
+
+            Button("GitHub Workflow...") {
+                appState.showGitHubWorkflowPanel()
             }
 
             Divider()
@@ -328,6 +337,18 @@ struct FileEditorCommands: Commands {
                 appState.showWorkspacePlatformPanel()
             }
 
+            Button("First-Run Setup") {
+                appState.showFirstRunSetupPanel()
+            }
+
+            Button("Activity Center") {
+                appState.showActivityCenterPanel()
+            }
+
+            Button("Quick Open") {
+                appState.showQuickOpenPanel()
+            }
+
             Button(appState.workspaceTrustMode == .trusted ? "Restrict Workspace" : "Trust Workspace") {
                 if appState.workspaceTrustMode == .trusted {
                     appState.restrictCurrentWorkspace()
@@ -350,6 +371,14 @@ struct FileEditorCommands: Commands {
 
             Button("Keyboard Shortcuts") {
                 appState.showingKeyboardShortcuts = true
+            }
+
+            Button("AI Context Center") {
+                appState.showAIContextCenterPanel()
+            }
+
+            Button("Theme Lab") {
+                appState.showThemeLabPanel()
             }
 
             Button("Open in Terminal") {
@@ -375,6 +404,18 @@ struct FileEditorCommands: Commands {
                 appState.refreshWorkspaceExplorer()
             }
 
+            Button("Refresh Workspace Index") {
+                appState.refreshWorkspaceIndex()
+            }
+
+            Button("Performance HUD") {
+                appState.showPerformanceHUDPanel()
+            }
+
+            Button("Release Readiness") {
+                appState.showReleaseReadinessPanel()
+            }
+
             Divider()
 
             Button("Export Sync Bundle...") {
@@ -393,6 +434,10 @@ struct FileEditorCommands: Commands {
 
             Button("Import Settings...") {
                 appState.importSettings()
+            }
+
+            Button("Export Diagnostic Bundle...") {
+                appState.exportDiagnosticBundle()
             }
         }
 

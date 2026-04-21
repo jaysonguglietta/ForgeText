@@ -57,6 +57,30 @@ struct ContentView: View {
         .sheet(isPresented: $appState.showingKeyboardShortcuts) {
             KeyboardShortcutsView()
         }
+        .sheet(isPresented: $appState.showingQuickOpen) {
+            QuickOpenView(appState: appState)
+        }
+        .sheet(isPresented: $appState.showingActivityCenter) {
+            ActivityCenterView(appState: appState)
+        }
+        .sheet(isPresented: $appState.showingReleaseReadiness) {
+            ReleaseReadinessView(appState: appState)
+        }
+        .sheet(isPresented: $appState.showingPerformanceHUD) {
+            PerformanceHUDView(appState: appState)
+        }
+        .sheet(isPresented: $appState.showingAIContextCenter) {
+            AIContextCenterView(appState: appState)
+        }
+        .sheet(isPresented: $appState.showingGitHubWorkflow) {
+            GitHubWorkflowView(appState: appState)
+        }
+        .sheet(isPresented: $appState.showingFirstRunSetup) {
+            FirstRunSetupView(appState: appState)
+        }
+        .sheet(isPresented: $appState.showingThemeLab) {
+            ThemeLabView(appState: appState)
+        }
         .sheet(isPresented: $appState.showingPluginManager) {
             PluginManagerView(appState: appState)
         }
@@ -352,6 +376,68 @@ private struct DocumentSidebarView: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Open test explorer")
+                    }
+
+                    sidebarSection("Control Center") {
+                        Button {
+                            appState.showQuickOpenPanel()
+                        } label: {
+                            fileCard(
+                                title: "Quick Open",
+                                subtitle: "Jump to indexed files and symbols across the workspace",
+                                symbolName: "doc.text.magnifyingglass"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open quick open")
+
+                        Button {
+                            appState.showActivityCenterPanel()
+                        } label: {
+                            fileCard(
+                                title: "Activity Center",
+                                subtitle: "Review recent editor, index, release, and diagnostic events",
+                                symbolName: "list.bullet.rectangle.portrait"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open activity center")
+
+                        Button {
+                            appState.showAIContextCenterPanel()
+                        } label: {
+                            fileCard(
+                                title: "AI Context",
+                                subtitle: "Review workspace rules and reusable prompts",
+                                symbolName: "brain.head.profile"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open AI context center")
+
+                        Button {
+                            appState.showGitHubWorkflowPanel()
+                        } label: {
+                            fileCard(
+                                title: "GitHub Workflow",
+                                subtitle: "Open repository pages and branch compare flow",
+                                symbolName: "arrow.triangle.branch"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open GitHub workflow")
+
+                        Button {
+                            appState.showFirstRunSetupPanel()
+                        } label: {
+                            fileCard(
+                                title: "Setup Checklist",
+                                subtitle: "Workspace, Git, AI, plugins, updates, and appearance",
+                                symbolName: "checklist"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open setup checklist")
                     }
 
                     WorkspaceExplorerView(appState: appState)
@@ -748,6 +834,12 @@ private struct DocumentWorkspaceView: View {
                 }
 
                 Button {
+                    appState.showQuickOpenPanel()
+                } label: {
+                    Label("Quick Open", systemImage: "doc.text.magnifyingglass")
+                }
+
+                Button {
                     appState.showWorkspacePlatformPanel()
                 } label: {
                     Label("Workspace", systemImage: "square.3.layers.3d")
@@ -963,6 +1055,10 @@ private struct DocumentWorkspaceView: View {
                             appState.showingCommandPalette = true
                         }
 
+                        Button("Quick Open") {
+                            appState.showQuickOpenPanel()
+                        }
+
                         Divider()
 
                         Button("Workspace Center") {
@@ -987,6 +1083,32 @@ private struct DocumentWorkspaceView: View {
 
                         Button("Keyboard Shortcuts") {
                             appState.showingKeyboardShortcuts = true
+                        }
+
+                        Divider()
+
+                        Button("Activity Center") {
+                            appState.showActivityCenterPanel()
+                        }
+
+                        Button("AI Context Center") {
+                            appState.showAIContextCenterPanel()
+                        }
+
+                        Button("GitHub Workflow") {
+                            appState.showGitHubWorkflowPanel()
+                        }
+
+                        Button("Release Readiness") {
+                            appState.showReleaseReadinessPanel()
+                        }
+
+                        Button("Performance HUD") {
+                            appState.showPerformanceHUDPanel()
+                        }
+
+                        Button("First-Run Setup") {
+                            appState.showFirstRunSetupPanel()
                         }
 
                         Divider()

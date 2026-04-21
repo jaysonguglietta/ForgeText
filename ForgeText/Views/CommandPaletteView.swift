@@ -4,6 +4,11 @@ struct CommandPaletteView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var appState: AppState
     @State private var query = ""
+    @State private var mode: CommandPaletteMode = .all
+
+    private var items: [AppState.PaletteItem] {
+        appState.paletteItems(matching: query, mode: mode)
+    }
 
     var body: some View {
         ZStack {
@@ -21,11 +26,37 @@ struct CommandPaletteView: View {
                     .buttonStyle(RetroActionButtonStyle(tone: .secondary))
                 }
 
-                TextField("Type a command, theme, language, or file name", text: $query)
+                HStack(spacing: 10) {
+                    Picker("Mode", selection: $mode) {
+                        ForEach(CommandPaletteMode.allCases) { mode in
+                            Label(mode.displayName, systemImage: mode.symbolName)
+                                .tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 420)
+
+                    Button("Reindex") {
+                        appState.refreshWorkspaceIndex()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+                }
+
+                TextField("Type >commands, @files, #symbols, themes, languages, tasks, or recent files", text: $query)
                     .textFieldStyle(.plain)
                     .retroTextField()
 
-                List(appState.paletteItems(matching: query)) { item in
+                HStack(spacing: 8) {
+                    ForEach(CommandPaletteMode.allCases) { mode in
+                        RetroCapsuleLabel(text: mode.prefix.map { "\($0) \(mode.displayName)" } ?? mode.displayName, accent: mode == self.mode ? RetroPalette.chromePink : RetroPalette.chromeBlue)
+                    }
+                    Spacer(minLength: 0)
+                    Text(mode.hint)
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(RetroPalette.link)
+                }
+
+                List(items) { item in
                     Button {
                         dismiss()
                         appState.performPaletteAction(item.action)
@@ -46,6 +77,8 @@ struct CommandPaletteView: View {
                             }
 
                             Spacer(minLength: 0)
+
+                            RetroCapsuleLabel(text: item.kind.rawValue, accent: item.kind == .symbol ? RetroPalette.chromePink : RetroPalette.chromeTeal)
                         }
                     }
                     .buttonStyle(.plain)
@@ -56,7 +89,7 @@ struct CommandPaletteView: View {
                 .background(RetroPalette.panelFillMuted)
             }
             .padding(18)
-            .frame(minWidth: 680, minHeight: 420)
+            .frame(minWidth: 760, minHeight: 520)
             .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
             .padding(18)
         }

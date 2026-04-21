@@ -41,11 +41,12 @@ enum DelimitedTextTableService {
 
         let bestCandidate = candidates
             .compactMap { delimiter -> (Character, [[String]], Int)? in
-                guard let rows = parseRows(text, delimiter: delimiter) else {
+                guard let parsedRows = parseRows(text, delimiter: delimiter) else {
                     return nil
                 }
 
-                let score = score(rows: rows)
+                let rows = removingSeparatorDirective(from: parsedRows, delimiter: delimiter)
+                let score = score(rows: rows, allowsSingleRow: preferredDelimiter == delimiter)
                 guard score > 0 else {
                     return nil
                 }
@@ -150,10 +151,14 @@ enum DelimitedTextTableService {
             }
     }
 
-    private static func score(rows: [[String]]) -> Int {
+    private static func score(rows: [[String]], allowsSingleRow: Bool = false) -> Int {
         let sampledRows = Array(rows.prefix(25))
         let candidateWidths = sampledRows.map(\.count).filter { $0 > 1 }
         guard candidateWidths.count >= 2 else {
+            if allowsSingleRow, let firstWidth = candidateWidths.first {
+                return firstWidth * 100
+            }
+
             return 0
         }
 
@@ -168,6 +173,28 @@ enum DelimitedTextTableService {
         }
 
         return (dominantWidth * 100) + (consistency * 25) - sampledRows.count
+    }
+
+    private static func removingSeparatorDirective(from rows: [[String]], delimiter: Character) -> [[String]] {
+        guard let firstRow = rows.first, !firstRow.isEmpty else {
+            return rows
+        }
+
+        let trimmedCells = firstRow.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard let firstCell = trimmedCells.first?.lowercased() else {
+            return rows
+        }
+
+        let trailingCellsAreEmpty = trimmedCells.dropFirst().allSatisfy(\.isEmpty)
+        let declaresSeparator = firstCell == "sep="
+            || firstCell == "sep=\(delimiter)"
+            || firstCell == "separator=\(delimiter)"
+
+        guard declaresSeparator, trailingCellsAreEmpty else {
+            return rows
+        }
+
+        return Array(rows.dropFirst())
     }
 
     private static func normalize(rows: [[String]]) -> [[String]] {

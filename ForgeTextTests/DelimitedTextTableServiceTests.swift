@@ -32,4 +32,26 @@ final class DelimitedTextTableServiceTests: XCTestCase {
         XCTAssertEqual(table?.columnCount, 3)
         XCTAssertEqual(table?.rowCount, 2)
     }
+
+    func testCSVParserKeepsSingleRowFilesVisibleWhenDelimiterIsKnown() {
+        let table = DelimitedTextTableService.parse("alpha,beta,gamma", preferredDelimiter: ",")
+
+        XCTAssertNotNil(table)
+        XCTAssertEqual(table?.headers, ["Column 1", "Column 2", "Column 3"])
+        XCTAssertEqual(table?.rows, [["alpha", "beta", "gamma"]])
+    }
+
+    func testCSVParserSkipsExcelSeparatorDirective() {
+        let text = """
+        sep=,
+        service,status,owner
+        api,green,platform
+        """
+
+        let table = DelimitedTextTableService.parse(text, preferredDelimiter: ",")
+
+        XCTAssertNotNil(table)
+        XCTAssertEqual(table?.headers, ["service", "status", "owner"])
+        XCTAssertEqual(table?.rows, [["api", "green", "platform"]])
+    }
 }

@@ -203,6 +203,18 @@ struct FileEditorCommands: Commands {
         }
 
         CommandMenu("View") {
+            Button(appState.settings.focusModeEnabled ? "Exit Focus Mode" : "Enter Focus Mode") {
+                appState.toggleFocusMode()
+            }
+            .keyboardShortcut("u", modifiers: [.command, .shift])
+
+            Button("Appearance Preferences...") {
+                appState.showAppearancePreferences()
+            }
+            .keyboardShortcut(",", modifiers: [.command])
+
+            Divider()
+
             Button(appState.settings.wrapLines ? "Disable Line Wrap" : "Enable Line Wrap") {
                 appState.toggleWrapLines()
             }
@@ -229,6 +241,22 @@ struct FileEditorCommands: Commands {
                 }
             }
 
+            Menu("Retro Intensity") {
+                ForEach(AppChromeStyle.allCases) { style in
+                    Button(style.displayName) {
+                        appState.setChromeStyle(style)
+                    }
+                }
+            }
+
+            Menu("Density") {
+                ForEach(InterfaceDensity.allCases) { density in
+                    Button(density.displayName) {
+                        appState.setInterfaceDensity(density)
+                    }
+                }
+            }
+
             Menu("Language") {
                 ForEach(DocumentLanguage.allCases) { language in
                     Button(language.displayName) {
@@ -250,6 +278,10 @@ struct FileEditorCommands: Commands {
             }
 
             Divider()
+
+            Button(appState.settings.showsInspector ? "Hide Inspector" : "Show Inspector") {
+                appState.toggleInspectorPanel()
+            }
 
             Button(appState.settings.showsOutline ? "Hide Outline" : "Show Outline") {
                 appState.toggleOutlinePanel()

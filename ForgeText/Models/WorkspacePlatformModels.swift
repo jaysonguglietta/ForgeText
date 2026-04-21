@@ -36,16 +36,91 @@ enum WorkspaceTrustMode: String, CaseIterable, Codable, Identifiable {
 
 struct WorkspaceProfileSnapshot: Codable, Hashable {
     var theme: EditorTheme
+    var chromeStyle: AppChromeStyle
+    var interfaceDensity: InterfaceDensity
+    var focusModeEnabled: Bool
     var wrapLines: Bool
     var autosaveToDisk: Bool
     var fontSize: Double
     var showsOutline: Bool
+    var showsInspector: Bool
     var showsBreadcrumbs: Bool
     var showHiddenFilesInExplorer: Bool
     var enabledPluginIDs: [String]
     var aiIncludeSelection: Bool
     var aiIncludeCurrentDocument: Bool
     var aiIncludeWorkspaceRules: Bool
+
+    init(
+        theme: EditorTheme,
+        chromeStyle: AppChromeStyle = .retroPro,
+        interfaceDensity: InterfaceDensity = .compact,
+        focusModeEnabled: Bool = false,
+        wrapLines: Bool,
+        autosaveToDisk: Bool,
+        fontSize: Double,
+        showsOutline: Bool,
+        showsInspector: Bool = true,
+        showsBreadcrumbs: Bool,
+        showHiddenFilesInExplorer: Bool,
+        enabledPluginIDs: [String],
+        aiIncludeSelection: Bool,
+        aiIncludeCurrentDocument: Bool,
+        aiIncludeWorkspaceRules: Bool
+    ) {
+        self.theme = theme
+        self.chromeStyle = chromeStyle
+        self.interfaceDensity = interfaceDensity
+        self.focusModeEnabled = focusModeEnabled
+        self.wrapLines = wrapLines
+        self.autosaveToDisk = autosaveToDisk
+        self.fontSize = fontSize
+        self.showsOutline = showsOutline
+        self.showsInspector = showsInspector
+        self.showsBreadcrumbs = showsBreadcrumbs
+        self.showHiddenFilesInExplorer = showHiddenFilesInExplorer
+        self.enabledPluginIDs = enabledPluginIDs
+        self.aiIncludeSelection = aiIncludeSelection
+        self.aiIncludeCurrentDocument = aiIncludeCurrentDocument
+        self.aiIncludeWorkspaceRules = aiIncludeWorkspaceRules
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case theme
+        case chromeStyle
+        case interfaceDensity
+        case focusModeEnabled
+        case wrapLines
+        case autosaveToDisk
+        case fontSize
+        case showsOutline
+        case showsInspector
+        case showsBreadcrumbs
+        case showHiddenFilesInExplorer
+        case enabledPluginIDs
+        case aiIncludeSelection
+        case aiIncludeCurrentDocument
+        case aiIncludeWorkspaceRules
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        theme = try container.decodeIfPresent(EditorTheme.self, forKey: .theme) ?? .forge
+        chromeStyle = try container.decodeIfPresent(AppChromeStyle.self, forKey: .chromeStyle) ?? .retroPro
+        interfaceDensity = try container.decodeIfPresent(InterfaceDensity.self, forKey: .interfaceDensity) ?? .compact
+        focusModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .focusModeEnabled) ?? false
+        wrapLines = try container.decodeIfPresent(Bool.self, forKey: .wrapLines) ?? false
+        autosaveToDisk = try container.decodeIfPresent(Bool.self, forKey: .autosaveToDisk) ?? true
+        fontSize = try container.decodeIfPresent(Double.self, forKey: .fontSize) ?? 14
+        showsOutline = try container.decodeIfPresent(Bool.self, forKey: .showsOutline) ?? true
+        showsInspector = try container.decodeIfPresent(Bool.self, forKey: .showsInspector) ?? true
+        showsBreadcrumbs = try container.decodeIfPresent(Bool.self, forKey: .showsBreadcrumbs) ?? true
+        showHiddenFilesInExplorer = try container.decodeIfPresent(Bool.self, forKey: .showHiddenFilesInExplorer) ?? false
+        enabledPluginIDs = try container.decodeIfPresent([String].self, forKey: .enabledPluginIDs) ?? PluginHostService.defaultEnabledPluginIDs
+        aiIncludeSelection = try container.decodeIfPresent(Bool.self, forKey: .aiIncludeSelection) ?? true
+        aiIncludeCurrentDocument = try container.decodeIfPresent(Bool.self, forKey: .aiIncludeCurrentDocument) ?? true
+        aiIncludeWorkspaceRules = try container.decodeIfPresent(Bool.self, forKey: .aiIncludeWorkspaceRules) ?? true
+    }
 }
 
 struct WorkspaceProfile: Identifiable, Codable, Hashable {
@@ -309,10 +384,14 @@ extension AppSettings {
     var profileSnapshot: WorkspaceProfileSnapshot {
         WorkspaceProfileSnapshot(
             theme: theme,
+            chromeStyle: chromeStyle,
+            interfaceDensity: interfaceDensity,
+            focusModeEnabled: focusModeEnabled,
             wrapLines: wrapLines,
             autosaveToDisk: autosaveToDisk,
             fontSize: fontSize,
             showsOutline: showsOutline,
+            showsInspector: showsInspector,
             showsBreadcrumbs: showsBreadcrumbs,
             showHiddenFilesInExplorer: showHiddenFilesInExplorer,
             enabledPluginIDs: enabledPluginIDs,
@@ -324,10 +403,14 @@ extension AppSettings {
 
     mutating func apply(profileSnapshot: WorkspaceProfileSnapshot) {
         theme = profileSnapshot.theme
+        chromeStyle = profileSnapshot.chromeStyle
+        interfaceDensity = profileSnapshot.interfaceDensity
+        focusModeEnabled = profileSnapshot.focusModeEnabled
         wrapLines = profileSnapshot.wrapLines
         autosaveToDisk = profileSnapshot.autosaveToDisk
         fontSize = profileSnapshot.fontSize
         showsOutline = profileSnapshot.showsOutline
+        showsInspector = profileSnapshot.showsInspector
         showsBreadcrumbs = profileSnapshot.showsBreadcrumbs
         showHiddenFilesInExplorer = profileSnapshot.showHiddenFilesInExplorer
         enabledPluginIDs = profileSnapshot.enabledPluginIDs

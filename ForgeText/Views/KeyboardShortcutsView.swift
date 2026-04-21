@@ -2,6 +2,7 @@ import SwiftUI
 
 struct KeyboardShortcutsView: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var query = ""
 
     private let shortcuts: [(String, String)] = [
         ("New Document", "Command-N"),
@@ -19,11 +20,23 @@ struct KeyboardShortcutsView: View {
         ("Previous Document", "Shift-Command-["),
     ]
 
+    private var filteredShortcuts: [(String, String)] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else {
+            return shortcuts
+        }
+
+        return shortcuts.filter {
+            $0.0.localizedCaseInsensitiveContains(trimmedQuery) ||
+                $0.1.localizedCaseInsensitiveContains(trimmedQuery)
+        }
+    }
+
     var body: some View {
         ZStack {
             RetroBackdropView()
 
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 14) {
                 HStack {
                     Text("Keyboard Shortcuts")
                         .font(.system(size: 20, weight: .black, design: .monospaced))
@@ -35,7 +48,11 @@ struct KeyboardShortcutsView: View {
                     .buttonStyle(RetroActionButtonStyle(tone: .secondary))
                 }
 
-                List(shortcuts, id: \.0) { item in
+                TextField("Search shortcuts", text: $query)
+                    .textFieldStyle(.plain)
+                    .retroTextField()
+
+                List(filteredShortcuts, id: \.0) { item in
                     HStack {
                         Text(item.0)
                             .font(.system(size: 12, weight: .bold, design: .monospaced))
@@ -50,6 +67,10 @@ struct KeyboardShortcutsView: View {
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .background(RetroPalette.panelFillMuted)
+
+                Text("Shortcut customization is staged here as a searchable editor surface; command rebinding can be wired behind these rows without changing the UI.")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
             }
             .padding(18)
             .frame(minWidth: 520, minHeight: 360)

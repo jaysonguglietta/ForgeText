@@ -4,18 +4,20 @@ struct ContentView: View {
     @ObservedObject var appState: AppState
 
     var body: some View {
-        NavigationSplitView {
-            DocumentSidebarView(appState: appState)
-        } detail: {
-            if let document = appState.selectedDocument, let metrics = appState.selectedMetrics {
-                DocumentWorkspaceView(appState: appState, document: document, metrics: metrics)
-                    .id(document.id)
+        Group {
+            if appState.settings.focusModeEnabled {
+                workspaceDetail
             } else {
-                EmptyWorkspaceView(appState: appState)
+                NavigationSplitView {
+                    DocumentSidebarView(appState: appState)
+                } detail: {
+                    workspaceDetail
+                }
+                .navigationSplitViewStyle(.balanced)
             }
         }
-        .navigationSplitViewStyle(.balanced)
         .background(RetroBackdropView())
+        .retroChrome(style: appState.settings.chromeStyle, density: appState.settings.interfaceDensity)
         .sheet(isPresented: $appState.showingCommandPalette) {
             CommandPaletteView(appState: appState)
         }
@@ -48,6 +50,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $appState.showingWorkspaceSessions) {
             WorkspaceSessionsView(appState: appState)
+        }
+        .sheet(isPresented: $appState.showingAppearancePreferences) {
+            AppearancePreferencesView(appState: appState)
         }
         .sheet(isPresented: $appState.showingKeyboardShortcuts) {
             KeyboardShortcutsView()
@@ -91,6 +96,16 @@ struct ContentView: View {
                 message: Text(context.message),
                 dismissButton: .default(Text("OK"))
             )
+        }
+    }
+
+    @ViewBuilder
+    private var workspaceDetail: some View {
+        if let document = appState.selectedDocument, let metrics = appState.selectedMetrics {
+            DocumentWorkspaceView(appState: appState, document: document, metrics: metrics)
+                .id(document.id)
+        } else {
+            EmptyWorkspaceView(appState: appState)
         }
     }
 }
@@ -592,15 +607,21 @@ private struct DocumentWorkspaceView: View {
         appState.gitBlame(for: document, lineNumber: currentLine)
     }
 
+    private var isFocusMode: Bool {
+        appState.settings.focusModeEnabled
+    }
+
     var body: some View {
         ZStack {
             RetroBackdropView()
 
             VStack(spacing: 0) {
-                DocumentTabStripView(appState: appState)
-                header
+                if !isFocusMode {
+                    DocumentTabStripView(appState: appState)
+                    header
+                }
 
-                if appState.settings.showsBreadcrumbs, !breadcrumbTrail.isEmpty {
+                if !isFocusMode, appState.settings.showsBreadcrumbs, !breadcrumbTrail.isEmpty {
                     RetroRule()
                     breadcrumbBar
                 }
@@ -661,18 +682,19 @@ private struct DocumentWorkspaceView: View {
                     }
                 }
 
-                if !currentLineDiagnostics.isEmpty || currentLineBlame != nil {
+                if !isFocusMode, !appState.settings.showsInspector, (!currentLineDiagnostics.isEmpty || currentLineBlame != nil) {
                     RetroRule()
                     editorInsightBar
                 }
 
                 workspaceArea
 
-                RetroRule()
-
-                StatusBarView(document: document, metrics: metrics, settings: appState.settings, pluginStatusItems: pluginStatusItems)
+                if !isFocusMode {
+                    RetroRule()
+                    StatusBarView(document: document, metrics: metrics, settings: appState.settings, pluginStatusItems: pluginStatusItems)
+                }
             }
-            .padding(10)
+            .padding(isFocusMode ? 0 : 10)
         }
         .background(backgroundColor)
         .task(id: lineDecorationRefreshKey) {
@@ -807,51 +829,164 @@ private struct DocumentWorkspaceView: View {
                     }
 
                     Menu {
-                        ForEach(DocumentLanguage.allCases) { language in
-                            Button(language.displayName) {
-                                appState.setLanguage(language)
+                        Button("New Document") {
+                            appState.newDocument()
+                        }
+
+                        Button("Open Files...") {
+                            appState.openDocument()
+                        }
+
+                        Button("Open Remote...") {
+                            appState.openRemotePanel()
+                        }
+
+                        Button("Clone Repository...") {
+                            appState.showCloneRepositoryPanel()
+                        }
+
+                        Divider()
+
+                        Button("Save") {
+                            appState.saveDocument()
+                        }
+                        .disabled(!appState.canSave)
+
+                        Button("Save As...") {
+                            appState.saveDocumentAs()
+                        }
+                        .disabled(document.isReadOnly)
+
+                        if appState.canPrivilegedSaveSelectedDocument {
+                            Button("Privileged Save") {
+                                appState.saveDocumentPrivileged()
                             }
                         }
                     } label: {
-                        headerControl(document.language.displayName, systemImage: document.language.symbolName)
+                        headerControl("File", systemImage: "doc.badge.gearshape")
                     }
                     .menuStyle(.borderlessButton)
 
                     Menu {
-                        ForEach(EditorTheme.allCases) { theme in
-                            Button(theme.displayName) {
-                                appState.setTheme(theme)
-                            }
-                        }
-                    } label: {
-                        headerControl(appState.settings.theme.displayName, systemImage: "paintpalette")
-                    }
-                    .menuStyle(.borderlessButton)
-
-                    Menu {
-                        ForEach(WorkspaceSecondaryPaneMode.allCases) { mode in
-                            Button(mode.displayName) {
-                                appState.setSecondaryPaneMode(mode)
-                            }
+                        Button(appState.settings.focusModeEnabled ? "Exit Focus Mode" : "Enter Focus Mode") {
+                            appState.toggleFocusMode()
                         }
 
-                        if appState.secondaryPaneMode == .secondDocument, !secondaryDocumentCandidates.isEmpty {
-                            Divider()
+                        Button("Appearance Preferences...") {
+                            appState.showAppearancePreferences()
+                        }
 
-                            ForEach(secondaryDocumentCandidates) { candidate in
-                                Button(candidate.displayName) {
-                                    appState.setSecondaryDocument(candidate.id)
+                        Divider()
+
+                        Menu("Retro Intensity") {
+                            ForEach(AppChromeStyle.allCases) { style in
+                                Button(style.displayName) {
+                                    appState.setChromeStyle(style)
                                 }
                             }
                         }
+
+                        Menu("Density") {
+                            ForEach(InterfaceDensity.allCases) { density in
+                                Button(density.displayName) {
+                                    appState.setInterfaceDensity(density)
+                                }
+                            }
+                        }
+
+                        Menu("Editor Theme") {
+                            ForEach(EditorTheme.allCases) { theme in
+                                Button(theme.displayName) {
+                                    appState.setTheme(theme)
+                                }
+                            }
+                        }
+
+                        Menu("Language") {
+                            ForEach(DocumentLanguage.allCases) { language in
+                                Button(language.displayName) {
+                                    appState.setLanguage(language)
+                                }
+                            }
+                        }
+
+                        Menu("Split Layout") {
+                            ForEach(WorkspaceSecondaryPaneMode.allCases) { mode in
+                                Button(mode.displayName) {
+                                    appState.setSecondaryPaneMode(mode)
+                                }
+                            }
+
+                            if appState.secondaryPaneMode == .secondDocument, !secondaryDocumentCandidates.isEmpty {
+                                Divider()
+
+                                ForEach(secondaryDocumentCandidates) { candidate in
+                                    Button(candidate.displayName) {
+                                        appState.setSecondaryDocument(candidate.id)
+                                    }
+                                }
+                            }
+                        }
+
+                        Divider()
+
+                        Button(appState.settings.showsInspector ? "Hide Inspector" : "Show Inspector") {
+                            appState.toggleInspectorPanel()
+                        }
+
+                        Button(appState.settings.showsOutline ? "Hide Outline in Inspector" : "Show Outline in Inspector") {
+                            appState.toggleOutlinePanel()
+                        }
+
+                        Button(appState.settings.showsBreadcrumbs ? "Hide Breadcrumbs" : "Show Breadcrumbs") {
+                            appState.toggleBreadcrumbs()
+                        }
                     } label: {
-                        headerControl(splitControlTitle, systemImage: "rectangle.split.2x1")
+                        headerControl("View", systemImage: "rectangle.3.group")
                     }
                     .menuStyle(.borderlessButton)
 
                     Menu {
+                        Button("Find / Replace") {
+                            appState.showFindReplace()
+                        }
+
+                        Button("Search in Folder") {
+                            appState.showProjectSearch()
+                        }
+
+                        Button("Go to Line") {
+                            appState.showGoToLine()
+                        }
+
+                        Button("Command Palette") {
+                            appState.showingCommandPalette = true
+                        }
+
+                        Divider()
+
                         Button("Workspace Center") {
                             appState.showWorkspacePlatformPanel()
+                        }
+
+                        Button("Git Workbench") {
+                            appState.showGitWorkbenchPanel()
+                        }
+
+                        Button("AI Workbench") {
+                            appState.showAIWorkbenchPanel()
+                        }
+
+                        Button("Task Runner") {
+                            appState.showTaskRunnerPanel()
+                        }
+
+                        Button("Embedded Terminal") {
+                            appState.showTerminalConsolePanel()
+                        }
+
+                        Button("Keyboard Shortcuts") {
+                            appState.showingKeyboardShortcuts = true
                         }
 
                         Divider()
@@ -879,10 +1014,10 @@ private struct DocumentWorkspaceView: View {
                             }
                             .disabled(document.fileURL == nil)
 
-                            Divider()
-
                             Button("Git branch: \(gitRepositorySummary.branchName)") {}
                                 .disabled(true)
+
+                            Divider()
                         }
 
                         Menu("Encoding") {
@@ -906,38 +1041,10 @@ private struct DocumentWorkspaceView: View {
                         }
                         .disabled(!appState.canSave)
 
-                        Divider()
-
-                        Button(appState.settings.showsOutline ? "Hide Outline" : "Show Outline") {
-                            appState.toggleOutlinePanel()
-                        }
-
-                        Button(appState.settings.showsBreadcrumbs ? "Hide Breadcrumbs" : "Show Breadcrumbs") {
-                            appState.toggleBreadcrumbs()
-                        }
-
-                        Divider()
-
                         Button("Compare with Saved") {
                             appState.showCompareAgainstSaved()
                         }
                         .disabled(!appState.canCompareSelectedDocument)
-
-                        Button("Workspace Sessions") {
-                            appState.showWorkspaceSessionsPanel()
-                        }
-
-                        Button("Keyboard Shortcuts") {
-                            appState.showingKeyboardShortcuts = true
-                        }
-
-                        Divider()
-
-                        if let structuredPresentationMode = document.availableStructuredPresentationMode {
-                            Button(document.presentationMode == structuredPresentationMode ? "Show Raw Text" : "Show \(structuredPresentationMode.displayName)") {
-                                toggleStructuredPresentation(structuredPresentationMode)
-                            }
-                        }
 
                         Button(document.followModeEnabled ? "Disable Follow Mode" : "Enable Follow Mode") {
                             appState.toggleFollowMode()
@@ -948,23 +1055,10 @@ private struct DocumentWorkspaceView: View {
                             appState.openSelectedDocumentInTerminal()
                         }
                         .disabled(document.fileURL == nil && appState.projectSearchState.rootURL == nil)
-
-                        if appState.canPrivilegedSaveSelectedDocument {
-                            Button("Privileged Save") {
-                                appState.saveDocumentPrivileged()
-                            }
-                        }
                     } label: {
-                        headerControl("Document", systemImage: "slider.horizontal.3")
+                        headerControl("Tools", systemImage: "wrench.and.screwdriver")
                     }
                     .menuStyle(.borderlessButton)
-
-                    Button {
-                        appState.showGoToLine()
-                    } label: {
-                        headerControl("Go to Line", systemImage: "text.line.first.and.arrowtriangle.forward")
-                    }
-                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 1)
             }
@@ -1040,11 +1134,14 @@ private struct DocumentWorkspaceView: View {
             primaryWorkspaceArea
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            if appState.settings.showsOutline {
-                OutlinePanelView(
+            if !isFocusMode, appState.settings.showsInspector {
+                InspectorPanelView(
                     document: document,
                     currentLine: currentLine,
                     theme: appState.settings.theme,
+                    diagnostics: currentLineDiagnostics,
+                    blame: currentLineBlame,
+                    showsOutline: appState.settings.showsOutline,
                     onSelectLine: { lineNumber in
                         appState.goToLine(lineNumber, in: document.id)
                     }

@@ -69,7 +69,12 @@ final class AppState: ObservableObject {
         case restrictWorkspace
         case toggleWrapLines
         case toggleOutline
+        case toggleInspector
         case toggleBreadcrumbs
+        case toggleFocusMode
+        case showAppearancePreferences
+        case setChromeStyle(AppChromeStyle)
+        case setInterfaceDensity(InterfaceDensity)
         case setSplitMode(WorkspaceSecondaryPaneMode)
         case saveWorkspaceSession
         case showWorkspaceSessions
@@ -110,6 +115,7 @@ final class AppState: ObservableObject {
     @Published var showingAIWorkbench = false
     @Published var showingWorkspacePlatform = false
     @Published var showingWorkspaceSessions = false
+    @Published var showingAppearancePreferences = false
     @Published var showingKeyboardShortcuts = false
     @Published var showingPluginManager = false
     @Published var showingSnippetLibrary = false
@@ -799,9 +805,36 @@ final class AppState: ObservableObject {
         AppSettingsStore.save(settings)
     }
 
+    func toggleInspectorPanel() {
+        settings.showsInspector.toggle()
+        AppSettingsStore.save(settings)
+    }
+
     func toggleBreadcrumbs() {
         settings.showsBreadcrumbs.toggle()
         AppSettingsStore.save(settings)
+    }
+
+    func toggleFocusMode() {
+        settings.focusModeEnabled.toggle()
+        if settings.focusModeEnabled {
+            settings.showsInspector = false
+        }
+        AppSettingsStore.save(settings)
+    }
+
+    func setChromeStyle(_ style: AppChromeStyle) {
+        settings.chromeStyle = style
+        AppSettingsStore.save(settings)
+    }
+
+    func setInterfaceDensity(_ density: InterfaceDensity) {
+        settings.interfaceDensity = density
+        AppSettingsStore.save(settings)
+    }
+
+    func showAppearancePreferences() {
+        showingAppearancePreferences = true
     }
 
     func showWorkspacePlatformPanel() {
@@ -2850,6 +2883,7 @@ final class AppState: ObservableObject {
             PaletteItem(id: "openWorkspace", title: "Open Workspace File", subtitle: "Load a multi-root ForgeText workspace file", symbolName: "square.3.layers.3d.down.left", action: .openWorkspaceFile),
             PaletteItem(id: "saveWorkspace", title: "Save Workspace File", subtitle: "Persist the current roots and profile into a workspace file", symbolName: "square.3.layers.3d.top.filled", action: .saveWorkspaceFile),
             PaletteItem(id: "workspaceCenter", title: "Workspace Center", subtitle: "Manage workspace roots, trust, profiles, and sync", symbolName: "square.3.layers.3d", action: .showWorkspacePlatform),
+            PaletteItem(id: "appearancePreferences", title: "Appearance Preferences", subtitle: "Tune Retro Pro, density, focus mode, and inspector settings", symbolName: "paintbrush.pointed", action: .showAppearancePreferences),
             PaletteItem(id: "cloneRepository", title: "Clone Repository", subtitle: "Clone a GitHub or Git repository and open it as a workspace", symbolName: "square.and.arrow.down.on.square", action: .cloneRepository),
             PaletteItem(id: "openRemote", title: "Open Remote File", subtitle: "Open a document over SSH", symbolName: "network", action: .openRemote),
             PaletteItem(id: "gitWorkbench", title: "Git Workbench", subtitle: "Commit, push, pull, stash, and inspect repository changes", symbolName: "point.topleft.down.curvedto.point.bottomright.up", action: .showGitWorkbench),
@@ -2894,7 +2928,9 @@ final class AppState: ObservableObject {
             PaletteItem(id: "restrictWorkspace", title: "Restrict Workspace", subtitle: "Disable risky workspace execution paths until trusted again", symbolName: "lock.shield", action: .restrictWorkspace),
             PaletteItem(id: "wrap", title: settings.wrapLines ? "Disable Line Wrap" : "Enable Line Wrap", subtitle: "Toggle soft wrapping in the editor", symbolName: "paragraphformat", action: .toggleWrapLines),
             PaletteItem(id: "outline", title: settings.showsOutline ? "Hide Outline" : "Show Outline", subtitle: "Toggle the document outline rail", symbolName: "list.bullet.indent", action: .toggleOutline),
+            PaletteItem(id: "inspector", title: settings.showsInspector ? "Hide Inspector" : "Show Inspector", subtitle: "Toggle the right-side inspector drawer", symbolName: "sidebar.trailing", action: .toggleInspector),
             PaletteItem(id: "breadcrumbs", title: settings.showsBreadcrumbs ? "Hide Breadcrumbs" : "Show Breadcrumbs", subtitle: "Toggle the workspace breadcrumb trail", symbolName: "chevron.left.slash.chevron.right", action: .toggleBreadcrumbs),
+            PaletteItem(id: "focusMode", title: settings.focusModeEnabled ? "Exit Focus Mode" : "Enter Focus Mode", subtitle: "Hide surrounding chrome for quieter editing", symbolName: "viewfinder", action: .toggleFocusMode),
             PaletteItem(id: "splitAlt", title: "Split: Raw + Structured", subtitle: "Show the current document in both raw and structured forms", symbolName: "rectangle.split.2x1", action: .setSplitMode(.alternatePresentation)),
             PaletteItem(id: "splitDoc", title: "Split: Second Document", subtitle: "Edit another open document side by side", symbolName: "rectangle.split.2x1.fill", action: .setSplitMode(.secondDocument)),
             PaletteItem(id: "splitOff", title: "Split: Single Pane", subtitle: "Return to the single-editor layout", symbolName: "rectangle", action: .setSplitMode(.off)),
@@ -2911,6 +2947,26 @@ final class AppState: ObservableObject {
                 subtitle: "Apply the \($0.displayName) editor theme",
                 symbolName: "paintpalette",
                 action: .setTheme($0)
+            )
+        }
+
+        items += AppChromeStyle.allCases.map {
+            PaletteItem(
+                id: "chrome-\($0.rawValue)",
+                title: "Appearance: \($0.displayName)",
+                subtitle: $0.summary,
+                symbolName: "paintbrush.pointed",
+                action: .setChromeStyle($0)
+            )
+        }
+
+        items += InterfaceDensity.allCases.map {
+            PaletteItem(
+                id: "density-\($0.rawValue)",
+                title: "Density: \($0.displayName)",
+                subtitle: "Use the \($0.displayName.lowercased()) interface density",
+                symbolName: "rectangle.compress.vertical",
+                action: .setInterfaceDensity($0)
             )
         }
 
@@ -3198,8 +3254,18 @@ final class AppState: ObservableObject {
             toggleWrapLines()
         case .toggleOutline:
             toggleOutlinePanel()
+        case .toggleInspector:
+            toggleInspectorPanel()
         case .toggleBreadcrumbs:
             toggleBreadcrumbs()
+        case .toggleFocusMode:
+            toggleFocusMode()
+        case .showAppearancePreferences:
+            showAppearancePreferences()
+        case let .setChromeStyle(style):
+            setChromeStyle(style)
+        case let .setInterfaceDensity(density):
+            setInterfaceDensity(density)
         case let .setSplitMode(mode):
             setSecondaryPaneMode(mode)
         case .saveWorkspaceSession:

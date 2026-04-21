@@ -1,5 +1,54 @@
 import AppKit
 
+enum AppChromeStyle: String, CaseIterable, Identifiable, Codable {
+    case retroClassic
+    case retroPro
+    case minimalPro
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .retroClassic:
+            return "Retro Classic"
+        case .retroPro:
+            return "Retro Pro"
+        case .minimalPro:
+            return "Minimal Pro"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .retroClassic:
+            return "More colorful, high-energy portal-era chrome."
+        case .retroPro:
+            return "A calmer daily-driver take on the late-90s style."
+        case .minimalPro:
+            return "The quietest shell with just a hint of retro structure."
+        }
+    }
+}
+
+enum InterfaceDensity: String, CaseIterable, Identifiable, Codable {
+    case comfortable
+    case compact
+    case dense
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .comfortable:
+            return "Comfortable"
+        case .compact:
+            return "Compact"
+        case .dense:
+            return "Dense"
+        }
+    }
+}
+
 enum EditorTheme: String, CaseIterable, Identifiable, Codable {
     case forge
     case blueprint
@@ -164,10 +213,14 @@ enum EditorTheme: String, CaseIterable, Identifiable, Codable {
 
 struct AppSettings: Codable {
     var theme: EditorTheme = .forge
+    var chromeStyle: AppChromeStyle = .retroPro
+    var interfaceDensity: InterfaceDensity = .compact
+    var focusModeEnabled = false
     var wrapLines = false
     var autosaveToDisk = true
     var fontSize: Double = 14
     var showsOutline = true
+    var showsInspector = true
     var showsBreadcrumbs = true
     var savedLogFilters: [SavedLogFilter] = []
     var enabledPluginIDs: [String] = []
@@ -186,10 +239,14 @@ struct AppSettings: Codable {
 
     private enum CodingKeys: String, CodingKey {
         case theme
+        case chromeStyle
+        case interfaceDensity
+        case focusModeEnabled
         case wrapLines
         case autosaveToDisk
         case fontSize
         case showsOutline
+        case showsInspector
         case showsBreadcrumbs
         case savedLogFilters
         case enabledPluginIDs
@@ -208,10 +265,14 @@ struct AppSettings: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         theme = try container.decodeIfPresent(EditorTheme.self, forKey: .theme) ?? .forge
+        chromeStyle = try container.decodeIfPresent(AppChromeStyle.self, forKey: .chromeStyle) ?? .retroPro
+        interfaceDensity = try container.decodeIfPresent(InterfaceDensity.self, forKey: .interfaceDensity) ?? .compact
+        focusModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .focusModeEnabled) ?? false
         wrapLines = try container.decodeIfPresent(Bool.self, forKey: .wrapLines) ?? false
         autosaveToDisk = try container.decodeIfPresent(Bool.self, forKey: .autosaveToDisk) ?? true
         fontSize = try container.decodeIfPresent(Double.self, forKey: .fontSize) ?? 14
         showsOutline = try container.decodeIfPresent(Bool.self, forKey: .showsOutline) ?? true
+        showsInspector = try container.decodeIfPresent(Bool.self, forKey: .showsInspector) ?? true
         showsBreadcrumbs = try container.decodeIfPresent(Bool.self, forKey: .showsBreadcrumbs) ?? true
         savedLogFilters = try container.decodeIfPresent([SavedLogFilter].self, forKey: .savedLogFilters) ?? []
         enabledPluginIDs = try container.decodeIfPresent([String].self, forKey: .enabledPluginIDs) ?? PluginHostService.defaultEnabledPluginIDs

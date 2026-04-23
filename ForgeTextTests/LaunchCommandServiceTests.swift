@@ -32,4 +32,11 @@ final class LaunchCommandServiceTests: XCTestCase {
         XCTAssertEqual(plan.lineTarget?.lineNumber, 42)
         XCTAssertEqual(plan.fileURLs.map(\.path), [fileURL.standardizedFileURL.path])
     }
+
+    func testRemoteFileReferenceRejectsOptionLikeSSHConnections() {
+        XCTAssertNotNil(RemoteFileReference.parse("deploy@example.com:/var/log/syslog"))
+        XCTAssertNil(RemoteFileReference.parse("-oProxyCommand=touch /tmp/pwn:/etc/passwd"))
+        XCTAssertNil(RemoteFileReference.parse("deploy user@example.com:/etc/passwd"))
+        XCTAssertNil(RemoteFileReference.parse("../example.com:/etc/passwd"))
+    }
 }

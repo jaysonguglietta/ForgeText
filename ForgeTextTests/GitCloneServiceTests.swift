@@ -47,4 +47,22 @@ final class GitCloneServiceTests: XCTestCase {
             }
         }
     }
+
+    func testCloneRepositoryRejectsOptionLikeRepositorySpecifiersBeforeRunningGit() {
+        let destinationParentURL = FileManager.default.temporaryDirectory
+
+        XCTAssertThrowsError(
+            try GitCloneService.cloneRepository(
+                repositorySpecifier: "-c core.sshCommand=/tmp/pwn",
+                destinationParentURL: destinationParentURL,
+                directoryName: "ForgeText",
+                branchName: "",
+                usesShallowClone: false
+            )
+        ) { error in
+            guard case GitCloneService.GitCloneError.invalidRepositorySpecifier = error else {
+                return XCTFail("Expected invalid repository specifier error, got \(error)")
+            }
+        }
+    }
 }

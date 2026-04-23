@@ -21,6 +21,22 @@ final class PluginInfrastructureTests: XCTestCase {
         XCTAssertEqual(settings.enabledPluginIDs, PluginHostService.defaultEnabledPluginIDs)
     }
 
+    func testAIProviderEncodingOmitsAPIKey() throws {
+        let provider = AIProviderConfiguration(
+            name: "Example",
+            kind: .openAI,
+            baseURLString: "https://api.example.com",
+            model: "example-model",
+            apiKey: "sk-test-secret"
+        )
+
+        let data = try JSONEncoder().encode(provider)
+        let json = String(data: data, encoding: .utf8) ?? ""
+
+        XCTAssertFalse(json.contains("apiKey"))
+        XCTAssertFalse(json.contains("sk-test-secret"))
+    }
+
     func testSnippetCatalogFiltersByLanguage() {
         var settings = AppSettings()
         settings.enabledPluginIDs = PluginHostService.defaultEnabledPluginIDs

@@ -198,11 +198,26 @@ struct RemoteFileReference: Identifiable, Codable, Hashable {
         let connection = String(trimmed[..<separatorIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
         let path = String(trimmed[trimmed.index(after: separatorIndex)...]).trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard !connection.isEmpty, !path.isEmpty else {
+        guard isValidConnection(connection), !path.isEmpty else {
             return nil
         }
 
         return RemoteFileReference(connection: connection, path: path)
+    }
+
+    static func isValidConnection(_ connection: String) -> Bool {
+        let trimmed = connection.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed == connection,
+              !trimmed.hasPrefix("-")
+        else {
+            return false
+        }
+
+        let unsafeCharacters = CharacterSet.whitespacesAndNewlines
+            .union(.controlCharacters)
+            .union(CharacterSet(charactersIn: ":/\\"))
+        return trimmed.rangeOfCharacter(from: unsafeCharacters) == nil
     }
 }
 

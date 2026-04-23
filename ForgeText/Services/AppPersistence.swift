@@ -7,6 +7,7 @@ enum AppSettingsStore {
     static func load() -> AppSettings {
         if let data = portableData(named: filename),
            let settings = try? JSONDecoder().decode(AppSettings.self, from: data) {
+            migratePlaintextAPIKeysIfNeeded(from: data, settings: settings)
             return settings
         }
 
@@ -17,10 +18,12 @@ enum AppSettingsStore {
             return AppSettings()
         }
 
+        migratePlaintextAPIKeysIfNeeded(from: data, settings: settings)
         return settings
     }
 
     static func save(_ settings: AppSettings) {
+        AIProviderKeychainStore.persistKeys(for: settings.aiProviders)
         guard let data = try? JSONEncoder().encode(settings) else {
             return
         }
@@ -30,6 +33,7 @@ enum AppSettingsStore {
     }
 
     static func export(_ settings: AppSettings, to url: URL) throws {
+        AIProviderKeychainStore.persistKeys(for: settings.aiProviders)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(settings)
@@ -47,6 +51,14 @@ enum AppSettingsStore {
 
     private static func writePortableData(_ data: Data, named filename: String) {
         try? data.write(to: StoragePathService.dataFileURL(named: filename), options: .atomic)
+    }
+
+    private static func migratePlaintextAPIKeysIfNeeded(from data: Data, settings: AppSettings) {
+        guard String(data: data, encoding: .utf8)?.contains(#""apiKey""#) == true else {
+            return
+        }
+
+        save(settings)
     }
 }
 

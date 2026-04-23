@@ -5,12 +5,16 @@ final class LineNumberRulerView: NSRulerView {
     private weak var textView: NSTextView?
     var theme: EditorTheme {
         didSet {
-            needsDisplay = true
+            if oldValue != theme {
+                needsDisplay = true
+            }
         }
     }
     var lineDecorations: [EditorLineDecoration] = [] {
         didSet {
-            needsDisplay = true
+            if oldValue != lineDecorations {
+                needsDisplay = true
+            }
         }
     }
 
@@ -84,13 +88,6 @@ final class LineNumberRulerView: NSRulerView {
             object: textView
         )
 
-        center.addObserver(
-            self,
-            selector: #selector(handleSelectionDidChange),
-            name: NSTextView.didChangeSelectionNotification,
-            object: textView
-        )
-
         if let clipView = textView.enclosingScrollView?.contentView {
             clipView.postsBoundsChangedNotifications = true
             center.addObserver(
@@ -104,10 +101,6 @@ final class LineNumberRulerView: NSRulerView {
 
     @objc private func handleTextDidChange(_ notification: Notification) {
         invalidateRuleThickness()
-        needsDisplay = true
-    }
-
-    @objc private func handleSelectionDidChange(_ notification: Notification) {
         needsDisplay = true
     }
 

@@ -5,6 +5,11 @@ enum RemoteAgentService {
     private static let version = "1.0.0"
 
     static func status(connection: String) -> RemoteAgentStatus {
+        let originalConnection = connection
+        guard let connection = validatedConnection(connection) else {
+            return .unavailable(connection: originalConnection, installPath: installPath, error: RemoteFileService.RemoteError.invalidConnection.localizedDescription)
+        }
+
         let command = """
         if [ -x \(installPath) ]; then \(installPath) --version; else exit 12; fi
         """
@@ -26,6 +31,10 @@ enum RemoteAgentService {
     }
 
     static func install(on connection: String) throws -> RemoteAgentStatus {
+        guard let connection = validatedConnection(connection) else {
+            throw RemoteFileService.RemoteError.invalidConnection
+        }
+
         let script = remoteAgentScript()
         let escapedScript = script
             .replacingOccurrences(of: "\\", with: "\\\\")
@@ -49,6 +58,10 @@ enum RemoteAgentService {
     }
 
     static func search(connection: String, rootPath: String, query: String) throws -> [RemoteSearchHit] {
+        guard let connection = validatedConnection(connection) else {
+            throw RemoteFileService.RemoteError.invalidConnection
+        }
+
         let output = try CommandExecutionService.runString(
             "/usr/bin/ssh",
             arguments: [connection, "\(installPath) search \(CommandExecutionService.shellQuote(rootPath)) \(CommandExecutionService.shellQuote(query))"]
@@ -66,6 +79,10 @@ enum RemoteAgentService {
     }
 
     static func run(connection: String, command: String) throws -> CommandExecutionService.CommandResult {
+        guard let connection = validatedConnection(connection) else {
+            throw RemoteFileService.RemoteError.invalidConnection
+        }
+
         let output = try CommandExecutionService.runString(
             "/usr/bin/ssh",
             arguments: [connection, "\(installPath) run \(CommandExecutionService.shellQuote(command))"]
@@ -85,10 +102,19 @@ enum RemoteAgentService {
     }
 
     static func readFile(connection: String, path: String) throws -> String {
-        try CommandExecutionService.runString(
+        guard let connection = validatedConnection(connection) else {
+            throw RemoteFileService.RemoteError.invalidConnection
+        }
+
+        return try CommandExecutionService.runString(
             "/usr/bin/ssh",
             arguments: [connection, "\(installPath) read \(CommandExecutionService.shellQuote(path))"]
         )
+    }
+
+    private static func validatedConnection(_ connection: String) -> String? {
+        let trimmed = connection.trimmingCharacters(in: .whitespacesAndNewlines)
+        return RemoteFileReference.isValidConnection(trimmed) ? trimmed : nil
     }
 
     private static func remoteAgentScript() -> String {

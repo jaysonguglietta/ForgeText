@@ -96,4 +96,12 @@ final class PluginRegistryServiceTests: XCTestCase {
 
         XCTAssertThrowsError(try PluginRegistryService.install(entry))
     }
+
+    func testRegistrySourceValidationAllowsOnlyLocalFilesAndHTTPS() {
+        XCTAssertTrue(PluginRegistryService.isRegistrySourceAllowed("/tmp/registry.json"))
+        XCTAssertTrue(PluginRegistryService.isRegistrySourceAllowed("file:///tmp/registry.json"))
+        XCTAssertTrue(PluginRegistryService.isRegistrySourceAllowed("https://example.com/registry.json"))
+        XCTAssertFalse(PluginRegistryService.isRegistrySourceAllowed("http://example.com/registry.json"))
+        XCTAssertFalse(PluginRegistryService.isRegistrySourceAllowed("ftp://example.com/registry.json"))
+    }
 }

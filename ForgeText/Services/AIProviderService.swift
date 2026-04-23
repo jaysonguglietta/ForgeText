@@ -5,6 +5,7 @@ enum AIProviderService {
         case providerUnavailable
         case missingAPIKey(String)
         case invalidBaseURL(String)
+        case insecureBaseURL(String)
         case emptyResponse
 
         var errorDescription: String? {
@@ -15,6 +16,8 @@ enum AIProviderService {
                 return "Add an API key for \(name) before sending requests."
             case let .invalidBaseURL(urlString):
                 return "ForgeText couldn’t build a provider URL from \(urlString)."
+            case let .insecureBaseURL(urlString):
+                return "ForgeText blocked the AI provider URL \(urlString) because remote AI providers must use HTTPS. Localhost model servers can still use HTTP."
             case .emptyResponse:
                 return "The AI provider returned an empty response."
             }
@@ -105,9 +108,7 @@ enum AIProviderService {
         guard !provider.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || provider.kind == .ollama else {
             throw AIProviderError.missingAPIKey(provider.name)
         }
-        guard let baseURL = URL(string: provider.baseURLString) else {
-            throw AIProviderError.invalidBaseURL(provider.baseURLString)
-        }
+        let baseURL = try validatedBaseURL(for: provider)
 
         let url = baseURL.appendingPathComponent("v1/chat/completions")
         var request = URLRequest(url: url)
@@ -147,9 +148,7 @@ enum AIProviderService {
         guard !provider.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AIProviderError.missingAPIKey(provider.name)
         }
-        guard let baseURL = URL(string: provider.baseURLString) else {
-            throw AIProviderError.invalidBaseURL(provider.baseURLString)
-        }
+        let baseURL = try validatedBaseURL(for: provider)
 
         let url = baseURL.appendingPathComponent("v1/messages")
         var request = URLRequest(url: url)
@@ -202,12 +201,9 @@ enum AIProviderService {
         guard !provider.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AIProviderError.missingAPIKey(provider.name)
         }
-        guard let baseURL = URL(string: provider.baseURLString) else {
-            throw AIProviderError.invalidBaseURL(provider.baseURLString)
-        }
+        let baseURL = try validatedBaseURL(for: provider)
 
-        let endpoint = "v1beta/models/\(provider.model):generateContent?key=\(provider.apiKey)"
-        let url = baseURL.appendingPathComponent(endpoint)
+        let url = try geminiURL(baseURL: baseURL, provider: provider)
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -255,9 +251,7 @@ enum AIProviderService {
         sessionMessages: [AIChatMessage],
         provider: AIProviderConfiguration
     ) async throws -> String {
-        guard let baseURL = URL(string: provider.baseURLString) else {
-            throw AIProviderError.invalidBaseURL(provider.baseURLString)
-        }
+        let baseURL = try validatedBaseURL(for: provider)
 
         let url = baseURL.appendingPathComponent("api/chat")
         var request = URLRequest(url: url)
@@ -295,6 +289,53 @@ enum AIProviderService {
         }
 
         throw AIProviderError.emptyResponse
+    }
+
+    private static func validatedBaseURL(for provider: AIProviderConfiguration) throws -> URL {
+        guard let baseURL = URL(string: provider.baseURLString),
+              let scheme = baseURL.scheme?.lowercased(),
+              let host = baseURL.host?.lowercased(),
+              !host.isEmpty
+        else {
+            throw AIProviderError.invalidBaseURL(provider.baseURLString)
+        }
+
+        if scheme == "https" {
+            return baseURL
+        }
+
+        guard scheme == "http",
+              allowsLocalHTTP(for: provider.kind, host: host)
+        else {
+            throw AIProviderError.insecureBaseURL(provider.baseURLString)
+        }
+
+        return baseURL
+    }
+
+    private static func allowsLocalHTTP(for kind: AIProviderKind, host: String) -> Bool {
+        guard kind == .ollama || kind == .openAICompatible else {
+            return false
+        }
+
+        return host == "localhost"
+            || host == "127.0.0.1"
+            || host == "::1"
+            || host.hasSuffix(".localhost")
+    }
+
+    private static func geminiURL(baseURL: URL, provider: AIProviderConfiguration) throws -> URL {
+        let endpointURL = baseURL.appendingPathComponent("v1beta/models/\(provider.model):generateContent")
+        guard var components = URLComponents(url: endpointURL, resolvingAgainstBaseURL: false) else {
+            throw AIProviderError.invalidBaseURL(provider.baseURLString)
+        }
+
+        components.queryItems = [URLQueryItem(name: "key", value: provider.apiKey)]
+        guard let url = components.url else {
+            throw AIProviderError.invalidBaseURL(provider.baseURLString)
+        }
+
+        return url
     }
 
     private static func openAIStyleMessages(prompt: PreparedPrompt, sessionMessages: [AIChatMessage]) -> [[String: String]] {

@@ -4,7 +4,9 @@ import SwiftUI
 private final class EditorScroller: NSScroller {
     var theme: EditorTheme = .forge {
         didSet {
-            needsDisplay = true
+            if oldValue != theme {
+                needsDisplay = true
+            }
         }
     }
 
@@ -183,7 +185,18 @@ struct EditorContainerView: NSViewRepresentable {
         textView.documentLanguage = language
         textView.completionSourceURL = sourceURL
         textView.isEditable = isEditable
-        configureLayout(for: textView, in: scrollView)
+        let layoutState = Coordinator.LayoutState(
+            theme: theme,
+            wrapLines: wrapLines,
+            fontSize: fontSize,
+            isEditable: isEditable,
+            visibleWidth: Int(fallbackVisibleSize(for: scrollView).width.rounded()),
+            visibleHeight: Int(fallbackVisibleSize(for: scrollView).height.rounded())
+        )
+        if context.coordinator.lastLayoutState != layoutState {
+            configureLayout(for: textView, in: scrollView)
+            context.coordinator.lastLayoutState = layoutState
+        }
         (scrollView.verticalScroller as? EditorScroller)?.theme = theme
         (scrollView.horizontalScroller as? EditorScroller)?.theme = theme
         context.coordinator.rulerView?.theme = theme
@@ -213,8 +226,6 @@ struct EditorContainerView: NSViewRepresentable {
             usesRegularExpression: findState.usesRegularExpression,
             currentMatchIndex: findState.currentMatchIndex,
             matchCount: findState.matchRanges.count,
-            selectedLocation: clampedRange.location,
-            selectedLength: clampedRange.length,
             largeFileMode: largeFileMode,
             lineDecorations: lineDecorations
         )
@@ -317,16 +328,24 @@ struct EditorContainerView: NSViewRepresentable {
             let usesRegularExpression: Bool
             let currentMatchIndex: Int?
             let matchCount: Int
-            let selectedLocation: Int
-            let selectedLength: Int
             let largeFileMode: Bool
             let lineDecorations: [EditorLineDecoration]
+        }
+
+        struct LayoutState: Equatable {
+            let theme: EditorTheme
+            let wrapLines: Bool
+            let fontSize: CGFloat
+            let isEditable: Bool
+            let visibleWidth: Int
+            let visibleHeight: Int
         }
 
         var parent: EditorContainerView
         weak var textView: EditorTextView?
         weak var rulerView: LineNumberRulerView?
         var isSyncingFromSwiftUI = false
+        var lastLayoutState: LayoutState?
         var lastRenderState: RenderState?
         var lastFocusRequestToken: UUID?
 
@@ -352,6 +371,7 @@ struct EditorContainerView: NSViewRepresentable {
                 largeFileMode: parent.largeFileMode,
                 lineDecorations: parent.lineDecorations
             )
+            lastRenderState = renderState()
             parent.configureLayout(for: textView, in: textView.enclosingScrollView ?? NSScrollView())
 
             DispatchQueue.main.async { [weak self] in
@@ -377,6 +397,22 @@ struct EditorContainerView: NSViewRepresentable {
 
                 self.parent.selectedRange = updatedSelection
             }
+        }
+
+        func renderState() -> RenderState {
+            RenderState(
+                theme: parent.theme,
+                language: parent.language,
+                wrapLines: parent.wrapLines,
+                fontSize: parent.fontSize,
+                query: parent.findState.query,
+                isCaseSensitive: parent.findState.isCaseSensitive,
+                usesRegularExpression: parent.findState.usesRegularExpression,
+                currentMatchIndex: parent.findState.currentMatchIndex,
+                matchCount: parent.findState.matchRanges.count,
+                largeFileMode: parent.largeFileMode,
+                lineDecorations: parent.lineDecorations
+            )
         }
     }
 }

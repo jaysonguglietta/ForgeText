@@ -3,6 +3,7 @@ import Foundation
 enum GitCloneService {
     enum GitCloneError: LocalizedError {
         case missingRepositorySpecifier
+        case invalidRepositorySpecifier
         case missingDestinationParent
         case invalidDirectoryName
         case gitUnavailable
@@ -12,6 +13,8 @@ enum GitCloneService {
             switch self {
             case .missingRepositorySpecifier:
                 return "Enter a GitHub or Git repository URL before cloning."
+            case .invalidRepositorySpecifier:
+                return "Enter a safe Git repository URL. Repository specs can’t start with '-' or contain control characters."
             case .missingDestinationParent:
                 return "Choose a local parent folder for the cloned repository."
             case .invalidDirectoryName:
@@ -76,6 +79,9 @@ enum GitCloneService {
         guard !repositorySpecifier.isEmpty else {
             throw GitCloneError.missingRepositorySpecifier
         }
+        guard isValidRepositorySpecifier(repositorySpecifier) else {
+            throw GitCloneError.invalidRepositorySpecifier
+        }
 
         let parentURL = destinationParentURL.standardizedFileURL
         guard FileManager.default.fileExists(atPath: parentURL.path) else {
@@ -104,7 +110,7 @@ enum GitCloneService {
             arguments += ["--branch", trimmedBranchName, "--single-branch"]
         }
 
-        arguments += [repositorySpecifier, destinationURL.path]
+        arguments += ["--", repositorySpecifier, destinationURL.path]
         _ = try CommandExecutionService.runString(gitPath, arguments: arguments)
 
         return destinationURL
@@ -121,5 +127,10 @@ enum GitCloneService {
         }
 
         return trimmed
+    }
+
+    private static func isValidRepositorySpecifier(_ repositorySpecifier: String) -> Bool {
+        !repositorySpecifier.hasPrefix("-")
+            && repositorySpecifier.rangeOfCharacter(from: .controlCharacters) == nil
     }
 }

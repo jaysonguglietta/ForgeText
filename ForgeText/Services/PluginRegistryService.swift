@@ -50,20 +50,41 @@ enum PluginRegistryService {
         try FileManager.default.removeItem(at: sourceURL)
     }
 
-    private static func loadRegistryEntries(from source: String) async -> [PluginRegistryEntry] {
+    static func isRegistrySourceAllowed(_ source: String) -> Bool {
         let trimmedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedSource.isEmpty else {
+            return false
+        }
+
+        guard let url = URL(string: trimmedSource),
+              let scheme = url.scheme?.lowercased(),
+              !scheme.isEmpty
+        else {
+            return true
+        }
+
+        return scheme == "https" || scheme == "file"
+    }
+
+    private static func loadRegistryEntries(from source: String) async -> [PluginRegistryEntry] {
+        let trimmedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isRegistrySourceAllowed(trimmedSource) else {
             return []
         }
 
         let sourceURL: URL
-        if trimmedSource.hasPrefix("http://") || trimmedSource.hasPrefix("https://") {
-            guard let url = URL(string: trimmedSource) else {
+        let isRemoteRegistry: Bool
+        if let parsedURL = URL(string: trimmedSource),
+           let scheme = parsedURL.scheme?.lowercased(),
+           !scheme.isEmpty {
+            guard scheme == "https" || scheme == "file" else {
                 return []
             }
-            sourceURL = url
+            sourceURL = parsedURL
+            isRemoteRegistry = scheme == "https"
         } else {
             sourceURL = URL(fileURLWithPath: trimmedSource)
+            isRemoteRegistry = false
         }
 
         let data: Data?
@@ -74,7 +95,7 @@ enum PluginRegistryService {
             let responseData = try? await URLSession.shared.data(for: request)
             if let (_, response) = responseData,
                let httpResponse = response as? HTTPURLResponse,
-               !(200 ..< 300).contains(httpResponse.statusCode)
+               (!(200 ..< 300).contains(httpResponse.statusCode) || httpResponse.url?.scheme?.lowercased() != "https")
             {
                 data = nil
             } else {
@@ -88,7 +109,14 @@ enum PluginRegistryService {
             return []
         }
 
-        return file.entries
+        guard isRemoteRegistry else {
+            return file.entries
+        }
+
+        // Remote registries are unauthenticated, so never allow them to install executable tasks.
+        return file.entries.filter { entry in
+            entry.tasks.isEmpty && !entry.capabilities.contains(.tasks)
+        }
     }
 
     private static func manifestURL(for installFileName: String) throws -> URL {

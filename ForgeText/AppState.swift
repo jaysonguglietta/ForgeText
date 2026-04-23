@@ -15,6 +15,18 @@ final class AppState: ObservableObject {
         let message: String
     }
 
+    private struct CompletionActivation {
+        let textHash: Int
+        let selectionLocation: Int
+        let selectionLength: Int
+
+        func matches(text: String, selectedRange: NSRange) -> Bool {
+            textHash == text.hashValue
+                && selectionLocation == selectedRange.location
+                && selectionLength == selectedRange.length
+        }
+    }
+
     enum PaletteAction {
         case newDocument
         case openDocuments
@@ -199,6 +211,8 @@ final class AppState: ObservableObject {
     private var gitLineDecorationTasks: [UUID: Task<Void, Never>] = [:]
     private var gitBlameTasks: [String: Task<Void, Never>] = [:]
     private var pluginRegistryRefreshTask: Task<Void, Never>?
+    private var pendingCompletionActivationDocumentIDs = Set<UUID>()
+    private var completionActivationsByDocumentID: [UUID: CompletionActivation] = [:]
     private var fileMonitorTimer: Timer?
     private var untitledCounter = 1
     private let hadUncleanShutdown: Bool
@@ -1548,6 +1562,7 @@ final class AppState: ObservableObject {
     }
 
     func updateDocumentText(_ text: String, for id: UUID) {
+        var didChangeText = false
         updateDocument(id: id) { document in
             guard !document.isReadOnly else {
                 return
@@ -1562,8 +1577,15 @@ final class AppState: ObservableObject {
             document.syncDirtyState()
             document.statusMessage = document.isDirty ? "Unsaved changes" : "Saved"
             recomputeFindState(for: &document)
+            didChangeText = true
         }
 
+        guard didChangeText else {
+            return
+        }
+
+        pendingCompletionActivationDocumentIDs.insert(id)
+        completionActivationsByDocumentID[id] = nil
         invalidateGitInsightState(for: id, clearLineDecorations: true)
         scheduleAutosave()
         refreshDocumentDiagnostics(for: id)
@@ -1578,16 +1600,37 @@ final class AppState: ObservableObject {
     }
 
     func updateDocumentSelection(_ selectedRange: NSRange, for id: UUID) {
+        var didChangeSelection = false
+        var updatedText = ""
+        var updatedSelection = selectedRange
+
         updateDocument(id: id) { document in
             guard document.selectedRange != selectedRange else {
                 return
             }
 
             document.selectedRange = selectedRange
+            updatedText = document.text
+            updatedSelection = document.selectedRange
+            didChangeSelection = true
 
             if let selectedMatchIndex = document.findState.matchRanges.firstIndex(where: { $0 == selectedRange }) {
                 document.findState.currentMatchIndex = selectedMatchIndex
             }
+        }
+
+        guard didChangeSelection else {
+            return
+        }
+
+        if pendingCompletionActivationDocumentIDs.remove(id) != nil, updatedSelection.length == 0 {
+            completionActivationsByDocumentID[id] = CompletionActivation(
+                textHash: updatedText.hashValue,
+                selectionLocation: updatedSelection.location,
+                selectionLength: updatedSelection.length
+            )
+        } else {
+            completionActivationsByDocumentID[id] = nil
         }
     }
 
@@ -1606,7 +1649,13 @@ final class AppState: ObservableObject {
     }
 
     func completionSession(for document: EditorDocument) -> EditorCompletionSession? {
-        EditorCompletionService.session(
+        guard document.selectedRange.length == 0,
+              completionActivationsByDocumentID[document.id]?.matches(text: document.text, selectedRange: document.selectedRange) == true
+        else {
+            return nil
+        }
+
+        return EditorCompletionService.session(
             in: document.text,
             selectedRange: document.selectedRange,
             language: document.language,
@@ -2467,6 +2516,10 @@ final class AppState: ObservableObject {
     }
 
     func sendAIPrompt(_ promptOverride: String? = nil, quickAction: AIQuickAction? = nil) {
+        guard ensureTrustedWorkspace(for: "AI requests") else {
+            return
+        }
+
         ensureAIProviderSelection()
         ensureAISession()
 

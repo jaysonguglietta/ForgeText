@@ -267,12 +267,13 @@ Notes:
 - `project.yml`: XcodeGen project definition.
 - `ForgeText/`: application source.
 - `ForgeTextTests/`: unit tests.
-- `Scripts/`: helper scripts for icons, local release builds, DMG packaging, the `forgetext` CLI launcher, and utility tasks.
-- `docs/`: help, roadmap, update, and UI planning docs.
+- `Scripts/`: helper scripts for icons, icon candidates, local release builds, DMG packaging, the `forgetext` CLI launcher, and utility tasks.
+- `docs/`: help, roadmap, icon candidate previews, update, and UI planning docs.
 
 ## Product Docs
 
 - [ForgeText Help](docs/HELP.md): feature guide and common workflows.
+- [Icon Candidates](docs/icon-candidates/README.md): alternate 1990s-inspired app icon previews and install instructions.
 - [Roadmap](docs/ROADMAP.md): shipped scope and future priorities.
 - [UI Workbench Plan](docs/UI_WORKBENCH_PLAN.md): retro UI direction and workbench principles.
 - [Updates](docs/UPDATES.md): GitHub Pages and Sparkle update setup.

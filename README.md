@@ -6,7 +6,7 @@ The app uses `NSTextView` under SwiftUI for mature macOS editing behavior. The s
 
 ## Current Version
 
-- Current app bundle version: `1.1 (2)`
+- Current app bundle version: `1.2 (3)`
 - Last public tag in this repository: `V1.0.1`
 - Local install path after `--install`: `/Applications/ForgeText.app`
 
@@ -244,13 +244,13 @@ Build a GitHub Release-ready DMG:
 That writes a versioned DMG to:
 
 ```text
-dist/ForgeText-1.1-2.dmg
+dist/ForgeText-1.2-3.dmg
 ```
 
 Recommended distribution flow:
 
 1. Build the DMG with `./Scripts/build_release_dmg.sh`.
-2. Create a GitHub Release such as `V1.1`.
+2. Create a GitHub Release such as `V1.2`.
 3. Upload the DMG as a release asset.
 4. Generate or update the Sparkle appcast.
 5. Push `docs/appcast.xml` so GitHub Pages serves the feed.

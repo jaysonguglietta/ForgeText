@@ -6,16 +6,25 @@ The app uses `NSTextView` under SwiftUI for mature macOS editing behavior. The s
 
 ## Current Version
 
-- Current app bundle version: `1.2 (3)`
-- Last public tag in this repository: `V1.0.1`
+- Current app bundle version: `1.2.1 (4)`
+- Latest tagged release in this repository: `V1.0.1` (tagging is manual and may lag behind the current bundle version)
 - Local install path after `--install`: `/Applications/ForgeText.app`
 
-ForgeText 1.1 adds the new productivity layer: Quick Open, workspace indexing, command palette modes, Activity Center, AI Context Center, GitHub Workflow, Release Readiness, Performance HUD, Theme Lab, First-Run Setup, and diagnostic bundle export.
+ForgeText 1.2.1 keeps the native retro workbench intact while tightening the trust model: restricted workspaces now block external workspace plugins and unsafe tasks, sync bundles transfer safe preferences only, sensitive local state is protected at rest, Gemini keys stay out of URLs, and large gzip files fall back to bounded previews instead of full-memory expansion.
+
+## What's New In 1.2.1
+
+1. Restricted mode now blocks external workspace plugins and executable workspace tasks by default.
+2. Workspace trust is tied to resolved/bookmarked locations so retargeted symlinks no longer inherit trust silently.
+3. Sync bundle import/export now keeps trusted workspaces, plugin registries, workspace sessions, and AI chat history local.
+4. Recovery snapshots, session state, and AI conversations now use protected local persistence.
+5. Gemini API keys are no longer placed in request URLs.
+6. Gzip handling now uses bounded decompression and safer preview fallback for oversized content.
 
 ## Highlights
 
 - Native multi-document editing with tabs, sidebar navigation, split panes, line numbers, undo, status metrics, and raw text editing.
-- Safe file handling with encoding, BOM, line-ending preservation, crash recovery, autosave recovery, session restore, and external-change detection.
+- Safe file handling with encoding, BOM, line-ending preservation, crash recovery, autosave recovery, session restore, external-change detection, and protected local persistence for sensitive state.
 - File-aware structured views for CSV/delimited files, JSON, logs, HTTP request files, config formats, archives, large-file previews, and binary hex fallback.
 - Developer workbench features: workspace explorer, project search, Quick Open, command palette, embedded terminal, task runner, problems panel, test explorer, Git workbench, and plugin manager.
 - Workspace indexing for fast file and symbol navigation, TODO/FIXME discovery, and lightweight warning counts.
@@ -25,7 +34,7 @@ ForgeText 1.1 adds the new productivity layer: Quick Open, workspace indexing, c
 
 ## ForgeText 1.1 Productivity Layer
 
-The 1.1 workbench adds a control-center layer for larger developer workflows:
+The 1.1 workbench introduced the control-center layer for larger developer workflows:
 
 1. Quick Open for indexed workspace files and symbols.
 2. Command Palette 2.0 with `> commands`, `@ files`, and `# symbols` search modes.
@@ -95,11 +104,11 @@ Command palette prefixes:
 
 - Workspace Center for managing active roots, trust mode, saved profiles, sync bundles, and registry sources.
 - Multi-root workspaces with `.forgetext-workspace` files, active-root switching, and session restore.
-- Workspace Trust / Restricted Mode so tasks, AI actions, remote commands, and external plugins can be gated in safer folders.
+- Workspace Trust / Restricted Mode so tasks, AI actions, remote commands, and external plugins can be gated in safer folders, with external workspace plugins and tasks blocked by default in restricted mode.
 - Workspace explorer with favorites and filtering.
 - Workspace index for Quick Open, symbol search, TODO counts, and warning counts.
 - Portable mode through a sibling `ForgeTextData` directory or `FORGETEXT_PORTABLE_DATA_DIR`.
-- Sync bundle export/import for settings, workspace sessions, and AI sessions.
+- Sync bundle export/import for safe preferences while keeping trust decisions, plugin registries, workspace sessions, and AI chats local.
 
 ### IDE And Plugin Features
 
@@ -125,7 +134,7 @@ Command palette prefixes:
 - Provider-neutral AI profiles for OpenAI, Anthropic, Gemini, Ollama, and OpenAI-compatible endpoints.
 - Workspace rule ingestion from `.forgetext/rules.md`, `.forgetext/ai-rules.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `CODEX.md`, `.github/copilot-instructions.md`, and `.cursorrules`.
 - Reusable prompt files from `.forgetext/prompts/*.md`, `.txt`, or `.prompt`.
-- Chat sessions with reusable prompts, provider/model switching, and response history.
+- Chat sessions with reusable prompts, provider/model switching, response history, and local-only persistence for sensitive conversation state.
 - Quick AI actions for explain, improve, generate tests, summarize file, and draft commit message.
 - Insert-at-cursor and replace-selection flows from the latest AI response.
 
@@ -244,13 +253,13 @@ Build a GitHub Release-ready DMG:
 That writes a versioned DMG to:
 
 ```text
-dist/ForgeText-1.2-3.dmg
+dist/ForgeText-1.2.1-4.dmg
 ```
 
 Recommended distribution flow:
 
 1. Build the DMG with `./Scripts/build_release_dmg.sh`.
-2. Create a GitHub Release such as `V1.2`.
+2. Create a GitHub Release such as `V1.2.1`.
 3. Upload the DMG as a release asset.
 4. Generate or update the Sparkle appcast.
 5. Push `docs/appcast.xml` so GitHub Pages serves the feed.

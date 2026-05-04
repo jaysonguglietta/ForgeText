@@ -175,6 +175,18 @@ struct WorkspaceDescriptor: Hashable {
     var selectedProfileID: UUID?
 }
 
+struct TrustedWorkspaceRecord: Codable, Hashable {
+    var displayPath: String
+    var resolvedPath: String
+    var bookmarkData: Data?
+
+    init(displayPath: String, resolvedPath: String, bookmarkData: Data? = nil) {
+        self.displayPath = displayPath
+        self.resolvedPath = resolvedPath
+        self.bookmarkData = bookmarkData
+    }
+}
+
 struct PluginRegistryConfiguration: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String

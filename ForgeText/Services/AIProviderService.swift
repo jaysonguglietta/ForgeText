@@ -207,6 +207,7 @@ enum AIProviderService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(provider.apiKey, forHTTPHeaderField: "x-goog-api-key")
 
         let parts = geminiParts(prompt: prompt, sessionMessages: sessionMessages)
         let body: [String: Any] = [
@@ -324,14 +325,9 @@ enum AIProviderService {
             || host.hasSuffix(".localhost")
     }
 
-    private static func geminiURL(baseURL: URL, provider: AIProviderConfiguration) throws -> URL {
+    static func geminiURL(baseURL: URL, provider: AIProviderConfiguration) throws -> URL {
         let endpointURL = baseURL.appendingPathComponent("v1beta/models/\(provider.model):generateContent")
-        guard var components = URLComponents(url: endpointURL, resolvingAgainstBaseURL: false) else {
-            throw AIProviderError.invalidBaseURL(provider.baseURLString)
-        }
-
-        components.queryItems = [URLQueryItem(name: "key", value: provider.apiKey)]
-        guard let url = components.url else {
+        guard let url = URLComponents(url: endpointURL, resolvingAgainstBaseURL: false)?.url else {
             throw AIProviderError.invalidBaseURL(provider.baseURLString)
         }
 

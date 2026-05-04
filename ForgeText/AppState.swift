@@ -1360,7 +1360,7 @@ final class AppState: ObservableObject {
                         aiSessions: self.aiWorkbenchState.sessions,
                         to: url
                     )
-                    self.workspacePlatformState.lastStatusMessage = "Exported sync bundle"
+                    self.workspacePlatformState.lastStatusMessage = "Exported safe sync bundle"
                 } catch {
                     self.present(error: error, title: "Couldn’t Export Sync Bundle")
                 }
@@ -1383,16 +1383,21 @@ final class AppState: ObservableObject {
                 guard let self else { return }
                 do {
                     let bundle = try WorkspacePlatformService.importSyncBundle(from: url)
-                    self.settings = bundle.appSettings
-                    self.workspaceSessions = bundle.workspaceSessions
-                    self.aiWorkbenchState.sessions = bundle.aiSessions.sorted { $0.updatedAt > $1.updatedAt }
-                    self.aiWorkbenchState.selectedSessionID = self.aiWorkbenchState.sessions.first?.id
+                    let currentSessions = self.workspaceSessions
+                    let currentAISessions = self.aiWorkbenchState.sessions
+                    self.settings = WorkspacePlatformService.mergedImportedSettings(
+                        bundle.appSettings,
+                        preservingSecuritySensitiveValuesFrom: self.settings
+                    )
+                    self.workspaceSessions = currentSessions
+                    self.aiWorkbenchState.sessions = currentAISessions
+                    self.aiWorkbenchState.selectedSessionID = currentAISessions.first?.id
                     AppSettingsStore.save(self.settings)
                     WorkspaceSessionStore.save(self.workspaceSessions)
                     AIConversationStore.save(self.aiWorkbenchState.sessions)
                     self.refreshPluginWorkspaceState()
                     self.refreshPluginRegistry()
-                    self.workspacePlatformState.lastStatusMessage = "Imported sync bundle"
+                    self.workspacePlatformState.lastStatusMessage = "Imported sync preferences. Trusted workspaces, plugin registries, sessions, and AI chats stayed local."
                 } catch {
                     self.present(error: error, title: "Couldn’t Import Sync Bundle")
                 }
@@ -3120,6 +3125,9 @@ final class AppState: ObservableObject {
 
             do {
                 try AppSettingsStore.export(self?.settings ?? AppSettings(), to: url)
+                Task { @MainActor in
+                    self?.workspacePlatformState.lastStatusMessage = "Exported safe settings file"
+                }
             } catch {
                 Task { @MainActor in
                     self?.present(error: error, title: "Couldn’t Export Settings")
@@ -3142,10 +3150,18 @@ final class AppState: ObservableObject {
             do {
                 let importedSettings = try AppSettingsStore.import(from: url)
                 Task { @MainActor in
-                    self?.settings = importedSettings
-                    AppSettingsStore.save(importedSettings)
-                    self?.refreshPluginWorkspaceState()
-                    self?.refreshPluginRegistry()
+                    guard let self else {
+                        return
+                    }
+                    let mergedSettings = WorkspacePlatformService.mergedImportedSettings(
+                        importedSettings,
+                        preservingSecuritySensitiveValuesFrom: self.settings
+                    )
+                    self.settings = mergedSettings
+                    AppSettingsStore.save(mergedSettings)
+                    self.refreshPluginWorkspaceState()
+                    self.refreshPluginRegistry()
+                    self.workspacePlatformState.lastStatusMessage = "Imported settings. Trusted workspaces and plugin registries stayed local."
                 }
             } catch {
                 Task { @MainActor in
@@ -3224,10 +3240,10 @@ final class AppState: ObservableObject {
             PaletteItem(id: "terminal", title: "Open in Terminal", subtitle: "Open the current file folder in Terminal", symbolName: "terminal", action: .openInTerminal),
             PaletteItem(id: "prettyJSON", title: "Pretty Print JSON", subtitle: "Format the current JSON document", symbolName: "curlybraces", action: .prettyPrintJSON),
             PaletteItem(id: "minifyJSON", title: "Minify JSON", subtitle: "Compress the current JSON document", symbolName: "curlybraces.square", action: .minifyJSON),
-            PaletteItem(id: "exportSettings", title: "Export Settings", subtitle: "Save ForgeText preferences to a file", symbolName: "square.and.arrow.up", action: .exportSettings),
-            PaletteItem(id: "importSettings", title: "Import Settings", subtitle: "Load ForgeText preferences from a file", symbolName: "square.and.arrow.down", action: .importSettings),
-            PaletteItem(id: "exportSync", title: "Export Sync Bundle", subtitle: "Export settings, sessions, and AI chats together", symbolName: "externaldrive.badge.plus", action: .exportSyncBundle),
-            PaletteItem(id: "importSync", title: "Import Sync Bundle", subtitle: "Import settings, sessions, and AI chats together", symbolName: "externaldrive.badge.checkmark", action: .importSyncBundle),
+            PaletteItem(id: "exportSettings", title: "Export Settings", subtitle: "Save a safe ForgeText preferences file", symbolName: "square.and.arrow.up", action: .exportSettings),
+            PaletteItem(id: "importSettings", title: "Import Settings", subtitle: "Load preferences without replacing trust or registry state", symbolName: "square.and.arrow.down", action: .importSettings),
+            PaletteItem(id: "exportSync", title: "Export Sync Bundle", subtitle: "Export a safe cross-machine preferences bundle", symbolName: "externaldrive.badge.plus", action: .exportSyncBundle),
+            PaletteItem(id: "importSync", title: "Import Sync Bundle", subtitle: "Import preferences without replacing trust or chat history", symbolName: "externaldrive.badge.checkmark", action: .importSyncBundle),
             PaletteItem(id: "trustWorkspace", title: "Trust Workspace", subtitle: "Allow tasks, AI, remote commands, and plugins for this workspace", symbolName: "checkmark.shield", action: .trustWorkspace),
             PaletteItem(id: "restrictWorkspace", title: "Restrict Workspace", subtitle: "Disable risky workspace execution paths until trusted again", symbolName: "lock.shield", action: .restrictWorkspace),
             PaletteItem(id: "wrap", title: settings.wrapLines ? "Disable Line Wrap" : "Enable Line Wrap", subtitle: "Toggle soft wrapping in the editor", symbolName: "paragraphformat", action: .toggleWrapLines),
@@ -4411,8 +4427,10 @@ final class AppState: ObservableObject {
 
     private func refreshPluginWorkspaceState(showNoGitAlert: Bool = false) {
         pluginCatalog = PluginHostService.installedPlugins(workspaceRoots: workspaceRootURLs)
-        let externalPluginTasks = enabledPlugins.flatMap(\.tasks)
-        pluginTaskState.tasks = WorkspaceTaskService.detectTasks(rootURLs: workspaceRootURLs) + externalPluginTasks
+        let allowsTaskExecution = workspaceTrustMode == .trusted
+        let detectedTasks = allowsTaskExecution ? WorkspaceTaskService.detectTasks(rootURLs: workspaceRootURLs) : []
+        let externalPluginTasks = allowsTaskExecution ? enabledPlugins.flatMap(\.tasks) : []
+        pluginTaskState.tasks = detectedTasks + externalPluginTasks
 
         if let selectedTaskID = pluginTaskState.selectedTaskID,
            pluginTaskState.tasks.contains(where: { $0.id == selectedTaskID }) {

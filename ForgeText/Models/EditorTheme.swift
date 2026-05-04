@@ -228,6 +228,7 @@ struct AppSettings: Codable {
     var workspaceFavoritePaths: [String] = []
     var profiles: [WorkspaceProfile] = []
     var trustedWorkspacePaths: [String] = []
+    var trustedWorkspaces: [TrustedWorkspaceRecord] = []
     var pluginRegistries: [PluginRegistryConfiguration] = []
     var aiProviders: [AIProviderConfiguration] = AIProviderDefaults.profiles
     var preferredAIProviderID: UUID?
@@ -254,6 +255,7 @@ struct AppSettings: Codable {
         case workspaceFavoritePaths
         case profiles
         case trustedWorkspacePaths
+        case trustedWorkspaces
         case pluginRegistries
         case aiProviders
         case preferredAIProviderID
@@ -280,6 +282,16 @@ struct AppSettings: Codable {
         workspaceFavoritePaths = try container.decodeIfPresent([String].self, forKey: .workspaceFavoritePaths) ?? []
         profiles = try container.decodeIfPresent([WorkspaceProfile].self, forKey: .profiles) ?? []
         trustedWorkspacePaths = try container.decodeIfPresent([String].self, forKey: .trustedWorkspacePaths) ?? []
+        trustedWorkspaces = try container.decodeIfPresent([TrustedWorkspaceRecord].self, forKey: .trustedWorkspaces)
+            ?? trustedWorkspacePaths.map {
+                TrustedWorkspaceRecord(
+                    displayPath: $0,
+                    resolvedPath: URL(fileURLWithPath: $0, isDirectory: true)
+                        .resolvingSymlinksInPath()
+                        .standardizedFileURL
+                        .path
+                )
+            }
         pluginRegistries = try container.decodeIfPresent([PluginRegistryConfiguration].self, forKey: .pluginRegistries) ?? []
         aiProviders = try container.decodeIfPresent([AIProviderConfiguration].self, forKey: .aiProviders) ?? AIProviderDefaults.profiles
         preferredAIProviderID = try container.decodeIfPresent(UUID.self, forKey: .preferredAIProviderID)

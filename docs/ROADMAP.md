@@ -44,11 +44,23 @@ ForgeText 1.1 adds the productivity and production-readiness layer:
 - Theme Lab for retro chrome, density, editor theme, focus mode, and inspector controls.
 - Safe diagnostic bundle export for support without document contents or AI API keys.
 
+## Shipped In 1.2.1
+
+ForgeText 1.2.1 hardens the trust and local-data model:
+
+- Restricted workspaces now block external workspace plugins and executable workspace tasks by default.
+- Workspace trust is resolved against bookmarked/canonical locations so retargeted symlinks do not silently inherit trust.
+- Sync bundle transfer now keeps trusted workspaces, plugin registries, workspace sessions, and AI chat history local.
+- Recovery snapshots, session state, and AI conversations now use protected local persistence.
+- Gemini requests no longer place API keys in the URL.
+- Gzip handling now uses bounded decompression and safe preview fallback for oversized content.
+
 ## Current Strengths
 
 - ForgeText is now credible as a local developer text workbench, not just a raw text editor.
 - The app has broad support for system-engineer file types: logs, configs, CSV, JSON, HTTP, shell, SQL, and source code.
 - Git, AI, plugins, tasks, diagnostics, test output, and terminal output are all surfaced in native panels.
+- The workspace trust model is materially stronger than the original 1.0/1.1 behavior.
 - The retro UI has enough structure to be a real product direction rather than a novelty skin.
 
 ## Next Priorities

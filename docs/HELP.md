@@ -1,6 +1,6 @@
 # ForgeText Help
 
-This guide covers the main ForgeText 1.1 workflows and the new productivity panels.
+This guide covers the main ForgeText 1.2.1 workflows, including the productivity panels and the newer trust and data-protection guardrails.
 
 ## First Run
 
@@ -14,6 +14,25 @@ Open `Tools > First-Run Setup` when setting up a new Mac or workspace. It walks 
 - tuning the retro interface
 
 The checklist is safe to run repeatedly. It does not change files by itself unless you click into a tool and make a change.
+
+## Workspace Trust And Restricted Mode
+
+Open `Workspace > Workspace Center` to review trust for the active roots.
+
+Trust modes:
+
+- `Trusted`: tasks, AI actions, remote commands, and approved plugins are available.
+- `Restricted`: editing still works, but external workspace plugins, executable workspace tasks, AI sends, and remote command flows stay gated until you explicitly trust the workspace.
+
+ForgeText also treats sync bundles conservatively:
+
+- sync export/import transfers safe appearance and workflow preferences
+- trusted workspace decisions stay local
+- plugin registries stay local
+- workspace sessions stay local
+- AI chat history stays local
+
+Sensitive local editor state such as recovery snapshots and AI chat persistence uses protected local storage rather than plain exported settings.
 
 ## Navigation
 
@@ -140,6 +159,8 @@ Supported provider profiles:
 - Google Gemini
 - Ollama
 - OpenAI-compatible endpoints
+
+API keys stay local and are not included in settings transfer bundles.
 
 Quick actions:
 

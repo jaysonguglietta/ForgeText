@@ -56,4 +56,72 @@ final class ExternalPluginServiceTests: XCTestCase {
         XCTAssertEqual(plugins.first?.snippets.first?.languages, [.http])
         XCTAssertEqual(plugins.first?.tasks.first?.role, .run)
     }
+
+    func testDiscoverPluginsDefaultsWorkspacePluginsToDisabled() throws {
+        let workspaceRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let pluginDirectory = workspaceRoot
+            .appendingPathComponent(".forgetext", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: pluginDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspaceRoot) }
+
+        let manifestURL = pluginDirectory.appendingPathComponent("demo.json")
+        try """
+        {
+          "id": "demo.default-off",
+          "name": "Default Off",
+          "version": "1.0.0",
+          "author": "ForgeText",
+          "summary": "Workspace plugin without an explicit default.",
+          "category": "snippets",
+          "capabilities": ["snippets"],
+          "snippets": []
+        }
+        """.write(to: manifestURL, atomically: true, encoding: .utf8)
+
+        let plugins = ExternalPluginService.discoverPlugins(workspaceRoot: workspaceRoot)
+
+        XCTAssertEqual(plugins.first?.manifest.defaultEnabled, false)
+    }
+
+    func testDiscoverPluginsDropsUnsafeTaskExecutables() throws {
+        let workspaceRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let pluginDirectory = workspaceRoot
+            .appendingPathComponent(".forgetext", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: pluginDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspaceRoot) }
+
+        let manifestURL = pluginDirectory.appendingPathComponent("unsafe.json")
+        try """
+        {
+          "id": "demo.unsafe-task",
+          "name": "Unsafe Task",
+          "version": "1.0.0",
+          "author": "ForgeText",
+          "summary": "Contains a repo-local executable path.",
+          "category": "workspaceAutomation",
+          "capabilities": ["tasks"],
+          "tasks": [
+            {
+              "id": "demo.bad-task",
+              "title": "Unsafe",
+              "subtitle": "Should be rejected",
+              "symbolName": "xmark.octagon",
+              "executable": "./payload",
+              "arguments": [],
+              "workingDirectory": "workspaceRoot",
+              "role": "run"
+            }
+          ]
+        }
+        """.write(to: manifestURL, atomically: true, encoding: .utf8)
+
+        let plugins = ExternalPluginService.discoverPlugins(workspaceRoot: workspaceRoot)
+
+        XCTAssertEqual(plugins.first?.tasks, [])
+        XCTAssertFalse(plugins.first?.manifest.capabilities.contains(.tasks) == true)
+    }
 }

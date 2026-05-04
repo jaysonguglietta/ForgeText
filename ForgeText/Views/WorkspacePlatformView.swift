@@ -233,7 +233,7 @@ struct WorkspacePlatformView: View {
 
             HStack(spacing: 10) {
                 RetroCapsuleLabel(text: appState.isPortableModeEnabled ? "PORTABLE MODE" : "STANDARD MODE", accent: appState.isPortableModeEnabled ? RetroPalette.chromeCyan : RetroPalette.chromeBlue)
-                Text(appState.isPortableModeEnabled ? "State is being stored in the portable ForgeText data directory." : "State is being stored in Application Support and UserDefaults.")
+                Text(appState.isPortableModeEnabled ? "State is being stored in the portable ForgeText data directory." : "State is being stored in Application Support with protected local persistence for sensitive editor state.")
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(RetroPalette.link)
                     .fixedSize(horizontal: false, vertical: true)

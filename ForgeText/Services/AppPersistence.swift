@@ -5,60 +5,38 @@ enum AppSettingsStore {
     private static let filename = "settings.json"
 
     static func load() -> AppSettings {
-        if let data = portableData(named: filename),
-           let settings = try? JSONDecoder().decode(AppSettings.self, from: data) {
-            migratePlaintextAPIKeysIfNeeded(from: data, settings: settings)
-            return settings
-        }
-
-        guard
-            let data = UserDefaults.standard.data(forKey: defaultsKey),
-            let settings = try? JSONDecoder().decode(AppSettings.self, from: data)
-        else {
+        guard let settings = SensitiveDataStore.load(
+            AppSettings.self,
+            from: StoragePathService.dataFileURL(named: filename),
+            defaultsKey: defaultsKey
+        ) else {
             return AppSettings()
         }
 
-        migratePlaintextAPIKeysIfNeeded(from: data, settings: settings)
+        AIProviderKeychainStore.persistKeys(for: settings.aiProviders)
         return settings
     }
 
     static func save(_ settings: AppSettings) {
         AIProviderKeychainStore.persistKeys(for: settings.aiProviders)
-        guard let data = try? JSONEncoder().encode(settings) else {
-            return
-        }
-
-        writePortableData(data, named: filename)
-        UserDefaults.standard.set(data, forKey: defaultsKey)
+        SensitiveDataStore.save(
+            settings,
+            to: StoragePathService.dataFileURL(named: filename),
+            defaultsKey: defaultsKey
+        )
     }
 
     static func export(_ settings: AppSettings, to url: URL) throws {
         AIProviderKeychainStore.persistKeys(for: settings.aiProviders)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(settings)
+        let data = try encoder.encode(WorkspacePlatformService.sanitizedSettingsForTransfer(settings))
         try data.write(to: url, options: .atomic)
     }
 
     static func `import`(from url: URL) throws -> AppSettings {
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(AppSettings.self, from: data)
-    }
-
-    private static func portableData(named filename: String) -> Data? {
-        try? Data(contentsOf: StoragePathService.dataFileURL(named: filename))
-    }
-
-    private static func writePortableData(_ data: Data, named filename: String) {
-        try? data.write(to: StoragePathService.dataFileURL(named: filename), options: .atomic)
-    }
-
-    private static func migratePlaintextAPIKeysIfNeeded(from data: Data, settings: AppSettings) {
-        guard String(data: data, encoding: .utf8)?.contains(#""apiKey""#) == true else {
-            return
-        }
-
-        save(settings)
     }
 }
 
@@ -138,31 +116,27 @@ enum SessionStore {
     private static let filename = "session.json"
 
     static func load() -> StoredSession {
-        if let data = portableData(named: filename),
-           let session = try? JSONDecoder().decode(StoredSession.self, from: data) {
+        if let session = SensitiveDataStore.load(
+            StoredSession.self,
+            from: StoragePathService.dataFileURL(named: filename),
+            defaultsKey: defaultsKey
+        ) {
             return session
         }
 
-        guard
-            let data = UserDefaults.standard.data(forKey: defaultsKey),
-            let session = try? JSONDecoder().decode(StoredSession.self, from: data)
-        else {
-            return StoredSession(
-                openFilePaths: [],
-                openRemoteSpecs: [],
-                recentFilePaths: [],
-                recentRemoteSpecs: [],
-                selectedFilePath: nil,
-                selectedRemoteSpec: nil,
-                workspaceRootPath: nil,
-                workspaceRootPaths: [],
-                activeWorkspaceRootPath: nil,
-                workspaceFilePath: nil,
-                selectedProfileID: nil
-            )
-        }
-
-        return session
+        return StoredSession(
+            openFilePaths: [],
+            openRemoteSpecs: [],
+            recentFilePaths: [],
+            recentRemoteSpecs: [],
+            selectedFilePath: nil,
+            selectedRemoteSpec: nil,
+            workspaceRootPath: nil,
+            workspaceRootPaths: [],
+            activeWorkspaceRootPath: nil,
+            workspaceFilePath: nil,
+            selectedProfileID: nil
+        )
     }
 
     static func save(
@@ -192,20 +166,11 @@ enum SessionStore {
             selectedProfileID: selectedProfileID
         )
 
-        guard let data = try? JSONEncoder().encode(session) else {
-            return
-        }
-
-        writePortableData(data, named: filename)
-        UserDefaults.standard.set(data, forKey: defaultsKey)
-    }
-
-    private static func portableData(named filename: String) -> Data? {
-        try? Data(contentsOf: StoragePathService.dataFileURL(named: filename))
-    }
-
-    private static func writePortableData(_ data: Data, named filename: String) {
-        try? data.write(to: StoragePathService.dataFileURL(named: filename), options: .atomic)
+        SensitiveDataStore.save(
+            session,
+            to: StoragePathService.dataFileURL(named: filename),
+            defaultsKey: defaultsKey
+        )
     }
 }
 
@@ -236,17 +201,13 @@ enum RecoveryService {
 
     static func loadRecoveredDocuments() -> [EditorDocument] {
         let directory = recoveryDirectoryURL()
-        let decoder = JSONDecoder()
 
         guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
             return []
         }
 
         return files.compactMap { fileURL in
-            guard
-                let data = try? Data(contentsOf: fileURL),
-                let snapshot = try? decoder.decode(RecoverySnapshot.self, from: data)
-            else {
+            guard let snapshot = SensitiveDataStore.load(RecoverySnapshot.self, from: fileURL) else {
                 return nil
             }
 
@@ -303,16 +264,8 @@ enum RecoveryService {
             prefersStructuredPresentation: document.prefersStructuredPresentation
         )
 
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-
-        guard let data = try? encoder.encode(snapshot) else {
-            return
-        }
-
-        let url = snapshotURL(for: document.id)
         try? FileManager.default.createDirectory(at: recoveryDirectoryURL(), withIntermediateDirectories: true)
-        try? data.write(to: url, options: .atomic)
+        SensitiveDataStore.save(snapshot, to: snapshotURL(for: document.id))
     }
 
     static func deleteSnapshot(for id: UUID) {
@@ -339,15 +292,11 @@ enum WorkspaceSessionStore {
     private static let filename = "workspace-sessions.json"
 
     static func load() -> [WorkspaceSessionRecord] {
-        if let data = portableData(named: filename),
-           let sessions = try? JSONDecoder().decode([WorkspaceSessionRecord].self, from: data) {
-            return sessions.sorted { $0.savedAt > $1.savedAt }
-        }
-
-        guard
-            let data = UserDefaults.standard.data(forKey: defaultsKey),
-            let sessions = try? JSONDecoder().decode([WorkspaceSessionRecord].self, from: data)
-        else {
+        guard let sessions = SensitiveDataStore.load(
+            [WorkspaceSessionRecord].self,
+            from: StoragePathService.dataFileURL(named: filename),
+            defaultsKey: defaultsKey
+        ) else {
             return []
         }
 
@@ -355,20 +304,11 @@ enum WorkspaceSessionStore {
     }
 
     static func save(_ sessions: [WorkspaceSessionRecord]) {
-        guard let data = try? JSONEncoder().encode(sessions) else {
-            return
-        }
-
-        writePortableData(data, named: filename)
-        UserDefaults.standard.set(data, forKey: defaultsKey)
-    }
-
-    private static func portableData(named filename: String) -> Data? {
-        try? Data(contentsOf: StoragePathService.dataFileURL(named: filename))
-    }
-
-    private static func writePortableData(_ data: Data, named filename: String) {
-        try? data.write(to: StoragePathService.dataFileURL(named: filename), options: .atomic)
+        SensitiveDataStore.save(
+            sessions,
+            to: StoragePathService.dataFileURL(named: filename),
+            defaultsKey: defaultsKey
+        )
     }
 }
 
@@ -377,15 +317,11 @@ enum AIConversationStore {
     private static let filename = "ai-sessions.json"
 
     static func load() -> [AIChatSession] {
-        if let data = portableData(named: filename),
-           let sessions = try? JSONDecoder().decode([AIChatSession].self, from: data) {
-            return sessions.sorted { $0.updatedAt > $1.updatedAt }
-        }
-
-        guard
-            let data = UserDefaults.standard.data(forKey: defaultsKey),
-            let sessions = try? JSONDecoder().decode([AIChatSession].self, from: data)
-        else {
+        guard let sessions = SensitiveDataStore.load(
+            [AIChatSession].self,
+            from: StoragePathService.dataFileURL(named: filename),
+            defaultsKey: defaultsKey
+        ) else {
             return []
         }
 
@@ -393,20 +329,11 @@ enum AIConversationStore {
     }
 
     static func save(_ sessions: [AIChatSession]) {
-        guard let data = try? JSONEncoder().encode(sessions) else {
-            return
-        }
-
-        writePortableData(data, named: filename)
-        UserDefaults.standard.set(data, forKey: defaultsKey)
-    }
-
-    private static func portableData(named filename: String) -> Data? {
-        try? Data(contentsOf: StoragePathService.dataFileURL(named: filename))
-    }
-
-    private static func writePortableData(_ data: Data, named filename: String) {
-        try? data.write(to: StoragePathService.dataFileURL(named: filename), options: .atomic)
+        SensitiveDataStore.save(
+            sessions,
+            to: StoragePathService.dataFileURL(named: filename),
+            defaultsKey: defaultsKey
+        )
     }
 }
 

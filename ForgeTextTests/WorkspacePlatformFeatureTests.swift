@@ -50,6 +50,23 @@ final class WorkspacePlatformFeatureTests: XCTestCase {
         XCTAssertEqual(CompressedFileService.underlyingURL(forGzipURL: url).pathExtension, "txt")
     }
 
+    func testLargeGzipOpensAsReadOnlyPreview() throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).log.gz")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let largeText = String(repeating: "forge-log-line\n", count: 700_000)
+        let compressed = try CompressedFileService.compressGzip(Data(largeText.utf8))
+        try compressed.write(to: url)
+
+        let decoded = try TextFileCodec.open(from: url)
+
+        XCTAssertTrue(decoded.isReadOnly)
+        XCTAssertTrue(decoded.isPartialPreview)
+        XCTAssertEqual(decoded.presentationMode, .readOnlyPreview)
+        XCTAssertEqual(decoded.preferredLanguage, .log)
+        XCTAssertEqual(decoded.statusMessage, "Large gzip preview loaded read-only")
+    }
+
     func testRemoteFileReferenceParsesSSHLocation() {
         let reference = RemoteFileReference.parse("ops@example.com:/etc/nginx/nginx.conf")
 

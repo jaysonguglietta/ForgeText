@@ -104,6 +104,62 @@ final class PluginInfrastructureTests: XCTestCase {
         XCTAssertTrue(tasks.contains(where: { $0.title == "npm lint" }))
     }
 
+    func testRestrictedModeAllowsOnlyBuiltInNonTaskPlugins() throws {
+        let workspaceRoot = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let pluginDirectory = workspaceRoot
+            .appendingPathComponent(".forgetext", isDirectory: true)
+            .appendingPathComponent("plugins", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: pluginDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspaceRoot) }
+
+        let manifestURL = pluginDirectory.appendingPathComponent("demo.json")
+        try """
+        {
+          "id": "demo.workspace-tools",
+          "name": "Workspace Tools",
+          "version": "1.0.0",
+          "author": "ForgeText",
+          "summary": "External workspace plugin.",
+          "category": "workspaceAutomation",
+          "capabilities": ["tasks"],
+          "defaultEnabled": true,
+          "tasks": [
+            {
+              "id": "demo.task",
+              "title": "Task",
+              "subtitle": "Task",
+              "symbolName": "play",
+              "executable": "echo",
+              "arguments": ["hello"],
+              "workingDirectory": "workspaceRoot",
+              "role": "run"
+            }
+          ]
+        }
+        """.write(to: manifestURL, atomically: true, encoding: .utf8)
+
+        var settings = AppSettings()
+        settings.enabledPluginIDs = PluginHostService.defaultEnabledPluginIDs + ["demo.workspace-tools"]
+
+        let restrictedPlugins = PluginHostService.enabledPlugins(
+            using: settings,
+            workspaceRoots: [workspaceRoot],
+            trustMode: .restricted
+        )
+
+        XCTAssertTrue(restrictedPlugins.contains(where: { $0.id == "forge.language-tools" }))
+        XCTAssertFalse(restrictedPlugins.contains(where: { $0.id == "forge.workspace-tasks" }))
+        XCTAssertFalse(restrictedPlugins.contains(where: { $0.id == "demo.workspace-tools" }))
+    }
+
+    func testWorkspaceTaskValidationRejectsPathLikeExecutables() {
+        XCTAssertFalse(WorkspaceTaskService.isUserSuppliedExecutableAllowed("./payload"))
+        XCTAssertFalse(WorkspaceTaskService.isUserSuppliedExecutableAllowed("/bin/sh"))
+        XCTAssertFalse(WorkspaceTaskService.isUserSuppliedExecutableAllowed("-i"))
+        XCTAssertTrue(WorkspaceTaskService.isUserSuppliedExecutableAllowed("swift"))
+    }
+
     func testPluginFormatterPrettyPrintsJSON() throws {
         let document = EditorDocument(
             id: UUID(),

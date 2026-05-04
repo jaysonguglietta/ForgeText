@@ -83,6 +83,31 @@ enum ExternalPluginService {
             return nil
         }
 
+        let tasks = (manifestFile.tasks ?? []).compactMap { task -> EditorPluginTask? in
+            guard WorkspaceTaskService.isUserSuppliedExecutableAllowed(task.executable) else {
+                return nil
+            }
+
+            return EditorPluginTask(
+                id: task.id,
+                pluginID: manifestFile.id,
+                pluginName: manifestFile.name,
+                title: task.title,
+                subtitle: task.subtitle,
+                symbolName: task.symbolName,
+                executable: task.executable,
+                arguments: task.arguments,
+                workingDirectory: task.workingDirectory,
+                role: task.role,
+                rootPath: workspaceRoot?.path,
+                supportsCoverage: task.role == .test
+            )
+        }
+
+        let capabilities = manifestFile.capabilities.filter { capability in
+            capability != .tasks || !tasks.isEmpty
+        }
+
         let manifest = EditorPluginManifest(
             id: manifestFile.id,
             name: manifestFile.name,
@@ -90,10 +115,10 @@ enum ExternalPluginService {
             author: manifestFile.author,
             summary: manifestFile.summary,
             category: manifestFile.category,
-            capabilities: manifestFile.capabilities,
+            capabilities: capabilities,
             isBuiltIn: false,
             sourceDescription: url.path(percentEncoded: false),
-            defaultEnabled: manifestFile.defaultEnabled ?? true
+            defaultEnabled: manifestFile.defaultEnabled ?? false
         )
 
         let snippets = (manifestFile.snippets ?? []).map { snippet in
@@ -105,23 +130,6 @@ enum ExternalPluginService {
                 symbolName: snippet.symbolName,
                 languages: snippet.languages,
                 body: snippet.body
-            )
-        }
-
-        let tasks = (manifestFile.tasks ?? []).map { task in
-            EditorPluginTask(
-                id: task.id,
-                pluginID: manifest.id,
-                pluginName: manifest.name,
-                title: task.title,
-                subtitle: task.subtitle,
-                symbolName: task.symbolName,
-                executable: task.executable,
-                arguments: task.arguments,
-                workingDirectory: task.workingDirectory,
-                role: task.role,
-                rootPath: workspaceRoot?.path,
-                supportsCoverage: task.role == .test
             )
         }
 

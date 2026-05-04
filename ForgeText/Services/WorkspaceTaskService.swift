@@ -1,6 +1,17 @@
 import Foundation
 
 enum WorkspaceTaskService {
+    enum TaskValidationError: LocalizedError {
+        case unsafeExecutable(String)
+
+        var errorDescription: String? {
+            switch self {
+            case let .unsafeExecutable(executable):
+                return "ForgeText blocked the task executable '\(executable)' because external tasks must use a safe command name without path separators, options, or control characters."
+            }
+        }
+    }
+
     static func detectTasks(rootURL: URL?) -> [EditorPluginTask] {
         detectTasks(rootURLs: rootURL.map { [$0] } ?? [])
     }
@@ -36,6 +47,9 @@ enum WorkspaceTaskService {
         do {
             let workingDirectory = resolveWorkingDirectory(for: task, workspaceRoot: workspaceRoot, currentDocument: currentDocument)
             let execution = executionPlan(for: task, enableCoverage: enableCoverage)
+            guard isUserSuppliedExecutableAllowed(execution.executable) else {
+                throw TaskValidationError.unsafeExecutable(execution.executable)
+            }
             let result = try CommandExecutionService.execute(
                 "/usr/bin/env",
                 arguments: [execution.executable] + execution.arguments,
@@ -65,6 +79,24 @@ enum WorkspaceTaskService {
                 exitCode: nil
             )
         }
+    }
+
+    static func isUserSuppliedExecutableAllowed(_ executable: String) -> Bool {
+        let trimmed = executable.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              trimmed == executable,
+              trimmed != ".",
+              trimmed != "..",
+              !trimmed.hasPrefix("."),
+              !trimmed.hasPrefix("-"),
+              !trimmed.contains("/"),
+              !trimmed.contains("\\"),
+              trimmed.rangeOfCharacter(from: .controlCharacters) == nil
+        else {
+            return false
+        }
+
+        return true
     }
 
     private static func swiftPackageTasks(in rootURL: URL, multipleRoots: Bool) -> [EditorPluginTask] {

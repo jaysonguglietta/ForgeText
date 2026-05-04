@@ -29,7 +29,7 @@ That baseline is the visual system, not disposable placeholder styling.
 - Release, diagnostic, and performance surfaces should feel like production tools, not debug leftovers.
 - The retro look should support utility. Novelty belongs in the chrome while reading and editing stay legible.
 
-## New 1.1 Surfaces
+## Current Workbench Surfaces
 
 ### Quick Open
 

@@ -44,9 +44,16 @@ struct TextFileCodec {
         let statusMessage: String?
 
         if CompressedFileService.isGzipFile(url: url, data: rawData) {
-            data = try CompressedFileService.decompressGzip(at: url)
-            preferredLanguage = DocumentLanguage.detect(from: CompressedFileService.underlyingURL(forGzipURL: url))
-            statusMessage = "Opened gzip-compressed file"
+            let likelyLanguage = DocumentLanguage.detect(from: CompressedFileService.underlyingURL(forGzipURL: url))
+            preferredLanguage = likelyLanguage
+
+            do {
+                data = try CompressedFileService.decompressGzip(at: url, maximumSize: Int(largeFileThreshold))
+                statusMessage = "Opened gzip-compressed file"
+            } catch CompressedFileService.CompressionError.outputTooLarge {
+                let preview = try CompressedFileService.decompressGzipPreview(at: url, maxBytes: previewByteLimit)
+                return try gzipPreview(from: preview.data, likelyLanguage: likelyLanguage, statusMessage: "Large gzip preview loaded read-only")
+            }
         } else {
             data = rawData
             preferredLanguage = nil
@@ -103,27 +110,32 @@ struct TextFileCodec {
         }
 
         if CompressedFileService.isGzipFile(url: url) {
-            let decompressedData = try CompressedFileService.decompressGzip(at: url)
-            let fileSize = Int64(decompressedData.count)
             let likelyLanguage = DocumentLanguage.detect(from: CompressedFileService.underlyingURL(forGzipURL: url))
+            do {
+                let decompressedData = try CompressedFileService.decompressGzip(at: url, maximumSize: Int(largeFileThreshold))
+                let fileSize = Int64(decompressedData.count)
 
-            if isLikelyBinary(decompressedData) {
-                return binaryPreview(from: Data(decompressedData.prefix(previewByteLimit)), fileSize: fileSize, isPartialPreview: fileSize > Int64(previewByteLimit))
+                if isLikelyBinary(decompressedData) {
+                    return binaryPreview(from: Data(decompressedData.prefix(previewByteLimit)), fileSize: fileSize, isPartialPreview: fileSize > Int64(previewByteLimit))
+                }
+
+                let decoded = try decode(data: decompressedData)
+                return DecodedFile(
+                    text: decoded.text,
+                    encoding: decoded.encoding,
+                    includesByteOrderMark: decoded.includesByteOrderMark,
+                    lineEnding: LineEnding.detect(in: decoded.text),
+                    isReadOnly: false,
+                    isPartialPreview: false,
+                    fileSize: fileSize,
+                    presentationMode: .editor,
+                    preferredLanguage: likelyLanguage,
+                    statusMessage: "Opened gzip-compressed file"
+                )
+            } catch CompressedFileService.CompressionError.outputTooLarge {
+                let preview = try CompressedFileService.decompressGzipPreview(at: url, maxBytes: previewByteLimit)
+                return try gzipPreview(from: preview.data, likelyLanguage: likelyLanguage, statusMessage: "Large gzip preview loaded read-only")
             }
-
-            let decoded = try decode(data: decompressedData)
-            return DecodedFile(
-                text: decoded.text,
-                encoding: decoded.encoding,
-                includesByteOrderMark: decoded.includesByteOrderMark,
-                lineEnding: LineEnding.detect(in: decoded.text),
-                isReadOnly: false,
-                isPartialPreview: false,
-                fileSize: fileSize,
-                presentationMode: .editor,
-                preferredLanguage: likelyLanguage,
-                statusMessage: "Opened gzip-compressed file"
-            )
         }
 
         let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isSymbolicLinkKey])
@@ -376,6 +388,37 @@ struct TextFileCodec {
             presentationMode: .binaryHex,
             preferredLanguage: .plainText,
             statusMessage: "Binary file opened as hex preview"
+        )
+    }
+
+    private static func gzipPreview(from data: Data, likelyLanguage: DocumentLanguage?, statusMessage: String) throws -> DecodedFile {
+        if isLikelyBinary(data) {
+            return DecodedFile(
+                text: hexDump(from: data, truncated: true),
+                encoding: .utf8,
+                includesByteOrderMark: false,
+                lineEnding: .lf,
+                isReadOnly: true,
+                isPartialPreview: true,
+                fileSize: nil,
+                presentationMode: .binaryHex,
+                preferredLanguage: .plainText,
+                statusMessage: statusMessage
+            )
+        }
+
+        let decoded = try decode(data: data)
+        return DecodedFile(
+            text: decoded.text,
+            encoding: decoded.encoding,
+            includesByteOrderMark: decoded.includesByteOrderMark,
+            lineEnding: LineEnding.detect(in: decoded.text),
+            isReadOnly: true,
+            isPartialPreview: true,
+            fileSize: nil,
+            presentationMode: .readOnlyPreview,
+            preferredLanguage: likelyLanguage,
+            statusMessage: statusMessage
         )
     }
 

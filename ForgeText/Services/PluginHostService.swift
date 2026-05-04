@@ -35,7 +35,7 @@ enum PluginHostService {
             }
 
             if trustMode == .restricted {
-                return isAllowedInRestrictedMode(pluginID: plugin.id)
+                return isAllowedInRestrictedMode(plugin: plugin)
             }
 
             return true
@@ -86,8 +86,16 @@ enum PluginHostService {
         )
     }
 
+    static func isAllowedInRestrictedMode(plugin: EditorPlugin) -> Bool {
+        plugin.manifest.isBuiltIn && !plugin.manifest.capabilities.contains(.tasks)
+    }
+
     static func isAllowedInRestrictedMode(pluginID: String) -> Bool {
-        !pluginID.hasPrefix("forge.workspace-tasks") && !pluginID.hasPrefix("forge.workspace-tools")
+        guard let plugin = builtInPlugins.first(where: { $0.id == pluginID }) else {
+            return false
+        }
+
+        return isAllowedInRestrictedMode(plugin: plugin)
     }
 
     private static let languageToolsPlugin = EditorPlugin(

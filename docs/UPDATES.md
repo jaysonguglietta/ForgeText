@@ -4,7 +4,7 @@ ForgeText uses Sparkle for direct-download macOS updates and GitHub Releases for
 
 ## In-App Release Readiness
 
-ForgeText 1.1 includes `Tools > Release Readiness`.
+ForgeText includes `Tools > Release Readiness`.
 
 Use that panel before publishing a public build. It checks:
 
@@ -78,7 +78,7 @@ Local installs do not require a DMG, GitHub Release, appcast update, notarizatio
    ```
 
 2. Confirm `Tools > Release Readiness` has no blockers.
-3. Create a GitHub Release such as `V1.2`.
+3. Create a GitHub Release such as `V1.2.1`.
 4. Upload `dist/ForgeText-<version>-<build>.dmg` as a release asset.
 5. Put the DMG, and any historical release archives you want Sparkle to know about, in a local staging folder.
 6. Run Sparkle's `generate_appcast` against that folder.
@@ -102,6 +102,6 @@ Local installs do not require a DMG, GitHub Release, appcast update, notarizatio
 
 ## Diagnostic Support
 
-ForgeText 1.1 includes `Tools > Export Diagnostic Bundle...`.
+ForgeText includes `Tools > Export Diagnostic Bundle...`.
 
 Use this when troubleshooting release or updater issues. The bundle includes release-readiness state, app version, workspace paths, recent activity, and index summaries. It intentionally excludes document contents and AI API keys.

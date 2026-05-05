@@ -1,8 +1,28 @@
 import AppKit
 import Foundation
 
+@MainActor
 enum SyntaxHighlighter {
-    @MainActor
+    private static let regexCache = NSCache<NSString, NSRegularExpression>()
+    private static let reducedHighlightingCharacterThreshold = 120_000
+
+    private enum HighlightingMode {
+        case plain
+        case reduced
+        case full
+
+        var label: String {
+            switch self {
+            case .plain:
+                return "plain"
+            case .reduced:
+                return "reduced"
+            case .full:
+                return "full"
+            }
+        }
+    }
+
     static func apply(
         to textView: NSTextView,
         theme: EditorTheme,
@@ -18,16 +38,25 @@ enum SyntaxHighlighter {
 
         let palette = StylePalette(theme: theme, fontSize: fontSize)
         let text = textStorage.string
+        let textLength = (text as NSString).length
+        let preservedSelection = clamped(textView.selectedRange(), upperBound: textLength)
+        let highlightingMode = highlightingMode(for: text, largeFileMode: largeFileMode)
+        let startedAt = DispatchTime.now().uptimeNanoseconds
 
         textStorage.beginEditing()
-        textStorage.setAttributedString(NSAttributedString(string: text, attributes: palette.base))
+        textStorage.setAttributes(palette.base, range: NSRange(location: 0, length: textLength))
 
-        if !largeFileMode {
+        switch highlightingMode {
+        case .plain:
+            break
+        case .reduced:
+            applyReducedLanguageHighlighting(to: textStorage, text: text, language: language, palette: palette)
+        case .full:
             applyLanguageHighlighting(to: textStorage, text: text, language: language, palette: palette)
 
             for range in EditorBehavior.matchedBracketRanges(
                 in: text,
-                selectedRange: textView.selectedRange(),
+                selectedRange: preservedSelection,
                 language: language
             ) {
                 textStorage.addAttributes(palette.bracketMatch, range: range)
@@ -45,6 +74,7 @@ enum SyntaxHighlighter {
         applyLineDecorations(to: textStorage, text: text, palette: palette, decorations: lineDecorations)
 
         textStorage.endEditing()
+        let elapsedMS = Double(DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
 
         textView.font = palette.base[.font] as? NSFont
         textView.typingAttributes = palette.base
@@ -55,6 +85,23 @@ enum SyntaxHighlighter {
             .backgroundColor: theme.selectionColor,
             .foregroundColor: theme.textColor,
         ]
+
+        if textView.selectedRange() != preservedSelection {
+            textView.setSelectedRange(preservedSelection)
+        }
+
+        EditorPerformanceMonitor.shared.record(
+            .syntaxHighlighting,
+            durationMS: elapsedMS,
+            detail: "\(language.displayName) · \(highlightingMode.label)",
+            payload: "\(textLength) chars"
+        )
+    }
+
+    private static func clamped(_ range: NSRange, upperBound: Int) -> NSRange {
+        let location = min(max(range.location, 0), upperBound)
+        let length = min(max(range.length, 0), upperBound - location)
+        return NSRange(location: location, length: length)
     }
 
     private static func applyLanguageHighlighting(
@@ -148,6 +195,100 @@ enum SyntaxHighlighter {
         }
     }
 
+    private static func applyReducedLanguageHighlighting(
+        to textStorage: NSTextStorage,
+        text: String,
+        language: DocumentLanguage,
+        palette: StylePalette
+    ) {
+        applyPattern(#"https?://[^\s<>()]+"#, attributes: palette.link, to: textStorage, text: text)
+
+        switch language {
+        case .plainText:
+            applyPattern(#"\b(?:0x[0-9A-Fa-f]+|\d+(?:\.\d+)?)\b"#, attributes: palette.number, to: textStorage, text: text)
+        case .csv:
+            applyPattern(#""(?:[^"\\]|\\.)*""#, attributes: palette.string, to: textStorage, text: text)
+            applyPattern(#"\b(?:-?(?:0x[0-9A-Fa-f]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?))\b"#, attributes: palette.number, to: textStorage, text: text)
+        case .markdown:
+            applyPattern(#"(?m)^#{1,6}\s+.*$"#, attributes: palette.heading, to: textStorage, text: text)
+            applyPattern(#"`[^`\n]+`"#, attributes: palette.string, to: textStorage, text: text)
+            applyPattern(#"\[[^\]]+\]\([^)]+\)"#, attributes: palette.link, to: textStorage, text: text)
+            applyPattern(#"(?m)^>\s+.*$"#, attributes: palette.comment, to: textStorage, text: text)
+        case .json:
+            applyPattern(#""(?:[^"\\]|\\.)*""#, attributes: palette.string, to: textStorage, text: text)
+            applyPattern(#""(?:[^"\\]|\\.)*"\s*:"# , attributes: palette.property, to: textStorage, text: text)
+            applyKeywords(["true", "false", "null"], attributes: palette.keyword, to: textStorage, text: text)
+            applyPattern(#"\b(?:-?(?:0x[0-9A-Fa-f]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?))\b"#, attributes: palette.number, to: textStorage, text: text)
+        case .http:
+            applyPattern(#"(?m)^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b"#, attributes: palette.keyword, to: textStorage, text: text)
+            applyPattern(#"(?m)^[A-Za-z-]+(?=:)"#, attributes: palette.property, to: textStorage, text: text)
+            applyPattern(#"(?m)^###.*$"#, attributes: palette.heading, to: textStorage, text: text)
+        case .xml:
+            applyPattern(#"</?[A-Za-z][A-Za-z0-9:_-]*"#, attributes: palette.keyword, to: textStorage, text: text)
+            applyPattern(#"\b[A-Za-z_:][-A-Za-z0-9_:.]*(?=\=)"#, attributes: palette.property, to: textStorage, text: text)
+            applyPattern(#""(?:[^"\\]|\\.)*""#, attributes: palette.string, to: textStorage, text: text)
+        case .swift:
+            applyKeywords(swiftKeywords, attributes: palette.keyword, to: textStorage, text: text)
+            applyPattern(#"@\w+"#, attributes: palette.decorator, to: textStorage, text: text)
+            applyPattern(#"//.*"#, attributes: palette.comment, to: textStorage, text: text)
+            applyPattern(#""(?:[^"\\]|\\.)*""#, attributes: palette.string, to: textStorage, text: text)
+            applyPattern(#"\b(?:0x[0-9A-Fa-f]+|\d+(?:\.\d+)?)\b"#, attributes: palette.number, to: textStorage, text: text)
+        case .shell:
+            applyKeywords(shellKeywords, attributes: palette.keyword, to: textStorage, text: text)
+            applyPattern(#"#.*"#, attributes: palette.comment, to: textStorage, text: text)
+            applyPattern(#"\$[A-Za-z_][A-Za-z0-9_]*|\$\{[^}]+\}"#, attributes: palette.decorator, to: textStorage, text: text)
+            applyPattern(#""(?:[^"\\]|\\.)*""#, attributes: palette.string, to: textStorage, text: text)
+            applyPattern(#"'[^'\n]*'"#, attributes: palette.string, to: textStorage, text: text)
+        case .javascript:
+            applyKeywords(javaScriptKeywords, attributes: palette.keyword, to: textStorage, text: text, options: [.caseInsensitive])
+            applyPattern(#"//.*"#, attributes: palette.comment, to: textStorage, text: text)
+            applyPattern(#""(?:[^"\\]|\\.)*""#, attributes: palette.string, to: textStorage, text: text)
+            applyPattern(#"'(?:[^'\\]|\\.)*'"#, attributes: palette.string, to: textStorage, text: text)
+            applyPattern(#"`(?:[^`\\]|\\.)*`"#, attributes: palette.string, to: textStorage, text: text)
+            applyPattern(#"\b(?:0x[0-9A-Fa-f]+|\d+(?:\.\d+)?)\b"#, attributes: palette.number, to: textStorage, text: text)
+        case .python:
+            applyKeywords(pythonKeywords, attributes: palette.keyword, to: textStorage, text: text)
+            applyPattern(#"#.*"#, attributes: palette.comment, to: textStorage, text: text)
+            applyPattern(#"@\w+"#, attributes: palette.decorator, to: textStorage, text: text)
+            applyPattern(#""(?:[^"\\]|\\.)*""#, attributes: palette.string, to: textStorage, text: text)
+            applyPattern(#"'(?:[^'\\]|\\.)*'"#, attributes: palette.string, to: textStorage, text: text)
+            applyPattern(#"\b(?:0x[0-9A-Fa-f]+|\d+(?:\.\d+)?)\b"#, attributes: palette.number, to: textStorage, text: text)
+        case .css:
+            applyPattern(#"(?m)^[^{\n]+(?=\s*\{)"#, attributes: palette.keyword, to: textStorage, text: text)
+            applyPattern(#"(?m)\b[-A-Za-z]+\b(?=\s*:)"#, attributes: palette.property, to: textStorage, text: text)
+            applyPattern(#"#[0-9A-Fa-f]{3,8}\b"#, attributes: palette.number, to: textStorage, text: text)
+            applyPattern(#""(?:[^"\\]|\\.)*""#, attributes: palette.string, to: textStorage, text: text)
+            applyPattern(#"'(?:[^'\\]|\\.)*'"#, attributes: palette.string, to: textStorage, text: text)
+        case .sql:
+            applyKeywords(sqlKeywords, attributes: palette.keyword, to: textStorage, text: text, options: [.caseInsensitive])
+            applyPattern(#"--.*"#, attributes: palette.comment, to: textStorage, text: text)
+            applyPattern(#"'(?:[^'\\]|\\.)*'"#, attributes: palette.string, to: textStorage, text: text)
+            applyPattern(#"\b(?:0x[0-9A-Fa-f]+|\d+(?:\.\d+)?)\b"#, attributes: palette.number, to: textStorage, text: text)
+        case .config:
+            applyPattern(#"(?m)^\s*[#;].*$"#, attributes: palette.comment, to: textStorage, text: text)
+            applyPattern(#"(?m)^\s*\[[^\]]+\]\s*$"#, attributes: palette.keyword, to: textStorage, text: text)
+            applyPattern(#"(?m)^\s*[-A-Za-z0-9_.]+\s*(?==|:)"#, attributes: palette.property, to: textStorage, text: text)
+            applyPattern(#""(?:[^"\\]|\\.)*""#, attributes: palette.string, to: textStorage, text: text)
+            applyPattern(#"'(?:[^'\\]|\\.)*'"#, attributes: palette.string, to: textStorage, text: text)
+        case .log:
+            applyPattern(#"(?m)^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?"#, attributes: palette.link, to: textStorage, text: text)
+            applyPattern(#"\b(?:TRACE|DEBUG|INFO|NOTICE|WARN|WARNING|ERROR|FATAL|CRITICAL)\b"#, attributes: palette.warning, to: textStorage, text: text)
+            applyPattern(#"\b(?:0x[0-9A-Fa-f]+|\d+(?:\.\d+)?)\b"#, attributes: palette.number, to: textStorage, text: text)
+        }
+    }
+
+    private static func highlightingMode(for text: String, largeFileMode: Bool) -> HighlightingMode {
+        if largeFileMode {
+            return .plain
+        }
+
+        if text.utf16.count > reducedHighlightingCharacterThreshold {
+            return .reduced
+        }
+
+        return .full
+    }
+
     private static func applyKeywords(
         _ keywords: [String],
         attributes: [NSAttributedString.Key: Any],
@@ -167,7 +308,14 @@ enum SyntaxHighlighter {
         to textStorage: NSTextStorage,
         text: String
     ) {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: options) else {
+        let cacheKey = "\(options.rawValue)::\(pattern)" as NSString
+        let regex: NSRegularExpression
+        if let cachedRegex = regexCache.object(forKey: cacheKey) {
+            regex = cachedRegex
+        } else if let compiledRegex = try? NSRegularExpression(pattern: pattern, options: options) {
+            regex = compiledRegex
+            regexCache.setObject(compiledRegex, forKey: cacheKey)
+        } else {
             return
         }
 

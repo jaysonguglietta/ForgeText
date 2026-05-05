@@ -1,56 +1,90 @@
 import SwiftUI
 
 struct BrandMarkView: View {
+    @Environment(\.retroChromeStyle) private var chromeStyle
+
     var size: CGFloat = 36
 
     var body: some View {
         ZStack {
-            Rectangle()
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            RetroPalette.chromeBlue,
-                            RetroPalette.chromeTeal,
-                            RetroPalette.chromeCyan,
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+            if chromeStyle == .studio {
+                RoundedRectangle(cornerRadius: size * 0.18, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [RetroPalette.studioPanel, RetroPalette.studioCanvasMuted],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     )
-                )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: size * 0.18, style: .continuous)
+                            .stroke(RetroPalette.studioBorder, lineWidth: 1)
+                    )
 
-            Rectangle()
-                .stroke(RetroPalette.chromeGold, lineWidth: 1)
+                pageShape
+                    .fill(Color.white)
 
-            VStack(spacing: 0) {
-                HStack(spacing: 0) {
-                    Rectangle().fill(RetroPalette.chromeGold)
-                    Rectangle().fill(RetroPalette.chromePink)
-                    Rectangle().fill(RetroPalette.chromeGold)
+                caretShape
+                    .fill(
+                        LinearGradient(
+                            colors: [RetroPalette.studioAccent, RetroPalette.studioAccentMuted],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+
+                Rectangle()
+                    .fill(RetroPalette.studioAccent)
+                    .frame(width: size * 0.17, height: size * 0.09)
+                    .offset(x: -size * 0.03, y: -size * 0.1)
+            } else {
+                Rectangle()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                RetroPalette.chromeBlue,
+                                RetroPalette.chromeTeal,
+                                RetroPalette.chromeCyan,
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+
+                Rectangle()
+                    .stroke(RetroPalette.chromeGold, lineWidth: 1)
+
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        Rectangle().fill(RetroPalette.chromeGold)
+                        Rectangle().fill(RetroPalette.chromePink)
+                        Rectangle().fill(RetroPalette.chromeGold)
+                    }
+                    .frame(height: size * 0.08)
+                    Spacer(minLength: 0)
                 }
-                .frame(height: size * 0.08)
-                Spacer(minLength: 0)
-            }
 
-            pageShape
-                .fill(Color(red: 0.98, green: 0.96, blue: 0.88))
-                .shadow(color: .black.opacity(0.18), radius: 0, x: size * 0.04, y: size * 0.04)
+                pageShape
+                    .fill(Color(red: 0.98, green: 0.96, blue: 0.88))
+                    .shadow(color: .black.opacity(0.18), radius: 0, x: size * 0.04, y: size * 0.04)
 
-            caretShape
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            RetroPalette.chromePink,
-                            RetroPalette.chromeGold,
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
+                caretShape
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                RetroPalette.chromePink,
+                                RetroPalette.chromeGold,
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
                     )
-                )
 
-            Rectangle()
-                .fill(RetroPalette.chromePink)
-                .frame(width: size * 0.17, height: size * 0.09)
-                .offset(x: -size * 0.03, y: -size * 0.1)
+                Rectangle()
+                    .fill(RetroPalette.chromePink)
+                    .frame(width: size * 0.17, height: size * 0.09)
+                    .offset(x: -size * 0.03, y: -size * 0.1)
+            }
         }
         .frame(width: size, height: size)
     }

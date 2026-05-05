@@ -251,6 +251,43 @@ struct PerformanceSnapshot: Hashable {
     let recentActivityCount: Int
     let physicalMemoryGB: Double
     let uptime: TimeInterval
+    let metrics: [PerformanceMetricSnapshot]
+}
+
+enum PerformanceMetricKind: String, CaseIterable, Identifiable, Hashable {
+    case syntaxHighlighting
+    case structuredViewSwitch
+    case gitWorkbenchRefresh
+    case gitLineDecorations
+    case gitBlamePrefetch
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .syntaxHighlighting:
+            return "Syntax Highlighting"
+        case .structuredViewSwitch:
+            return "Structured View"
+        case .gitWorkbenchRefresh:
+            return "Git Workbench"
+        case .gitLineDecorations:
+            return "Git Line Decorations"
+        case .gitBlamePrefetch:
+            return "Git Blame"
+        }
+    }
+}
+
+struct PerformanceMetricSnapshot: Hashable {
+    let kind: PerformanceMetricKind
+    let sampleCount: Int
+    let lastDurationMS: Double
+    let averageDurationMS: Double
+    let maxDurationMS: Double
+    let lastDetail: String?
+    let lastPayload: String?
+    let lastRecordedAt: Date?
 }
 
 struct DiagnosticBundleSummary: Hashable {

@@ -55,13 +55,23 @@ ForgeText 1.2.1 hardens the trust and local-data model:
 - Gemini requests no longer place API keys in the URL.
 - Gzip handling now uses bounded decompression and safe preview fallback for oversized content.
 
+## Current Main-Branch Workbench Refresh
+
+- `Studio` workbench style becomes the default for daily use, while retro presets remain available.
+- The sidebar shifts to an activity-rail + pane model so navigation feels more like a real editor workbench.
+- Source control moves closer to the main editing flow with a dedicated sidebar pane.
+- Quick Open and Command Palette become tighter overlays instead of larger dashboard-style panels.
+- Persistent `Quiet UI`, `Balanced`, and `Full Retro` workbench presets preserve custom layout state.
+- A first-run chooser helps new installs land on the right shell immediately.
+- Shared chrome and backdrop rendering are lighter so the shell feels calmer and more responsive.
+
 ## Current Strengths
 
 - ForgeText is now credible as a local developer text workbench, not just a raw text editor.
 - The app has broad support for system-engineer file types: logs, configs, CSV, JSON, HTTP, shell, SQL, and source code.
 - Git, AI, plugins, tasks, diagnostics, test output, and terminal output are all surfaced in native panels.
 - The workspace trust model is materially stronger than the original 1.0/1.1 behavior.
-- The retro UI has enough structure to be a real product direction rather than a novelty skin.
+- ForgeText now has a stronger default UI direction: Studio-first for production work, retro as an optional expression layer.
 
 ## Next Priorities
 
@@ -72,7 +82,7 @@ ForgeText 1.2.1 hardens the trust and local-data model:
 - Deepen log tooling: timestamp parsing, saved filters, field extraction, timeline clustering, and multi-file sessions.
 - Improve remote editing with richer SSH/SFTP operations and safer credential handling.
 - Add schema-aware config support for common infrastructure files.
-- Add accessibility and UI regression coverage for the retro shell.
+- Add accessibility and UI regression coverage for the Studio shell and the remaining retro variants.
 - Add public distribution hardening: Developer ID signing, hardened runtime, notarization, and release automation.
 
 ## Longer-Term Bets

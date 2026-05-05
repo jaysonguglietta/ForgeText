@@ -209,13 +209,15 @@ final class AppState: ObservableObject {
     private var gitRefreshTask: Task<Void, Never>?
     private var workspaceIndexTask: Task<Void, Never>?
     private var gitLineDecorationTasks: [UUID: Task<Void, Never>] = [:]
-    private var gitBlameTasks: [String: Task<Void, Never>] = [:]
+    private var gitBlameInFlightKeys = Set<String>()
+    private var gitBlamePrefetchTasksByDocumentID: [UUID: Task<Void, Never>] = [:]
     private var pluginRegistryRefreshTask: Task<Void, Never>?
     private var pendingCompletionActivationDocumentIDs = Set<UUID>()
     private var completionActivationsByDocumentID: [UUID: CompletionActivation] = [:]
     private var fileMonitorTimer: Timer?
     private var untitledCounter = 1
     private let hadUncleanShutdown: Bool
+    private let shouldShowFirstRunSetupOnLaunch: Bool
     private var gitRefreshGeneration = 0
     private var processedLaunchArguments = false
 
@@ -224,11 +226,15 @@ final class AppState: ObservableObject {
         if loadedSettings.enabledPluginIDs.isEmpty {
             loadedSettings.enabledPluginIDs = PluginHostService.defaultEnabledPluginIDs
         }
+        if let preset = loadedSettings.workbenchPreset, preset != .fullRetro {
+            loadedSettings.apply(workbenchAppearanceSnapshot: preset.appearance)
+        }
         if loadedSettings.preferredAIProviderID == nil {
             loadedSettings.preferredAIProviderID = loadedSettings.aiProviders.first(where: \.isEnabled)?.id
         }
 
         let loadedAISessions = AIConversationStore.load()
+        shouldShowFirstRunSetupOnLaunch = !loadedSettings.hasCompletedFirstRunExperience
         hadUncleanShutdown = CrashRecoveryMonitor.markLaunch()
         settings = loadedSettings
         workspaceSessions = WorkspaceSessionStore.load()
@@ -388,6 +394,22 @@ final class AppState: ObservableObject {
         WorkspacePlatformService.trustMode(for: workspaceRootURLs, settings: settings)
     }
 
+    var selectedWorkbenchPreset: WorkbenchPreset? {
+        settings.workbenchPreset
+    }
+
+    var activeWorkbenchPresetLabel: String {
+        settings.workbenchPreset?.displayName ?? "Custom UI"
+    }
+
+    var activeWorkbenchPresetSummary: String {
+        settings.workbenchPreset?.summary ?? "A custom mix of chrome, density, breadcrumbs, and inspector visibility."
+    }
+
+    var canRestoreCustomWorkbenchAppearance: Bool {
+        settings.workbenchPreset != nil && settings.customWorkbenchAppearance != settings.workbenchAppearanceSnapshot
+    }
+
     var availableWorkspaceProfiles: [WorkspaceProfile] {
         settings.profiles.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
@@ -461,7 +483,15 @@ final class AppState: ObservableObject {
         let documentID = document.id
         let workspaceURL = activeWorkspaceURL
         gitLineDecorationTasks[documentID] = Task.detached(priority: .utility) { [fileURL, weak self] in
+            let startedAt = DispatchTime.now().uptimeNanoseconds
             let decorations = GitService.lineDecorations(for: fileURL, workspaceRoot: workspaceURL)
+            let elapsedMS = Double(DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
+            EditorPerformanceMonitor.shared.record(
+                .gitLineDecorations,
+                durationMS: elapsedMS,
+                detail: fileURL.lastPathComponent,
+                payload: "\(decorations.count) decorations"
+            )
             guard !Task.isCancelled else {
                 return
             }
@@ -480,20 +510,53 @@ final class AppState: ObservableObject {
         }
 
         let cacheKey = gitBlameCacheKey(for: document.id, lineNumber: lineNumber)
-        guard gitBlameCache[cacheKey] == nil, gitBlameTasks[cacheKey] == nil else {
+        guard gitBlameCache[cacheKey] == nil else {
             return
         }
 
+        gitBlamePrefetchTasksByDocumentID[document.id]?.cancel()
         let workspaceURL = activeWorkspaceURL
-        gitBlameTasks[cacheKey] = Task.detached(priority: .utility) { [fileURL, weak self] in
+        gitBlamePrefetchTasksByDocumentID[document.id] = Task.detached(priority: .utility) { [fileURL, weak self] in
+            try? await Task.sleep(for: .milliseconds(220))
+            guard !Task.isCancelled else {
+                return
+            }
+
+            guard let self else {
+                return
+            }
+
+            let cacheKey: String? = await MainActor.run {
+                let cacheKey = self.gitBlameCacheKey(for: document.id, lineNumber: lineNumber)
+                if self.gitBlameCache[cacheKey] != nil || self.gitBlameInFlightKeys.contains(cacheKey) {
+                    self.gitBlamePrefetchTasksByDocumentID[document.id] = nil
+                    return nil
+                }
+
+                self.gitBlamePrefetchTasksByDocumentID[document.id] = nil
+                self.gitBlameInFlightKeys.insert(cacheKey)
+                return cacheKey
+            }
+
+            guard let cacheKey else {
+                return
+            }
+
+            let startedAt = DispatchTime.now().uptimeNanoseconds
             let blame = GitService.blame(for: fileURL, lineNumber: lineNumber, workspaceRoot: workspaceURL)
+            let elapsedMS = Double(DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
+            EditorPerformanceMonitor.shared.record(
+                .gitBlamePrefetch,
+                durationMS: elapsedMS,
+                detail: "\(fileURL.lastPathComponent):\(lineNumber)",
+                payload: blame == nil ? "no result" : "resolved"
+            )
             guard !Task.isCancelled else {
                 return
             }
 
             await MainActor.run {
-                guard let self else { return }
-                self.gitBlameTasks[cacheKey] = nil
+                self.gitBlameInFlightKeys.remove(cacheKey)
                 if let blame {
                     self.gitBlameCache[cacheKey] = blame
                 }
@@ -870,12 +933,12 @@ final class AppState: ObservableObject {
 
     func toggleInspectorPanel() {
         settings.showsInspector.toggle()
-        AppSettingsStore.save(settings)
+        persistWorkbenchCustomization()
     }
 
     func toggleBreadcrumbs() {
         settings.showsBreadcrumbs.toggle()
-        AppSettingsStore.save(settings)
+        persistWorkbenchCustomization()
     }
 
     func toggleFocusMode() {
@@ -883,17 +946,33 @@ final class AppState: ObservableObject {
         if settings.focusModeEnabled {
             settings.showsInspector = false
         }
+        persistWorkbenchCustomization()
+    }
+
+    func applyWorkbenchPreset(_ preset: WorkbenchPreset, markFirstRunComplete: Bool = false) {
+        settings.workbenchPreset = preset
+        settings.apply(workbenchAppearanceSnapshot: preset.appearance)
+        if markFirstRunComplete {
+            settings.hasCompletedFirstRunExperience = true
+        }
+        AppSettingsStore.save(settings)
+    }
+
+    func restoreCustomWorkbenchAppearance() {
+        settings.workbenchPreset = nil
+        settings.apply(workbenchAppearanceSnapshot: settings.customWorkbenchAppearance)
+        settings.syncWorkbenchPresetFromCurrentSettings()
         AppSettingsStore.save(settings)
     }
 
     func setChromeStyle(_ style: AppChromeStyle) {
         settings.chromeStyle = style
-        AppSettingsStore.save(settings)
+        persistWorkbenchCustomization()
     }
 
     func setInterfaceDensity(_ density: InterfaceDensity) {
         settings.interfaceDensity = density
-        AppSettingsStore.save(settings)
+        persistWorkbenchCustomization()
     }
 
     func showAppearancePreferences() {
@@ -942,6 +1021,15 @@ final class AppState: ObservableObject {
 
     func showThemeLabPanel() {
         showingThemeLab = true
+    }
+
+    func completeFirstRunExperienceIfNeeded() {
+        guard !settings.hasCompletedFirstRunExperience else {
+            return
+        }
+
+        settings.hasCompletedFirstRunExperience = true
+        AppSettingsStore.save(settings)
     }
 
     func recordActivity(_ title: String, detail: String, status: ActivityStatus = .info) {
@@ -1035,6 +1123,11 @@ final class AppState: ObservableObject {
 
     func refreshGitHubWorkflow() {
         githubWorkflowState = GitHubWorkflowService.state(for: activeWorkspaceURL)
+    }
+
+    private func persistWorkbenchCustomization() {
+        settings.syncWorkbenchPresetFromCurrentSettings()
+        AppSettingsStore.save(settings)
     }
 
     func openGitHubRepositoryPage() {
@@ -2235,7 +2328,15 @@ final class AppState: ObservableObject {
         }
 
         gitRefreshTask = Task.detached(priority: .userInitiated) { [weak self] in
+            let startedAt = DispatchTime.now().uptimeNanoseconds
             let snapshot = GitService.snapshot(for: workspaceURL)
+            let elapsedMS = Double(DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
+            EditorPerformanceMonitor.shared.record(
+                .gitWorkbenchRefresh,
+                durationMS: elapsedMS,
+                detail: workspaceURL?.lastPathComponent ?? "No Workspace",
+                payload: snapshot.summary?.branchName ?? "no repository"
+            )
 
             await MainActor.run {
                 guard let self, self.gitRefreshGeneration == generation else {
@@ -3043,30 +3144,43 @@ final class AppState: ObservableObject {
     }
 
     func showStructuredView() {
-        guard let selectedDocumentID else {
+        guard let selectedDocumentID, let selectedDocument else {
             return
         }
 
-        updateDocument(id: selectedDocumentID) { document in
-            guard document.availableStructuredPresentationMode != nil else {
-                return
-            }
+        let targetMode = selectedDocument.availableStructuredPresentationMode?.displayName ?? "Structured View"
+        EditorPerformanceMonitor.shared.measure(
+            .structuredViewSwitch,
+            detail: "\(selectedDocument.language.displayName) -> \(targetMode)",
+            payload: selectedDocument.displayName
+        ) {
+            updateDocument(id: selectedDocumentID) { document in
+                guard document.availableStructuredPresentationMode != nil else {
+                    return
+                }
 
-            document.prefersStructuredPresentation = true
-            document.syncPresentationMode()
-            document.statusMessage = "Showing \(document.presentationMode.displayName.lowercased())"
+                document.prefersStructuredPresentation = true
+                document.syncPresentationMode()
+                document.statusMessage = "Showing \(document.presentationMode.displayName.lowercased())"
+            }
         }
     }
 
     func showRawTextView() {
-        guard let selectedDocumentID else {
+        guard let selectedDocumentID, let selectedDocument else {
             return
         }
 
-        updateDocument(id: selectedDocumentID) { document in
-            document.prefersStructuredPresentation = false
-            document.syncPresentationMode()
-            document.statusMessage = "Showing raw text view"
+        EditorPerformanceMonitor.shared.measure(
+            .structuredViewSwitch,
+            detail: "\(selectedDocument.language.displayName) -> Raw Text",
+            payload: selectedDocument.displayName
+        ) {
+            updateDocument(id: selectedDocumentID) { document in
+                document.prefersStructuredPresentation = false
+                document.syncPresentationMode()
+                document.statusMessage = "Showing raw text view"
+            }
         }
 
         requestEditorFocus()
@@ -3202,7 +3316,7 @@ final class AppState: ObservableObject {
             PaletteItem(id: "githubWorkflow", title: "GitHub Workflow", subtitle: "Open repository, compare branch, and prepare PR flow", symbolName: "arrow.triangle.branch", action: .showGitHubWorkflow),
             PaletteItem(id: "releaseReadiness", title: "Release Readiness", subtitle: "Check version, Sparkle, appcast, DMG, and docs status", symbolName: "shippingbox", action: .showReleaseReadiness),
             PaletteItem(id: "performanceHUD", title: "Performance HUD", subtitle: "Inspect open docs, index size, plugins, tasks, and system memory", symbolName: "speedometer", action: .showPerformanceHUD),
-            PaletteItem(id: "themeLab", title: "Theme Lab", subtitle: "Fine-tune the retro UI vibe from one place", symbolName: "paintpalette", action: .showThemeLab),
+            PaletteItem(id: "themeLab", title: "Theme Lab", subtitle: "Fine-tune the workbench style, density, and editor theme", symbolName: "paintpalette", action: .showThemeLab),
             PaletteItem(id: "exportDiagnostics", title: "Export Diagnostic Bundle", subtitle: "Create a safe local support bundle without document contents or API keys", symbolName: "cross.case", action: .exportDiagnosticBundle),
             PaletteItem(id: "cloneRepository", title: "Clone Repository", subtitle: "Clone a GitHub or Git repository and open it as a workspace", symbolName: "square.and.arrow.down.on.square", action: .cloneRepository),
             PaletteItem(id: "openRemote", title: "Open Remote File", subtitle: "Open a document over SSH", symbolName: "network", action: .openRemote),
@@ -4154,6 +4268,10 @@ final class AppState: ObservableObject {
                 present(error: error, title: "Couldn’t Open Diff Files")
             }
         }
+
+        if shouldShowFirstRunSetupOnLaunch {
+            showFirstRunSetupPanel()
+        }
     }
 
     func loadWorkspaceFile(at url: URL) {
@@ -4383,11 +4501,10 @@ final class AppState: ObservableObject {
 
     private func invalidateGitInsightState(for documentID: UUID, clearLineDecorations: Bool) {
         cancelGitLineDecorationRefresh(for: documentID, clearCache: clearLineDecorations)
+        gitBlamePrefetchTasksByDocumentID[documentID]?.cancel()
+        gitBlamePrefetchTasksByDocumentID[documentID] = nil
         gitBlameCache = gitBlameCache.filter { !$0.key.hasPrefix(documentID.uuidString) }
-        for key in Array(gitBlameTasks.keys).filter({ $0.hasPrefix(documentID.uuidString) }) {
-            gitBlameTasks[key]?.cancel()
-            gitBlameTasks[key] = nil
-        }
+        gitBlameInFlightKeys = Set(gitBlameInFlightKeys.filter { !$0.hasPrefix(documentID.uuidString) })
     }
 
     private func invalidateAllGitInsightState() {
@@ -4396,10 +4513,12 @@ final class AppState: ObservableObject {
         }
         gitLineDecorationsByDocumentID.removeAll()
 
-        for key in Array(gitBlameTasks.keys) {
-            gitBlameTasks[key]?.cancel()
-            gitBlameTasks[key] = nil
+        for documentID in Array(gitBlamePrefetchTasksByDocumentID.keys) {
+            gitBlamePrefetchTasksByDocumentID[documentID]?.cancel()
+            gitBlamePrefetchTasksByDocumentID[documentID] = nil
         }
+
+        gitBlameInFlightKeys.removeAll()
         gitBlameCache.removeAll()
     }
 

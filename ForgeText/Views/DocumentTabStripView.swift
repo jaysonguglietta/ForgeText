@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct DocumentTabStripView: View {
+    @Environment(\.retroChromeStyle) private var chromeStyle
     @ObservedObject var appState: AppState
 
     var body: some View {
@@ -35,7 +36,11 @@ struct DocumentTabStripView: View {
                     .background(
                         VStack(spacing: 0) {
                             Rectangle()
-                                .fill(isSelected ? RetroPalette.chromeGold.opacity(0.72) : RetroPalette.chromeTeal.opacity(0.28))
+                                .fill(
+                                    isSelected
+                                        ? (chromeStyle == .studio ? RetroPalette.chromeBlue.opacity(0.72) : RetroPalette.chromeGold.opacity(0.72))
+                                        : (chromeStyle == .studio ? RetroPalette.studioDivider : RetroPalette.chromeTeal.opacity(0.28))
+                                )
                                 .frame(height: 2)
 
                             RetroPanelBackground(

@@ -2,7 +2,7 @@
 
 ForgeText is a native macOS text editor for serious text work: plain text, code, logs, config files, structured data, Git workflows, AI-assisted editing, and operational documents that need both raw editing and thoughtful inspection.
 
-The app uses `NSTextView` under SwiftUI for mature macOS editing behavior. The shell intentionally looks like a late-90s web workbench: beveled panels, cream/cyan/pink/gold accents, monospaced labels, and a playful portal-era control surface wrapped around a native editor core.
+The app uses `NSTextView` under SwiftUI for mature macOS editing behavior. The default shell now favors a calmer Studio workbench inspired by modern code editors, while still keeping the older retro presets available for people who want a more expressive shell.
 
 ## Current Version
 
@@ -10,7 +10,9 @@ The app uses `NSTextView` under SwiftUI for mature macOS editing behavior. The s
 - Latest tagged release in this repository: `V1.0.1` (tagging is manual and may lag behind the current bundle version)
 - Local install path after `--install`: `/Applications/ForgeText.app`
 
-ForgeText 1.2.1 keeps the native retro workbench intact while tightening the trust model: restricted workspaces now block external workspace plugins and unsafe tasks, sync bundles transfer safe preferences only, sensitive local state is protected at rest, Gemini keys stay out of URLs, and large gzip files fall back to bounded previews instead of full-memory expansion.
+ForgeText 1.2.1 tightened the trust model and local data handling: restricted workspaces now block external workspace plugins and unsafe tasks, sync bundles transfer safe preferences only, sensitive local state is protected at rest, Gemini keys stay out of URLs, and large gzip files fall back to bounded previews instead of full-memory expansion.
+
+The current `main` branch also includes a Studio workbench refresh that is not yet separately version-tagged: calmer default chrome, a cleaner activity-rail sidebar, a dedicated source control pane, tighter Quick Open and Command Palette overlays, persistent workbench presets, a first-run style chooser, and less decorative rendering in the main editor shell.
 
 ## What's New In 1.2.1
 
@@ -21,12 +23,22 @@ ForgeText 1.2.1 keeps the native retro workbench intact while tightening the tru
 5. Gemini API keys are no longer placed in request URLs.
 6. Gzip handling now uses bounded decompression and safer preview fallback for oversized content.
 
+## Current Main-Branch Workbench Refresh
+
+1. `Studio` is now the default workbench style for `Quiet UI` and `Balanced`.
+2. The left sidebar now behaves more like an editor workbench, with an activity rail and focused panes.
+3. Source control has a first-class sidebar pane for branch state, changed files, and stage/unstage actions.
+4. Quick Open and Command Palette are lighter, tighter overlays instead of dashboard-like dialogs.
+5. Persistent workbench presets let you switch between `Quiet UI`, `Balanced`, and `Full Retro` without losing your custom layout state.
+6. A first-run chooser helps brand-new installs start in a calmer workbench while keeping the retro shell available.
+7. The main workbench renders less decorative chrome so editing feels calmer and more responsive.
+
 ## Highlights
 
 - Native multi-document editing with tabs, sidebar navigation, split panes, line numbers, undo, status metrics, and raw text editing.
 - Safe file handling with encoding, BOM, line-ending preservation, crash recovery, autosave recovery, session restore, external-change detection, and protected local persistence for sensitive state.
 - File-aware structured views for CSV/delimited files, JSON, logs, HTTP request files, config formats, archives, large-file previews, and binary hex fallback.
-- Developer workbench features: workspace explorer, project search, Quick Open, command palette, embedded terminal, task runner, problems panel, test explorer, Git workbench, and plugin manager.
+- Developer workbench features: activity-rail sidebar, workspace explorer, source control pane, project search, Quick Open, command palette, embedded terminal, task runner, problems panel, test explorer, Git workbench, and plugin manager.
 - Workspace indexing for fast file and symbol navigation, TODO/FIXME discovery, and lightweight warning counts.
 - Provider-neutral AI workbench with model profiles, workspace rules, reusable prompt files, chat sessions, and editor quick actions.
 - Git and GitHub helpers for clone, branch/status flows, compare-with-HEAD, diff markers, blame context, GitHub remote detection, and compare-page launch.
@@ -34,7 +46,7 @@ ForgeText 1.2.1 keeps the native retro workbench intact while tightening the tru
 
 ## ForgeText 1.1 Productivity Layer
 
-The 1.1 workbench introduced the control-center layer for larger developer workflows:
+The 1.1 workbench introduced the productivity layer for larger developer workflows:
 
 1. Quick Open for indexed workspace files and symbols.
 2. Command Palette 2.0 with `> commands`, `@ files`, and `# symbols` search modes.
@@ -45,7 +57,7 @@ The 1.1 workbench introduced the control-center layer for larger developer workf
 7. GitHub Workflow panel for detected GitHub remotes and compare/PR preparation links.
 8. Release Readiness panel for version, Sparkle feed/key, appcast, release docs, build script, and DMG checks.
 9. Performance HUD for open documents, workspace roots, index size, plugins, tasks, memory, and uptime.
-10. Theme Lab for the retro chrome style, density, editor theme, focus mode, and inspector.
+10. Theme Lab for workbench style, density, editor theme, focus mode, and inspector.
 11. Diagnostic Bundle export that avoids document contents and AI API keys.
 
 ## User Help
@@ -80,7 +92,7 @@ Command palette prefixes:
 - New, open, save, save as, close, revert-to-saved, and dirty-state protection flows.
 - Find/replace, regex search, go-to-line, project search, Quick Open, and command palette.
 - Language detection, lightweight syntax highlighting, comment toggling, indentation helpers, and bracket matching.
-- Theme switching, wrap toggle, font sizing, breadcrumbs, outline panel, inspector, focus mode, and split-pane workspace modes.
+- Workbench presets, Studio/retro style switching, wrap toggle, font sizing, breadcrumbs, outline panel, inspector, focus mode, and split-pane workspace modes.
 
 ### File Reliability
 
@@ -105,7 +117,7 @@ Command palette prefixes:
 - Workspace Center for managing active roots, trust mode, saved profiles, sync bundles, and registry sources.
 - Multi-root workspaces with `.forgetext-workspace` files, active-root switching, and session restore.
 - Workspace Trust / Restricted Mode so tasks, AI actions, remote commands, and external plugins can be gated in safer folders, with external workspace plugins and tasks blocked by default in restricted mode.
-- Workspace explorer with favorites and filtering.
+- Workspace explorer with favorites, filtering, and a calmer editor-style tree presentation.
 - Workspace index for Quick Open, symbol search, TODO counts, and warning counts.
 - Portable mode through a sibling `ForgeTextData` directory or `FORGETEXT_PORTABLE_DATA_DIR`.
 - Sync bundle export/import for safe preferences while keeping trust decisions, plugin registries, workspace sessions, and AI chats local.
@@ -125,7 +137,7 @@ Command palette prefixes:
 ### Git And GitHub
 
 - Clone GitHub or other Git repositories directly into a local workspace folder.
-- Git workbench with fetch, pull, push, commit, branch, stash, stage, unstage, graph, and remote flows.
+- Sidebar source control pane plus full Git workbench with fetch, pull, push, commit, branch, stash, stage, unstage, graph, and remote flows.
 - Compare-with-HEAD, diff-gutter markers, current-line Git blame context, and merge-conflict helpers.
 - GitHub Workflow panel that detects GitHub remotes and opens repository or compare pages for PR preparation.
 
@@ -282,7 +294,7 @@ Notes:
 ## Product Docs
 
 - [ForgeText Help](docs/HELP.md): feature guide and common workflows.
-- [Icon Candidates](docs/icon-candidates/README.md): alternate 1990s-inspired app icon previews and install instructions.
+- [Icon Candidates](docs/icon-candidates/README.md): alternate app icon previews and install instructions.
 - [Roadmap](docs/ROADMAP.md): shipped scope and future priorities.
-- [UI Workbench Plan](docs/UI_WORKBENCH_PLAN.md): retro UI direction and workbench principles.
+- [UI Workbench Plan](docs/UI_WORKBENCH_PLAN.md): Studio-first workbench direction and UI principles.
 - [Updates](docs/UPDATES.md): GitHub Pages and Sparkle update setup.

@@ -231,15 +231,17 @@ struct EditorContainerView: NSViewRepresentable {
         )
 
         if hadTextChange || context.coordinator.lastRenderState != renderState {
-            SyntaxHighlighter.apply(
-                to: textView,
-                theme: theme,
-                language: language,
-                fontSize: fontSize,
-                findState: findState,
-                largeFileMode: largeFileMode,
-                lineDecorations: lineDecorations
-            )
+            context.coordinator.withRenderPass {
+                SyntaxHighlighter.apply(
+                    to: textView,
+                    theme: theme,
+                    language: language,
+                    fontSize: fontSize,
+                    findState: findState,
+                    largeFileMode: largeFileMode,
+                    lineDecorations: lineDecorations
+                )
+            }
             context.coordinator.lastRenderState = renderState
             context.coordinator.rulerView?.needsDisplay = true
         }
@@ -345,6 +347,7 @@ struct EditorContainerView: NSViewRepresentable {
         weak var textView: EditorTextView?
         weak var rulerView: LineNumberRulerView?
         var isSyncingFromSwiftUI = false
+        var isApplyingRenderPass = false
         var lastLayoutState: LayoutState?
         var lastRenderState: RenderState?
         var lastFocusRequestToken: UUID?
@@ -353,26 +356,34 @@ struct EditorContainerView: NSViewRepresentable {
             self.parent = parent
         }
 
+        func withRenderPass(_ operation: () -> Void) {
+            isApplyingRenderPass = true
+            defer { isApplyingRenderPass = false }
+            operation()
+        }
+
         func textDidChange(_ notification: Notification) {
             guard !isSyncingFromSwiftUI, let textView else {
                 return
             }
 
             let updatedText = textView.string
-            let updatedSelection = textView.selectedRange()
             rulerView?.needsDisplay = true
 
-            SyntaxHighlighter.apply(
-                to: textView,
-                theme: parent.theme,
-                language: parent.language,
-                fontSize: parent.fontSize,
-                findState: parent.findState,
-                largeFileMode: parent.largeFileMode,
-                lineDecorations: parent.lineDecorations
-            )
+            withRenderPass {
+                SyntaxHighlighter.apply(
+                    to: textView,
+                    theme: parent.theme,
+                    language: parent.language,
+                    fontSize: parent.fontSize,
+                    findState: parent.findState,
+                    largeFileMode: parent.largeFileMode,
+                    lineDecorations: parent.lineDecorations
+                )
+            }
+
+            let updatedSelection = textView.selectedRange()
             lastRenderState = renderState()
-            parent.configureLayout(for: textView, in: textView.enclosingScrollView ?? NSScrollView())
 
             DispatchQueue.main.async { [weak self] in
                 guard let self, !self.isSyncingFromSwiftUI else {
@@ -385,7 +396,7 @@ struct EditorContainerView: NSViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            guard !isSyncingFromSwiftUI, let textView else {
+            guard !isSyncingFromSwiftUI, !isApplyingRenderPass, let textView else {
                 return
             }
 

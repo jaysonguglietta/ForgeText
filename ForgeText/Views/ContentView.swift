@@ -134,389 +134,435 @@ struct ContentView: View {
     }
 }
 
+private enum SidebarPane: String, CaseIterable, Identifiable {
+    case explorer
+    case sourceControl
+    case workspace
+    case jump
+    case tools
+    case extensions
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .explorer:
+            return "Explorer"
+        case .sourceControl:
+            return "Source Control"
+        case .workspace:
+            return "Workspace"
+        case .jump:
+            return "Navigate"
+        case .tools:
+            return "Tools"
+        case .extensions:
+            return "Extensions"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .explorer:
+            return "Open files, switch documents, and browse the active folder."
+        case .sourceControl:
+            return "Review branch state, stage changes, and jump into Git workflows."
+        case .workspace:
+            return "Manage folders, sessions, remote files, and repository setup."
+        case .jump:
+            return "Move quickly through files, symbols, commands, and diagnostics."
+        case .tools:
+            return "Git, AI, terminal, problems, tests, and workflow utilities."
+        case .extensions:
+            return "Plugins, tasks, snippets, appearance, and setup."
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .explorer:
+            return "doc.on.doc"
+        case .sourceControl:
+            return "arrow.triangle.branch"
+        case .workspace:
+            return "sidebar.left"
+        case .jump:
+            return "magnifyingglass"
+        case .tools:
+            return "hammer"
+        case .extensions:
+            return "puzzlepiece.extension"
+        }
+    }
+}
+
 private struct DocumentSidebarView: View {
+    @Environment(\.retroChromeStyle) private var chromeStyle
     @ObservedObject var appState: AppState
+    @State private var selectedPane: SidebarPane = .explorer
 
     var body: some View {
-        ZStack {
-            RetroBackdropView()
+        HStack(spacing: 0) {
+            activityRail
+
+            Rectangle()
+                .fill(chromeStyle == .studio ? RetroPalette.studioDivider : RetroPalette.chromeBlue.opacity(0.18))
+                .frame(width: 1)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 15) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 12) {
-                            BrandMarkView(size: 34)
+                VStack(alignment: .leading, spacing: 14) {
+                    sidebarHeader
+                    quickActionBar
+                    selectedPaneContent
+                }
+                .padding(14)
+            }
+        }
+        .frame(minWidth: 320)
+    }
 
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("ForgeText")
-                                    .font(.system(size: 21, weight: .black, design: .monospaced))
-                                    .tracking(0.7)
-                                    .foregroundStyle(RetroPalette.ink)
+    private var activityRail: some View {
+        VStack(spacing: 10) {
+            BrandMarkView(size: 28)
+                .padding(.top, 10)
 
-                                Text("developer workbench :: webclass of '99")
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                    .foregroundStyle(RetroPalette.link)
-                            }
-
-                            Spacer(minLength: 0)
-                        }
-
-                        Text("Text, code, logs, configs, Git, tasks, and AI in one portal-era Mac editor.")
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundStyle(RetroPalette.mutedInk)
-                            .fixedSize(horizontal: false, vertical: true)
+            ForEach(SidebarPane.allCases) { pane in
+                Button {
+                    selectedPane = pane
+                    if pane == .sourceControl {
+                        appState.refreshGitWorkbench()
                     }
-                    .padding(12)
-                    .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromeBlue)
+                } label: {
+                    VStack(spacing: 5) {
+                        Image(systemName: pane.symbolName)
+                            .font(.system(size: 15, weight: .semibold))
+                        Text(pane.title)
+                            .font(.system(size: 9, weight: .bold, design: .monospaced))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                }
+                .buttonStyle(RetroActionButtonStyle(tone: selectedPane == pane ? .accent : .secondary))
+                .accessibilityLabel(pane.title)
+            }
 
-                    LazyVGrid(
-                        columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3),
-                        spacing: 8
-                    ) {
-                        sidebarAction(
-                            "New",
-                            systemImage: "plus.square",
-                            subtitle: "Document",
-                            action: appState.newDocument
+            Spacer(minLength: 0)
+
+            Button {
+                appState.showAppearancePreferences()
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(maxWidth: .infinity, minHeight: 34)
+            }
+            .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+            .accessibilityLabel("Appearance preferences")
+        }
+        .padding(8)
+        .frame(width: 72)
+        .background(
+            chromeStyle == .studio ? RetroPalette.studioRail : RetroPalette.railFill
+        )
+    }
+
+    private var sidebarHeader: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("ForgeText")
+                        .font(.system(size: 20, weight: .black, design: .monospaced))
+                        .tracking(0.5)
+                        .foregroundStyle(RetroPalette.ink)
+
+                    Text(selectedPane.title)
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundStyle(RetroPalette.link)
+                }
+
+                Spacer(minLength: 0)
+
+                if appState.workspaceTrustMode == .restricted {
+                    RetroCapsuleLabel(text: "Restricted Folder", accent: RetroPalette.warning)
+                }
+            }
+
+            Text(selectedPane.subtitle)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(RetroPalette.mutedInk)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromeBlue)
+    }
+
+    private var quickActionBar: some View {
+        HStack(spacing: 8) {
+            compactAction("New", systemImage: "plus.square", action: appState.newDocument)
+            compactAction("Open", systemImage: "folder", action: appState.openDocument)
+            compactAction("Palette", systemImage: "command", action: { appState.showingCommandPalette = true })
+        }
+    }
+
+    @ViewBuilder
+    private var selectedPaneContent: some View {
+        switch selectedPane {
+        case .explorer:
+            explorerPane
+        case .sourceControl:
+            sourceControlPane
+        case .workspace:
+            workspacePane
+        case .jump:
+            jumpPane
+        case .tools:
+            toolsPane
+        case .extensions:
+            extensionsPane
+        }
+    }
+
+    private var explorerPane: some View {
+        Group {
+            sidebarSection("Open Documents") {
+                if appState.documents.isEmpty {
+                    emptySidebarMessage("Open documents will appear here.")
+                } else {
+                    ForEach(appState.documents) { document in
+                        DocumentSidebarRow(
+                            document: document,
+                            isSelected: appState.selectedDocumentID == document.id,
+                            onSelect: { appState.selectDocument(document.id) },
+                            onClose: { appState.closeDocument(id: document.id) }
                         )
-                        sidebarAction(
-                            "Open",
-                            systemImage: "folder",
-                            subtitle: "Files",
-                            action: appState.openDocument
-                        )
-                        sidebarAction(
-                            "Command",
-                            systemImage: "command",
-                            subtitle: "Palette",
-                            action: { appState.showingCommandPalette = true }
-                        )
                     }
+                }
+            }
 
-                    sidebarSection("Open Documents") {
-                        ForEach(appState.documents) { document in
-                            DocumentSidebarRow(
-                                document: document,
-                                isSelected: appState.selectedDocumentID == document.id,
-                                onSelect: { appState.selectDocument(document.id) },
-                                onClose: { appState.closeDocument(id: document.id) }
-                            )
-                        }
-                    }
+            WorkspaceExplorerView(appState: appState)
 
-                    sidebarSection("Recent Files") {
-                        if appState.recentFiles.isEmpty {
-                            Text("Recent files will appear here after you open or save documents.")
-                                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                                .foregroundStyle(RetroPalette.visited)
-                                .fixedSize(horizontal: false, vertical: true)
-                        } else {
-                            ForEach(appState.recentFiles, id: \.path) { url in
-                                Button {
-                                    appState.openDocuments(at: [url])
-                                } label: {
-                                    fileCard(
-                                        title: url.lastPathComponent,
-                                        subtitle: url.path(percentEncoded: false),
-                                        symbolName: "clock.arrow.circlepath"
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-
-                    if !appState.recentRemoteLocations.isEmpty {
-                        sidebarSection("Recent Remote") {
-                            ForEach(appState.recentRemoteLocations, id: \.spec) { reference in
-                                Button {
-                                    appState.remoteLocationDraft = reference.spec
-                                    appState.openRemoteDocument()
-                                } label: {
-                                    fileCard(
-                                        title: reference.displayName,
-                                        subtitle: reference.pathDescription,
-                                        symbolName: "network"
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-
-                    sidebarSection("Workspace") {
+            sidebarSection("Recent Files") {
+                if appState.recentFiles.isEmpty {
+                    emptySidebarMessage("Recent files will appear here after you open or save documents.")
+                } else {
+                    ForEach(appState.recentFiles, id: \.path) { url in
                         Button {
-                            appState.showWorkspacePlatformPanel()
+                            appState.openDocuments(at: [url])
                         } label: {
                             fileCard(
-                                title: "Workspace Center",
-                                subtitle: "\(appState.workspaceRootURLs.count) roots • \(appState.workspaceTrustMode.displayName.lowercased()) mode",
-                                symbolName: "square.3.layers.3d"
+                                title: url.lastPathComponent,
+                                subtitle: url.path(percentEncoded: false),
+                                symbolName: "clock.arrow.circlepath"
                             )
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Open workspace center")
+                    }
+                }
+            }
 
+            if !appState.recentRemoteLocations.isEmpty {
+                sidebarSection("Recent Remote") {
+                    ForEach(appState.recentRemoteLocations, id: \.spec) { reference in
                         Button {
-                            appState.chooseWorkspaceRoot()
+                            appState.remoteLocationDraft = reference.spec
+                            appState.openRemoteDocument()
                         } label: {
                             fileCard(
-                                title: appState.projectSearchState.rootURL?.lastPathComponent ?? "Choose Folder",
-                                subtitle: appState.projectSearchState.rootURL?.path(percentEncoded: false) ?? "Set a project root for folder search and terminal tools.",
-                                symbolName: "folder.badge.gearshape"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Choose workspace root folder")
-
-                        Button {
-                            appState.showCloneRepositoryPanel()
-                        } label: {
-                            fileCard(
-                                title: "Clone Repository",
-                                subtitle: "Clone a GitHub or Git repo directly into a local workspace folder",
-                                symbolName: "square.and.arrow.down.on.square"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Clone a repository into a local workspace")
-
-                        Button {
-                            appState.openRemotePanel()
-                        } label: {
-                            fileCard(
-                                title: "Open Remote File",
-                                subtitle: "Use SSH-style locations like user@host:/path/to/file",
+                                title: reference.displayName,
+                                subtitle: reference.pathDescription,
                                 symbolName: "network"
                             )
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("Open a remote file")
-
-                        Button {
-                            appState.showWorkspaceSessionsPanel()
-                        } label: {
-                            fileCard(
-                                title: "Workspace Sessions",
-                                subtitle: "Save and reopen grouped files, remotes, and workspace settings",
-                                symbolName: "square.stack.3d.up"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open workspace sessions")
-
-                        Button {
-                            appState.showingKeyboardShortcuts = true
-                        } label: {
-                            fileCard(
-                                title: "Keyboard Shortcuts",
-                                subtitle: "Quick reference for editor navigation and text commands",
-                                symbolName: "keyboard"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Show keyboard shortcuts")
-
-                        Button {
-                            appState.showTerminalConsolePanel()
-                        } label: {
-                            fileCard(
-                                title: "Embedded Terminal",
-                                subtitle: "Run shell commands without leaving ForgeText",
-                                symbolName: "terminal.fill"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open embedded terminal")
-
-                        Button {
-                            appState.showGitWorkbenchPanel()
-                        } label: {
-                            fileCard(
-                                title: "Git Workbench",
-                                subtitle: "Commit, push, pull, stash, and inspect repository changes",
-                                symbolName: "point.topleft.down.curvedto.point.bottomright.up"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open Git workbench")
-
-                        Button {
-                            appState.showAIWorkbenchPanel()
-                        } label: {
-                            fileCard(
-                                title: "AI Workbench",
-                                subtitle: "Use different models and providers for chat, editing, and commit drafts",
-                                symbolName: "sparkles.rectangle.stack"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open AI workbench")
-
-                        Button {
-                            appState.showProblemsPanelView()
-                        } label: {
-                            fileCard(
-                                title: "Problems",
-                                subtitle: "Review matched build, test, lint, and terminal problems",
-                                symbolName: "exclamationmark.bubble"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open problems panel")
-
-                        Button {
-                            appState.showTestExplorerPanel()
-                        } label: {
-                            fileCard(
-                                title: "Test Explorer",
-                                subtitle: "Run detected workspace tests and inspect results",
-                                symbolName: "checklist.checked"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open test explorer")
-                    }
-
-                    sidebarSection("Control Center") {
-                        Button {
-                            appState.showQuickOpenPanel()
-                        } label: {
-                            fileCard(
-                                title: "Quick Open",
-                                subtitle: "Jump to indexed files and symbols across the workspace",
-                                symbolName: "doc.text.magnifyingglass"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open quick open")
-
-                        Button {
-                            appState.showActivityCenterPanel()
-                        } label: {
-                            fileCard(
-                                title: "Activity Center",
-                                subtitle: "Review recent editor, index, release, and diagnostic events",
-                                symbolName: "list.bullet.rectangle.portrait"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open activity center")
-
-                        Button {
-                            appState.showAIContextCenterPanel()
-                        } label: {
-                            fileCard(
-                                title: "AI Context",
-                                subtitle: "Review workspace rules and reusable prompts",
-                                symbolName: "brain.head.profile"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open AI context center")
-
-                        Button {
-                            appState.showGitHubWorkflowPanel()
-                        } label: {
-                            fileCard(
-                                title: "GitHub Workflow",
-                                subtitle: "Open repository pages and branch compare flow",
-                                symbolName: "arrow.triangle.branch"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open GitHub workflow")
-
-                        Button {
-                            appState.showFirstRunSetupPanel()
-                        } label: {
-                            fileCard(
-                                title: "Setup Checklist",
-                                subtitle: "Workspace, Git, AI, plugins, updates, and appearance",
-                                symbolName: "checklist"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open setup checklist")
-                    }
-
-                    WorkspaceExplorerView(appState: appState)
-
-                    sidebarSection("Plugins") {
-                        Button {
-                            appState.showPluginManagerPanel()
-                        } label: {
-                            fileCard(
-                                title: "Plugin Manager",
-                                subtitle: "Enable built-in IDE plugins and inspect their capabilities",
-                                symbolName: "puzzlepiece.extension"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open plugin manager")
-
-                        Button {
-                            appState.showTaskRunnerPanel()
-                        } label: {
-                            fileCard(
-                                title: "Task Runner",
-                                subtitle: "Run workspace build, test, and lint commands from detected project files",
-                                symbolName: "play.square.stack"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open task runner")
-
-                        Button {
-                            appState.showSnippetLibraryPanel()
-                        } label: {
-                            fileCard(
-                                title: "Snippet Library",
-                                subtitle: "Insert format-aware snippets into the current document",
-                                symbolName: "text.badge.plus"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Open snippet library")
                     }
                 }
-                .padding(13)
             }
         }
-        .frame(minWidth: 292)
-        .background(RetroBackdropView())
     }
 
-    private func sidebarAction(
-        _ title: String,
-        systemImage: String,
-        subtitle: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            VStack(spacing: 0) {
-                VStack(spacing: 6) {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(RetroPalette.chromeBlue)
-
-                    VStack(spacing: 2) {
-                        Text(title)
-                            .font(.system(size: 12, weight: .bold, design: .monospaced))
-                            .foregroundStyle(RetroPalette.ink)
-
-                        Text(subtitle)
-                            .font(.system(size: 10, weight: .bold, design: .monospaced))
-                            .foregroundStyle(RetroPalette.link)
-                            .lineLimit(1)
-                    }
-                    .multilineTextAlignment(.center)
+    private var workspacePane: some View {
+        Group {
+            sidebarSection("Workspace") {
+                Button {
+                    appState.showWorkspacePlatformPanel()
+                } label: {
+                    fileCard(
+                        title: "Workspace Center",
+                        subtitle: "\(appState.workspaceRootURLs.count) roots • \(appState.workspaceTrustMode.displayName.lowercased()) mode",
+                        symbolName: "square.3.layers.3d"
+                    )
                 }
-                .padding(.horizontal, 7)
-                .padding(.vertical, 9)
+                .buttonStyle(.plain)
+
+                Button {
+                    appState.chooseWorkspaceRoot()
+                } label: {
+                    fileCard(
+                        title: appState.projectSearchState.rootURL?.lastPathComponent ?? "Choose Folder",
+                        subtitle: appState.projectSearchState.rootURL?.path(percentEncoded: false) ?? "Set a project root for indexing, search, Git, and terminal tools.",
+                        symbolName: "folder.badge.gearshape"
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    appState.showCloneRepositoryPanel()
+                } label: {
+                    fileCard(
+                        title: "Clone Repository",
+                        subtitle: "Clone a repository directly into a local workspace folder.",
+                        symbolName: "square.and.arrow.down.on.square"
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    appState.openRemotePanel()
+                } label: {
+                    fileCard(
+                        title: "Open Remote File",
+                        subtitle: "Load a file from an SSH-style location like user@host:/path/to/file.",
+                        symbolName: "network"
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    appState.showWorkspaceSessionsPanel()
+                } label: {
+                    fileCard(
+                        title: "Workspace Sessions",
+                        subtitle: "Save and reopen grouped files, remotes, and workbench state.",
+                        symbolName: "square.stack.3d.up"
+                    )
+                }
+                .buttonStyle(.plain)
             }
-            .frame(maxWidth: .infinity, minHeight: 68)
-            .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
+        }
+    }
+
+    private var sourceControlPane: some View {
+        Group {
+            sidebarSection("Repository") {
+                if let summary = appState.gitRepositorySummary {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(summary.branchName)
+                                    .font(.system(size: 13, weight: .black, design: .monospaced))
+                                    .foregroundStyle(RetroPalette.ink)
+
+                                Text(summary.rootURL.path(percentEncoded: false))
+                                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(RetroPalette.link)
+                                    .lineLimit(2)
+                            }
+
+                            Spacer(minLength: 0)
+
+                            Button {
+                                appState.refreshGitWorkbench()
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                            .buttonStyle(RetroIconButtonStyle(accent: RetroPalette.chromeBlue))
+                        }
+
+                        FlowBadgeRow {
+                            RetroCapsuleLabel(text: "\(summary.modifiedCount) modified", accent: RetroPalette.warning)
+                            RetroCapsuleLabel(text: "\(summary.stagedCount) staged", accent: RetroPalette.success)
+                            if summary.untrackedCount > 0 {
+                                RetroCapsuleLabel(text: "\(summary.untrackedCount) untracked", accent: RetroPalette.chromeTeal)
+                            }
+                            if summary.conflictedCount > 0 {
+                                RetroCapsuleLabel(text: "\(summary.conflictedCount) conflicted", accent: RetroPalette.danger)
+                            }
+                        }
+
+                        HStack(spacing: 8) {
+                            compactAction("Fetch", systemImage: "arrow.down.circle", action: appState.fetchGitRepository)
+                            compactAction("Pull", systemImage: "arrow.down.to.line", action: appState.pullGitRepository)
+                            compactAction("Push", systemImage: "arrow.up.to.line", action: appState.pushGitRepository)
+                        }
+                    }
+                    .padding(10)
+                    .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
+                } else {
+                    emptySidebarMessage("Open a Git-backed workspace to inspect source control state.")
+                }
+            }
+
+            sidebarSection("Changes") {
+                if appState.gitPanelState.changedFiles.isEmpty {
+                    emptySidebarMessage("No changed files in the current repository.")
+                } else {
+                    ForEach(Array(appState.gitPanelState.changedFiles.prefix(20))) { file in
+                        sourceControlFileRow(file)
+                    }
+                }
+            }
+
+            sidebarSection("Open Full Workbench") {
+                actionCard(
+                    "Git Workbench",
+                    subtitle: "Commit, branch, stash, resolve conflicts, and inspect history in the full Git surface.",
+                    symbolName: "point.topleft.down.curvedto.point.bottomright.up",
+                    action: appState.showGitWorkbenchPanel
+                )
+            }
+        }
+    }
+
+    private var jumpPane: some View {
+        Group {
+            sidebarSection("Navigate") {
+                actionCard("Quick Open", subtitle: "Jump to indexed files and symbols.", symbolName: "doc.text.magnifyingglass", action: appState.showQuickOpenPanel)
+                actionCard("Command Palette", subtitle: "Search commands, documents, files, symbols, tasks, and themes.", symbolName: "command", action: { appState.showingCommandPalette = true })
+                actionCard("Search in Folder", subtitle: "Search across the current workspace root.", symbolName: "magnifyingglass", action: appState.showProjectSearch)
+                actionCard("Go to Line", subtitle: "Jump directly to a line in the active document.", symbolName: "number", action: appState.showGoToLine)
+                actionCard("Keyboard Shortcuts", subtitle: "Review the main editor, navigation, and workbench shortcuts.", symbolName: "keyboard", action: { appState.showingKeyboardShortcuts = true })
+                actionCard("Activity Center", subtitle: "Review indexing, diagnostics, and recent editor activity.", symbolName: "list.bullet.rectangle.portrait", action: appState.showActivityCenterPanel)
+            }
+        }
+    }
+
+    private var toolsPane: some View {
+        Group {
+            sidebarSection("Developer Tools") {
+                actionCard("Embedded Terminal", subtitle: "Run shell commands without leaving ForgeText.", symbolName: "terminal.fill", action: appState.showTerminalConsolePanel)
+                actionCard("Git Workbench", subtitle: "Commit, push, pull, stash, and inspect repository changes.", symbolName: "point.topleft.down.curvedto.point.bottomright.up", action: appState.showGitWorkbenchPanel)
+                actionCard("AI Workbench", subtitle: "Use configured providers for chat, editing, and commit drafts.", symbolName: "sparkles.rectangle.stack", action: appState.showAIWorkbenchPanel)
+                actionCard("AI Context", subtitle: "Review workspace rules and reusable prompts.", symbolName: "brain.head.profile", action: appState.showAIContextCenterPanel)
+                actionCard("Problems", subtitle: "Review matched build, test, lint, and terminal problems.", symbolName: "exclamationmark.bubble", action: appState.showProblemsPanelView)
+                actionCard("Test Explorer", subtitle: "Run detected workspace tests and inspect results.", symbolName: "checklist.checked", action: appState.showTestExplorerPanel)
+                actionCard("GitHub Workflow", subtitle: "Open repository pages and branch compare workflows.", symbolName: "arrow.triangle.branch", action: appState.showGitHubWorkflowPanel)
+            }
+        }
+    }
+
+    private var extensionsPane: some View {
+        Group {
+            sidebarSection("Extensions + Setup") {
+                actionCard("Plugin Manager", subtitle: "Enable built-in IDE plugins and inspect their capabilities.", symbolName: "puzzlepiece.extension", action: appState.showPluginManagerPanel)
+                actionCard("Task Runner", subtitle: "Run workspace build, test, and lint commands from detected project files.", symbolName: "play.square.stack", action: appState.showTaskRunnerPanel)
+                actionCard("Snippet Library", subtitle: "Insert format-aware snippets into the current document.", symbolName: "text.badge.plus", action: appState.showSnippetLibraryPanel)
+                actionCard("Appearance Preferences", subtitle: "Adjust workbench style, density, layout, and editor theme.", symbolName: "slider.horizontal.3", action: appState.showAppearancePreferences)
+                actionCard("Setup Checklist", subtitle: "Review workspace, Git, AI, plugin, and update readiness.", symbolName: "checklist", action: appState.showFirstRunSetupPanel)
+            }
+        }
+    }
+
+    private func compactAction(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+    }
+
+    private func actionCard(_ title: String, subtitle: String, symbolName: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            fileCard(title: title, subtitle: subtitle, symbolName: symbolName)
         }
         .buttonStyle(.plain)
     }
@@ -550,6 +596,64 @@ private struct DocumentSidebarView: View {
         .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
     }
 
+    private func sourceControlFileRow(_ file: GitChangedFile) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: file.isConflicted ? "exclamationmark.triangle.fill" : "doc.text")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(file.isConflicted ? RetroPalette.danger : RetroPalette.chromeBlue)
+                    .frame(width: 16)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(file.displayName)
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .foregroundStyle(RetroPalette.ink)
+                        .lineLimit(1)
+
+                    Text(file.relativePath)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(RetroPalette.link)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 0)
+
+                RetroCapsuleLabel(
+                    text: file.statusSummary,
+                    accent: file.isConflicted ? RetroPalette.danger : RetroPalette.chromeTeal
+                )
+            }
+
+            HStack(spacing: 8) {
+                Button("Open") {
+                    appState.openGitChangedFile(file)
+                }
+                .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+
+                Button("Stage") {
+                    appState.stageGitChangedFile(file)
+                }
+                .buttonStyle(RetroActionButtonStyle(tone: .primary))
+
+                Button("Unstage") {
+                    appState.unstageGitChangedFile(file)
+                }
+                .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+            }
+        }
+        .padding(10)
+        .retroPanel(fill: RetroPalette.panelFillMuted, accent: file.isConflicted ? RetroPalette.danger : RetroPalette.chromeTeal)
+    }
+
+    private func emptySidebarMessage(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .foregroundStyle(RetroPalette.link)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(10)
+            .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
+    }
+
     private func sidebarSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             RetroSectionHeader(title: title, accent: RetroPalette.chromeBlue)
@@ -559,6 +663,7 @@ private struct DocumentSidebarView: View {
 }
 
 private struct DocumentSidebarRow: View {
+    @Environment(\.retroChromeStyle) private var chromeStyle
     let document: EditorDocument
     let isSelected: Bool
     let onSelect: () -> Void
@@ -605,7 +710,7 @@ private struct DocumentSidebarRow: View {
         )
         .overlay(alignment: .leading) {
             Rectangle()
-                .fill(isSelected ? RetroPalette.chromeGold.opacity(0.75) : Color.clear)
+                .fill(isSelected ? (chromeStyle == .studio ? RetroPalette.chromeBlue.opacity(0.75) : RetroPalette.chromeGold.opacity(0.75)) : Color.clear)
                 .frame(width: 3)
         }
         .contentShape(Rectangle())
@@ -698,90 +803,86 @@ private struct DocumentWorkspaceView: View {
     }
 
     var body: some View {
-        ZStack {
-            RetroBackdropView()
+        VStack(spacing: 0) {
+            if !isFocusMode {
+                DocumentTabStripView(appState: appState)
+                header
+            }
 
-            VStack(spacing: 0) {
-                if !isFocusMode {
-                    DocumentTabStripView(appState: appState)
-                    header
-                }
+            if !isFocusMode, appState.settings.showsBreadcrumbs, !breadcrumbTrail.isEmpty {
+                RetroRule()
+                breadcrumbBar
+            }
 
-                if !isFocusMode, appState.settings.showsBreadcrumbs, !breadcrumbTrail.isEmpty {
-                    RetroRule()
-                    breadcrumbBar
-                }
+            if document.hasExternalChanges || document.fileMissingOnDisk {
+                statusBanner(
+                    title: document.fileMissingOnDisk ? "File Missing on Disk" : "External Changes Detected",
+                    message: document.fileMissingOnDisk
+                        ? "The file is no longer available at its saved path. You can keep editing and save elsewhere."
+                        : "This document changed outside ForgeText. Reload it or keep your current version.",
+                    accent: document.fileMissingOnDisk ? RetroPalette.danger : RetroPalette.warning
+                ) {
+                    Button("Compare") {
+                        appState.showCompareAgainstSaved()
+                    }
 
-                if document.hasExternalChanges || document.fileMissingOnDisk {
-                    statusBanner(
-                        title: document.fileMissingOnDisk ? "File Missing on Disk" : "External Changes Detected",
-                        message: document.fileMissingOnDisk
-                            ? "The file is no longer available at its saved path. You can keep editing and save elsewhere."
-                            : "This document changed outside ForgeText. Reload it or keep your current version.",
-                        accent: document.fileMissingOnDisk ? RetroPalette.danger : RetroPalette.warning
-                    ) {
-                        Button("Compare") {
-                            appState.showCompareAgainstSaved()
-                        }
-
-                        if !document.fileMissingOnDisk {
-                            Button("Reload") {
-                                appState.reloadFromExternalChange()
-                            }
-                        }
-
-                        Button("Keep Mine") {
-                            appState.keepCurrentVersionAfterExternalChange()
+                    if !document.fileMissingOnDisk {
+                        Button("Reload") {
+                            appState.reloadFromExternalChange()
                         }
                     }
-                }
 
-                if document.isPartialPreview || document.presentationMode == .binaryHex || document.followModeEnabled || document.presentationMode == .archiveBrowser {
-                    statusBanner(
-                        title: bannerTitle,
-                        message: bannerMessage,
-                        accent: bannerAccent
-                    ) {
-                        if document.fileURL != nil {
-                            Button(document.followModeEnabled ? "Disable Follow" : "Enable Follow") {
-                                appState.toggleFollowMode()
-                            }
-                        }
-
-                        if document.fileURL != nil {
-                            Button("Open in Terminal") {
-                                appState.openSelectedDocumentInTerminal()
-                            }
-                        }
+                    Button("Keep Mine") {
+                        appState.keepCurrentVersionAfterExternalChange()
                     }
-                }
-
-                if document.findState.isPresented, !document.presentationMode.isStructured {
-                    RetroRule()
-                    FindReplaceBar(appState: appState, document: document)
-                }
-
-                if let completionSession {
-                    RetroRule()
-                    PredictionStripView(session: completionSession) { suggestion in
-                        appState.applyCompletion(suggestion, for: document.id)
-                    }
-                }
-
-                if !isFocusMode, !appState.settings.showsInspector, (!currentLineDiagnostics.isEmpty || currentLineBlame != nil) {
-                    RetroRule()
-                    editorInsightBar
-                }
-
-                workspaceArea
-
-                if !isFocusMode {
-                    RetroRule()
-                    StatusBarView(document: document, metrics: metrics, settings: appState.settings, pluginStatusItems: pluginStatusItems)
                 }
             }
-            .padding(isFocusMode ? 0 : 10)
+
+            if document.isPartialPreview || document.presentationMode == .binaryHex || document.followModeEnabled || document.presentationMode == .archiveBrowser {
+                statusBanner(
+                    title: bannerTitle,
+                    message: bannerMessage,
+                    accent: bannerAccent
+                ) {
+                    if document.fileURL != nil {
+                        Button(document.followModeEnabled ? "Disable Follow" : "Enable Follow") {
+                            appState.toggleFollowMode()
+                        }
+                    }
+
+                    if document.fileURL != nil {
+                        Button("Open in Terminal") {
+                            appState.openSelectedDocumentInTerminal()
+                        }
+                    }
+                }
+            }
+
+            if document.findState.isPresented, !document.presentationMode.isStructured {
+                RetroRule()
+                FindReplaceBar(appState: appState, document: document)
+            }
+
+            if let completionSession {
+                RetroRule()
+                PredictionStripView(session: completionSession) { suggestion in
+                    appState.applyCompletion(suggestion, for: document.id)
+                }
+            }
+
+            if !isFocusMode, !appState.settings.showsInspector, (!currentLineDiagnostics.isEmpty || currentLineBlame != nil) {
+                RetroRule()
+                editorInsightBar
+            }
+
+            workspaceArea
+
+            if !isFocusMode {
+                RetroRule()
+                StatusBarView(document: document, metrics: metrics, settings: appState.settings, pluginStatusItems: pluginStatusItems)
+            }
         }
+        .padding(isFocusMode ? 0 : 10)
         .background(backgroundColor)
         .task(id: lineDecorationRefreshKey) {
             appState.prefetchLineDecorations(for: document)
@@ -889,7 +990,7 @@ private struct DocumentWorkspaceView: View {
                         }
 
                         if appState.workspaceTrustMode == .restricted {
-                            headerBadge("Restricted", color: RetroPalette.warning)
+                            headerBadge("Restricted Folder", color: RetroPalette.warning)
                         }
 
                         if let structuredBadge {
@@ -919,6 +1020,27 @@ private struct DocumentWorkspaceView: View {
                         }
                         .buttonStyle(.plain)
                     }
+
+                    Menu {
+                        ForEach(WorkbenchPreset.allCases) { preset in
+                            Button(preset.displayName) {
+                                appState.applyWorkbenchPreset(preset)
+                            }
+                        }
+
+                        if appState.canRestoreCustomWorkbenchAppearance {
+                            Divider()
+                            Button("Restore Custom Layout") {
+                                appState.restoreCustomWorkbenchAppearance()
+                            }
+                        }
+                    } label: {
+                        headerControl(
+                            appState.activeWorkbenchPresetLabel,
+                            systemImage: "line.3.horizontal.decrease.circle"
+                        )
+                    }
+                    .menuStyle(.borderlessButton)
 
                     Menu {
                         Button("New Document") {
@@ -964,13 +1086,28 @@ private struct DocumentWorkspaceView: View {
                             appState.toggleFocusMode()
                         }
 
+                        Menu("Workbench Preset") {
+                            ForEach(WorkbenchPreset.allCases) { preset in
+                                Button(preset.displayName) {
+                                    appState.applyWorkbenchPreset(preset)
+                                }
+                            }
+
+                            if appState.canRestoreCustomWorkbenchAppearance {
+                                Divider()
+                                Button("Restore Custom Layout") {
+                                    appState.restoreCustomWorkbenchAppearance()
+                                }
+                            }
+                        }
+
                         Button("Appearance Preferences...") {
                             appState.showAppearancePreferences()
                         }
 
                         Divider()
 
-                        Menu("Retro Intensity") {
+                        Menu("Workbench Style") {
                             ForEach(AppChromeStyle.allCases) { style in
                                 Button(style.displayName) {
                                     appState.setChromeStyle(style)
@@ -1634,58 +1771,54 @@ private struct EmptyWorkspaceView: View {
     @ObservedObject var appState: AppState
 
     var body: some View {
-        ZStack {
-            RetroBackdropView()
+        VStack(spacing: 18) {
+            BrandMarkView(size: 76)
 
-            VStack(spacing: 18) {
-                BrandMarkView(size: 76)
+            VStack(spacing: 8) {
+                Text("ForgeText")
+                    .font(.system(size: 31, weight: .black, design: .monospaced))
+                    .tracking(1.1)
+                    .foregroundStyle(RetroPalette.ink)
 
-                VStack(spacing: 8) {
-                    Text("ForgeText")
-                        .font(.system(size: 31, weight: .black, design: .monospaced))
-                        .tracking(1.1)
-                        .foregroundStyle(RetroPalette.ink)
-
-                    Text("A native developer workbench for text, code, logs, configs, Git, and AI-driven editing.")
-                        .font(.system(size: 13, weight: .medium, design: .monospaced))
-                        .foregroundStyle(RetroPalette.link)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 560)
-                }
-
-                RetroSectionHeader(title: "Start Here", systemImage: "star.fill", accent: RetroPalette.chromePink)
+                Text("A native editor for text, code, logs, configs, Git, and AI-assisted workflows.")
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
+                    .multilineTextAlignment(.center)
                     .frame(maxWidth: 560)
-
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2), spacing: 12) {
-                    heroAction("New Document", subtitle: "Start a fresh file", systemImage: "plus.square", tone: .accent) {
-                        appState.newDocument()
-                    }
-
-                    heroAction("Open Files", subtitle: "Browse local files", systemImage: "folder", tone: .primary) {
-                        appState.openDocument()
-                    }
-
-                    heroAction("Clone Repo", subtitle: "Pull a repository locally", systemImage: "square.and.arrow.down.on.square", tone: .primary) {
-                        appState.showCloneRepositoryPanel()
-                    }
-
-                    heroAction("AI Workbench", subtitle: "Chat, edit, and draft", systemImage: "sparkles.rectangle.stack", tone: .secondary) {
-                        appState.showAIWorkbenchPanel()
-                    }
-
-                    heroAction("Open Remote", subtitle: "Load over SSH-style paths", systemImage: "network", tone: .secondary) {
-                        appState.openRemotePanel()
-                    }
-
-                    heroAction("Workspace Sessions", subtitle: "Resume a saved setup", systemImage: "square.stack.3d.up", tone: .secondary) {
-                        appState.showWorkspaceSessionsPanel()
-                    }
-                }
-                .frame(maxWidth: 560)
             }
-            .padding(28)
-            .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromePink)
+
+            RetroSectionHeader(title: "Start Here", systemImage: "star.fill", accent: RetroPalette.chromePink)
+                .frame(maxWidth: 560)
+
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2), spacing: 12) {
+                heroAction("New Document", subtitle: "Start a fresh file", systemImage: "plus.square", tone: .accent) {
+                    appState.newDocument()
+                }
+
+                heroAction("Open Files", subtitle: "Browse local files", systemImage: "folder", tone: .primary) {
+                    appState.openDocument()
+                }
+
+                heroAction("Clone Repo", subtitle: "Clone a repository locally", systemImage: "square.and.arrow.down.on.square", tone: .primary) {
+                    appState.showCloneRepositoryPanel()
+                }
+
+                heroAction("Quick Open", subtitle: "Jump through indexed workspace files and symbols", systemImage: "doc.text.magnifyingglass", tone: .secondary) {
+                    appState.showQuickOpenPanel()
+                }
+
+                heroAction("Open Remote", subtitle: "Load a file from an SSH-style location", systemImage: "network", tone: .secondary) {
+                    appState.openRemotePanel()
+                }
+
+                heroAction("Workspace Sessions", subtitle: "Resume a saved setup", systemImage: "square.stack.3d.up", tone: .secondary) {
+                    appState.showWorkspaceSessionsPanel()
+                }
+            }
+            .frame(maxWidth: 560)
         }
+        .padding(28)
+        .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromePink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 

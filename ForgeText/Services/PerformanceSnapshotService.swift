@@ -21,7 +21,8 @@ enum PerformanceSnapshotService {
             taskCount: taskCount,
             recentActivityCount: activityCount,
             physicalMemoryGB: Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824,
-            uptime: ProcessInfo.processInfo.systemUptime
+            uptime: ProcessInfo.processInfo.systemUptime,
+            metrics: EditorPerformanceMonitor.shared.snapshot()
         )
     }
 }

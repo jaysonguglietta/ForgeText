@@ -53,14 +53,14 @@ struct WorkspaceProfileSnapshot: Codable, Hashable {
 
     init(
         theme: EditorTheme,
-        chromeStyle: AppChromeStyle = .retroPro,
+        chromeStyle: AppChromeStyle = .studio,
         interfaceDensity: InterfaceDensity = .compact,
         focusModeEnabled: Bool = false,
         wrapLines: Bool,
         autosaveToDisk: Bool,
         fontSize: Double,
         showsOutline: Bool,
-        showsInspector: Bool = true,
+        showsInspector: Bool = false,
         showsBreadcrumbs: Bool,
         showHiddenFilesInExplorer: Bool,
         enabledPluginIDs: [String],
@@ -106,15 +106,15 @@ struct WorkspaceProfileSnapshot: Codable, Hashable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         theme = try container.decodeIfPresent(EditorTheme.self, forKey: .theme) ?? .forge
-        chromeStyle = try container.decodeIfPresent(AppChromeStyle.self, forKey: .chromeStyle) ?? .retroPro
+        chromeStyle = try container.decodeIfPresent(AppChromeStyle.self, forKey: .chromeStyle) ?? .studio
         interfaceDensity = try container.decodeIfPresent(InterfaceDensity.self, forKey: .interfaceDensity) ?? .compact
         focusModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .focusModeEnabled) ?? false
         wrapLines = try container.decodeIfPresent(Bool.self, forKey: .wrapLines) ?? false
         autosaveToDisk = try container.decodeIfPresent(Bool.self, forKey: .autosaveToDisk) ?? true
         fontSize = try container.decodeIfPresent(Double.self, forKey: .fontSize) ?? 14
         showsOutline = try container.decodeIfPresent(Bool.self, forKey: .showsOutline) ?? true
-        showsInspector = try container.decodeIfPresent(Bool.self, forKey: .showsInspector) ?? true
-        showsBreadcrumbs = try container.decodeIfPresent(Bool.self, forKey: .showsBreadcrumbs) ?? true
+        showsInspector = try container.decodeIfPresent(Bool.self, forKey: .showsInspector) ?? false
+        showsBreadcrumbs = try container.decodeIfPresent(Bool.self, forKey: .showsBreadcrumbs) ?? false
         showHiddenFilesInExplorer = try container.decodeIfPresent(Bool.self, forKey: .showHiddenFilesInExplorer) ?? false
         enabledPluginIDs = try container.decodeIfPresent([String].self, forKey: .enabledPluginIDs) ?? PluginHostService.defaultEnabledPluginIDs
         aiIncludeSelection = try container.decodeIfPresent(Bool.self, forKey: .aiIncludeSelection) ?? true
@@ -393,6 +393,16 @@ struct WorkspacePlatformState {
 }
 
 extension AppSettings {
+    var workbenchAppearanceSnapshot: WorkbenchAppearanceSnapshot {
+        WorkbenchAppearanceSnapshot(
+            chromeStyle: chromeStyle,
+            interfaceDensity: interfaceDensity,
+            focusModeEnabled: focusModeEnabled,
+            showsInspector: showsInspector,
+            showsBreadcrumbs: showsBreadcrumbs
+        )
+    }
+
     var profileSnapshot: WorkspaceProfileSnapshot {
         WorkspaceProfileSnapshot(
             theme: theme,
@@ -429,5 +439,20 @@ extension AppSettings {
         aiIncludeSelection = profileSnapshot.aiIncludeSelection
         aiIncludeCurrentDocument = profileSnapshot.aiIncludeCurrentDocument
         aiIncludeWorkspaceRules = profileSnapshot.aiIncludeWorkspaceRules
+        syncWorkbenchPresetFromCurrentSettings()
+    }
+
+    mutating func apply(workbenchAppearanceSnapshot: WorkbenchAppearanceSnapshot) {
+        chromeStyle = workbenchAppearanceSnapshot.chromeStyle
+        interfaceDensity = workbenchAppearanceSnapshot.interfaceDensity
+        focusModeEnabled = workbenchAppearanceSnapshot.focusModeEnabled
+        showsInspector = workbenchAppearanceSnapshot.showsInspector
+        showsBreadcrumbs = workbenchAppearanceSnapshot.showsBreadcrumbs
+    }
+
+    mutating func syncWorkbenchPresetFromCurrentSettings() {
+        let snapshot = workbenchAppearanceSnapshot
+        customWorkbenchAppearance = snapshot
+        workbenchPreset = WorkbenchPreset.matching(snapshot)
     }
 }

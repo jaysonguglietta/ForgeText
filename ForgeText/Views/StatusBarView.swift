@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct StatusBarView: View {
+    @Environment(\.retroChromeStyle) private var chromeStyle
     let document: EditorDocument
     let metrics: EditorMetrics
     let settings: AppSettings
@@ -50,10 +51,12 @@ struct StatusBarView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Text("STATUS")
-                .font(.system(size: 10, weight: .black, design: .monospaced))
-                .tracking(0.9)
-                .foregroundStyle(RetroPalette.mutedInk)
+            if chromeStyle != .studio {
+                Text("STATUS")
+                    .font(.system(size: 10, weight: .black, design: .monospaced))
+                    .tracking(0.9)
+                    .foregroundStyle(RetroPalette.mutedInk)
+            }
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
@@ -133,7 +136,10 @@ struct StatusBarView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromeBlue)
+        .retroPanel(
+            fill: chromeStyle == .studio ? RetroPalette.studioPanelMuted : RetroPalette.railFill,
+            accent: RetroPalette.chromeBlue
+        )
     }
 
     private func statusPill(_ text: String, tone: PluginStatusTone = .neutral) -> some View {

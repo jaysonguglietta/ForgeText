@@ -1,8 +1,10 @@
 # ForgeText Help
 
-This guide covers the main ForgeText 1.2.1 workflows, including the productivity panels and the newer trust and data-protection guardrails.
+This guide covers the main ForgeText 1.2.1 workflows, including the productivity panels, the newer trust and data-protection guardrails, and the current Studio-first workbench layout.
 
 ## First Run
+
+On a brand-new install, ForgeText opens a small workbench chooser first so you can start in `Quiet UI`, `Balanced`, or `Full Retro`.
 
 Open `Tools > First-Run Setup` when setting up a new Mac or workspace. It walks through:
 
@@ -11,9 +13,11 @@ Open `Tools > First-Run Setup` when setting up a new Mac or workspace. It walks 
 - checking AI context files
 - reviewing plugins
 - checking update/release readiness
-- tuning the retro interface
+- tuning the workbench style
 
 The checklist is safe to run repeatedly. It does not change files by itself unless you click into a tool and make a change.
+
+Workbench presets stay available later from the document header and `View` menu, so you can switch shells without losing your custom layout state.
 
 ## Workspace Trust And Restricted Mode
 
@@ -38,7 +42,7 @@ Sensitive local editor state such as recovery snapshots and AI chat persistence 
 
 ### Quick Open
 
-Open Quick Open from `Search > Quick Open...`, the sidebar Control Center, the toolbar, or `Command-P`.
+Open Quick Open from `Search > Quick Open...`, the sidebar Navigate pane, the toolbar, or `Command-P`.
 
 Quick Open uses the workspace index to jump to:
 
@@ -201,6 +205,18 @@ GitHub Workflow detects GitHub remotes and can open:
 
 This is a local-first PR preparation panel. It does not yet create PRs directly from ForgeText.
 
+## Sidebar Workbench
+
+ForgeText now uses a more editor-like left workbench with an activity rail and focused panes.
+
+Main panes:
+
+- `Explorer`: open documents, workspace tree, and recent files
+- `Source Control`: current branch, changed files, and stage/unstage actions
+- `Workspace`: roots, clone/open flows, sessions, and remote entry points
+- `Navigate`: Quick Open, Command Palette, search, go-to-line, keyboard shortcuts, and activity
+- `Tools` and `Extensions`: Git, AI, terminal, problems, tests, plugins, tasks, snippets, setup, and appearance
+
 ## Structured Views
 
 ForgeText recognizes common file types and can switch between raw editing and structured inspection.
@@ -256,13 +272,13 @@ Open `Tools > Theme Lab`.
 
 Theme Lab controls:
 
-- Retro Intensity: Retro Classic, Retro Pro, or Minimal Pro
+- Workbench Style: Studio, Retro Classic, Retro Pro, or Minimal Pro
 - Density: Comfortable, Compact, or Dense
 - editor theme
 - focus mode
 - inspector visibility
 
-The goal is to preserve the late-90s identity while keeping production text work calm and readable.
+The default recommendation is `Studio` for everyday editing, with the retro styles still available as alternate shells.
 
 ## Keyboard Shortcuts
 

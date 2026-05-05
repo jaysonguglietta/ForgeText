@@ -13,7 +13,7 @@ struct AppearancePreferencesView: View {
                     header
 
                     preferenceSection("Appearance", systemImage: "paintbrush.pointed") {
-                        Picker("Retro intensity", selection: chromeStyleBinding) {
+                        Picker("Workbench style", selection: chromeStyleBinding) {
                             ForEach(AppChromeStyle.allCases) { style in
                                 Text(style.displayName).tag(style)
                             }
@@ -40,6 +40,28 @@ struct AppearancePreferencesView: View {
                     }
 
                     preferenceSection("Focus + Layout", systemImage: "viewfinder") {
+                        HStack(spacing: 10) {
+                            ForEach(WorkbenchPreset.allCases) { preset in
+                                Button(preset.displayName) {
+                                    appState.applyWorkbenchPreset(preset)
+                                }
+                                .buttonStyle(RetroActionButtonStyle(
+                                    tone: appState.selectedWorkbenchPreset == preset ? .accent : .secondary
+                                ))
+                            }
+                        }
+
+                        if appState.canRestoreCustomWorkbenchAppearance {
+                            Button("Restore Custom Layout") {
+                                appState.restoreCustomWorkbenchAppearance()
+                            }
+                            .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+                        }
+
+                        Text(appState.activeWorkbenchPresetSummary)
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(RetroPalette.link)
+
                         settingToggle(
                             title: "Focus mode",
                             subtitle: "Hide the sidebar, tab strip, header, inspector, and status bar for quiet editing.",
@@ -66,7 +88,7 @@ struct AppearancePreferencesView: View {
                     }
 
                     preferenceSection("Onboarding Checklist", systemImage: "checklist") {
-                        checklistRow("Choose a daily-driver appearance", isDone: appState.settings.chromeStyle == .retroPro || appState.settings.chromeStyle == .minimalPro)
+                        checklistRow("Choose a daily-driver appearance", isDone: appState.settings.chromeStyle == .studio || appState.settings.chromeStyle == .retroPro || appState.settings.chromeStyle == .minimalPro)
                         checklistRow("Pick an editor theme", isDone: true)
                         checklistRow("Open or clone a workspace", isDone: !appState.workspaceRootURLs.isEmpty)
                         checklistRow("Configure AI providers", isDone: appState.settings.aiProviders.contains(where: \.isEnabled))
@@ -101,7 +123,7 @@ struct AppearancePreferencesView: View {
                     .font(.system(size: 22, weight: .black, design: .monospaced))
                     .foregroundStyle(RetroPalette.ink)
 
-                Text("Tune ForgeText for daily work without losing the portal-era personality.")
+                Text("Tune ForgeText for long editing sessions with a calmer, more modern workbench.")
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundStyle(RetroPalette.link)
             }

@@ -217,6 +217,21 @@ struct FileEditorCommands: Commands {
             }
             .keyboardShortcut("u", modifiers: [.command, .shift])
 
+            Menu("Workbench Preset") {
+                ForEach(WorkbenchPreset.allCases) { preset in
+                    Button(preset.displayName) {
+                        appState.applyWorkbenchPreset(preset)
+                    }
+                }
+
+                if appState.canRestoreCustomWorkbenchAppearance {
+                    Divider()
+                    Button("Restore Custom Layout") {
+                        appState.restoreCustomWorkbenchAppearance()
+                    }
+                }
+            }
+
             Button("Appearance Preferences...") {
                 appState.showAppearancePreferences()
             }
@@ -250,7 +265,7 @@ struct FileEditorCommands: Commands {
                 }
             }
 
-            Menu("Retro Intensity") {
+            Menu("Workbench Style") {
                 ForEach(AppChromeStyle.allCases) { style in
                     Button(style.displayName) {
                         appState.setChromeStyle(style)

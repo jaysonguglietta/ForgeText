@@ -1,7 +1,7 @@
 import SwiftUI
 
 private struct RetroChromeStyleKey: EnvironmentKey {
-    static let defaultValue: AppChromeStyle = .retroPro
+    static let defaultValue: AppChromeStyle = .studio
 }
 
 private struct RetroDensityKey: EnvironmentKey {
@@ -39,6 +39,16 @@ struct RetroMetrics {
 }
 
 enum RetroPalette {
+    static let studioCanvas = Color(red: 0.94, green: 0.95, blue: 0.97)
+    static let studioCanvasMuted = Color(red: 0.91, green: 0.93, blue: 0.96)
+    static let studioRail = Color(red: 0.88, green: 0.90, blue: 0.94)
+    static let studioPanel = Color(red: 0.97, green: 0.98, blue: 0.99)
+    static let studioPanelMuted = Color(red: 0.94, green: 0.95, blue: 0.97)
+    static let studioField = Color.white
+    static let studioBorder = Color(red: 0.79, green: 0.82, blue: 0.88)
+    static let studioDivider = Color(red: 0.82, green: 0.85, blue: 0.90)
+    static let studioAccent = Color(red: 0.11, green: 0.38, blue: 0.78)
+    static let studioAccentMuted = Color(red: 0.34, green: 0.50, blue: 0.79)
     static let pageCream = Color(red: 0.95, green: 0.93, blue: 0.84)
     static let pageTan = Color(red: 0.88, green: 0.85, blue: 0.75)
     static let chromeBlue = Color(red: 0.07, green: 0.20, blue: 0.38)
@@ -71,18 +81,35 @@ struct RetroBackdropView: View {
         ZStack {
             backgroundGradient
 
-            VStack(spacing: 0) {
-                LinearGradient(
-                    colors: headerColors,
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-                .frame(height: headerHeight)
+            if chromeStyle == .studio {
+                VStack(spacing: 0) {
+                    LinearGradient(
+                        colors: headerColors,
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(height: headerHeight)
 
-                Spacer(minLength: 0)
+                    Rectangle()
+                        .fill(RetroPalette.studioDivider)
+                        .frame(height: 1)
+
+                    Spacer(minLength: 0)
+                }
+            } else {
+                VStack(spacing: 0) {
+                    LinearGradient(
+                        colors: headerColors,
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(height: headerHeight)
+
+                    Spacer(minLength: 0)
+                }
             }
 
-            if chromeStyle != .minimalPro {
+            if chromeStyle == .retroClassic {
                 Canvas { context, size in
                     let dotColor = GraphicsContext.Shading.color(RetroPalette.chromeBlue.opacity(dotOpacity))
                     for x in stride(from: 12.0, through: size.width, by: 22.0) {
@@ -93,22 +120,46 @@ struct RetroBackdropView: View {
                 }
             }
 
-            Canvas { context, size in
-                let lineColor = GraphicsContext.Shading.color(RetroPalette.paperLine)
-                for y in stride(from: 86.0, through: size.height, by: 34.0) {
-                    context.fill(Path(CGRect(x: 0, y: y, width: size.width, height: 1)), with: lineColor)
+            if chromeStyle == .retroClassic {
+                Canvas { context, size in
+                    let lineColor = GraphicsContext.Shading.color(RetroPalette.paperLine)
+                    for y in stride(from: 86.0, through: size.height, by: 34.0) {
+                        context.fill(Path(CGRect(x: 0, y: y, width: size.width, height: 1)), with: lineColor)
+                    }
+                }
+            } else if chromeStyle != .studio {
+                VStack(spacing: 0) {
+                    Rectangle()
+                        .fill(RetroPalette.chromeBlue.opacity(chromeStyle == .retroPro ? 0.10 : 0.06))
+                        .frame(height: chromeStyle == .retroPro ? 1 : 0.5)
+                    Spacer(minLength: 0)
+                }
+
+                VStack {
+                    Spacer(minLength: 0)
+                    LinearGradient(
+                        colors: [
+                            Color.clear,
+                            RetroPalette.chromeTeal.opacity(chromeStyle == .retroPro ? 0.035 : 0.02)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: chromeStyle == .retroPro ? 160 : 110)
                 }
             }
 
-            VStack(spacing: 0) {
-                HStack(spacing: 7) {
-                    Rectangle().fill(RetroPalette.chromeGold.opacity(0.54))
-                    Rectangle().fill(RetroPalette.chromePink.opacity(chromeStyle == .retroClassic ? 0.68 : 0.42))
-                    Rectangle().fill(RetroPalette.chromeCyan.opacity(0.46))
-                }
-                .frame(height: chromeStyle == .minimalPro ? 1 : 3)
+            if chromeStyle != .studio {
+                VStack(spacing: 0) {
+                    HStack(spacing: 7) {
+                        Rectangle().fill(RetroPalette.chromeGold.opacity(0.54))
+                        Rectangle().fill(RetroPalette.chromePink.opacity(chromeStyle == .retroClassic ? 0.68 : 0.42))
+                        Rectangle().fill(RetroPalette.chromeCyan.opacity(0.46))
+                    }
+                    .frame(height: chromeStyle == .minimalPro ? 1 : 3)
 
-                Spacer(minLength: 0)
+                    Spacer(minLength: 0)
+                }
             }
         }
         .ignoresSafeArea()
@@ -116,6 +167,12 @@ struct RetroBackdropView: View {
 
     private var backgroundGradient: LinearGradient {
         switch chromeStyle {
+        case .studio:
+            return LinearGradient(
+                colors: [RetroPalette.studioCanvas, RetroPalette.studioCanvasMuted],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
         case .retroClassic:
             return LinearGradient(colors: [RetroPalette.pageCream, RetroPalette.pageTan], startPoint: .topLeading, endPoint: .bottomTrailing)
         case .retroPro:
@@ -127,6 +184,8 @@ struct RetroBackdropView: View {
 
     private var headerColors: [Color] {
         switch chromeStyle {
+        case .studio:
+            return [RetroPalette.studioRail, RetroPalette.studioCanvasMuted]
         case .retroClassic:
             return [RetroPalette.chromeBlue, RetroPalette.chromeTeal, RetroPalette.chromeCyan.opacity(0.82)]
         case .retroPro:
@@ -138,6 +197,8 @@ struct RetroBackdropView: View {
 
     private var headerHeight: CGFloat {
         switch chromeStyle {
+        case .studio:
+            return 8
         case .retroClassic:
             return 74
         case .retroPro:
@@ -160,38 +221,55 @@ struct RetroPanelBackground: View {
     var inset: Bool = false
 
     var body: some View {
-        ZStack {
-            Rectangle()
-                .fill(fill)
+        Group {
+            if chromeStyle == .studio {
+                RoundedRectangle(cornerRadius: inset ? 8 : 10, style: .continuous)
+                    .fill(inset ? RetroPalette.studioField : RetroPalette.studioPanel)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: inset ? 8 : 10, style: .continuous)
+                            .stroke(RetroPalette.studioBorder, lineWidth: 1)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: inset ? 8 : 10, style: .continuous)
+                            .stroke(accent.opacity(inset ? 0.18 : 0.10), lineWidth: 1)
+                    )
+            } else {
+                ZStack {
+                    Rectangle()
+                        .fill(fill)
 
-            Rectangle()
-                .stroke(accent.opacity(borderOpacity), lineWidth: 1)
+                    Rectangle()
+                        .stroke(accent.opacity(borderOpacity), lineWidth: 1)
 
-            VStack(spacing: 0) {
-                Rectangle()
-                    .fill(inset ? RetroPalette.darkEdge : RetroPalette.brightEdge)
-                    .frame(height: 1)
-                Spacer(minLength: 0)
-                Rectangle()
-                    .fill(inset ? RetroPalette.brightEdge : RetroPalette.darkEdge)
-                    .frame(height: 1)
-            }
+                    VStack(spacing: 0) {
+                        Rectangle()
+                            .fill(inset ? RetroPalette.darkEdge : RetroPalette.brightEdge)
+                            .frame(height: 1)
+                        Spacer(minLength: 0)
+                        Rectangle()
+                            .fill(inset ? RetroPalette.brightEdge : RetroPalette.darkEdge)
+                            .frame(height: 1)
+                    }
 
-            HStack(spacing: 0) {
-                Rectangle()
-                    .fill(inset ? RetroPalette.darkEdge : RetroPalette.brightEdge)
-                    .frame(width: 1)
-                Spacer(minLength: 0)
-                Rectangle()
-                    .fill(inset ? RetroPalette.brightEdge : RetroPalette.darkEdge)
-                    .frame(width: 1)
+                    HStack(spacing: 0) {
+                        Rectangle()
+                            .fill(inset ? RetroPalette.darkEdge : RetroPalette.brightEdge)
+                            .frame(width: 1)
+                        Spacer(minLength: 0)
+                        Rectangle()
+                            .fill(inset ? RetroPalette.brightEdge : RetroPalette.darkEdge)
+                            .frame(width: 1)
+                    }
+                }
+                .shadow(color: .black.opacity(inset ? 0.0 : shadowOpacity), radius: 0, x: 1, y: 1)
             }
         }
-        .shadow(color: .black.opacity(inset ? 0.0 : shadowOpacity), radius: 0, x: 1, y: 1)
     }
 
     private var borderOpacity: Double {
         switch chromeStyle {
+        case .studio:
+            return 0.18
         case .retroClassic:
             return 0.82
         case .retroPro:
@@ -203,6 +281,8 @@ struct RetroPanelBackground: View {
 
     private var shadowOpacity: Double {
         switch chromeStyle {
+        case .studio:
+            return 0.0
         case .retroClassic:
             return 0.10
         case .retroPro:
@@ -215,6 +295,7 @@ struct RetroPanelBackground: View {
 
 struct RetroActionButtonStyle: ButtonStyle {
     @Environment(\.retroDensity) private var density
+    @Environment(\.retroChromeStyle) private var chromeStyle
 
     enum Tone {
         case primary
@@ -246,6 +327,35 @@ struct RetroActionButtonStyle: ButtonStyle {
     }
 
     private func palette(for tone: Tone, pressed: Bool) -> (fill: Color, accent: Color, text: Color) {
+        if chromeStyle == .studio {
+            switch tone {
+            case .primary:
+                return (
+                    pressed ? RetroPalette.studioPanelMuted : RetroPalette.studioPanel,
+                    RetroPalette.studioAccentMuted,
+                    RetroPalette.ink
+                )
+            case .secondary:
+                return (
+                    pressed ? RetroPalette.studioPanelMuted : RetroPalette.studioField,
+                    RetroPalette.studioDivider,
+                    RetroPalette.ink
+                )
+            case .accent:
+                return (
+                    pressed ? RetroPalette.studioAccent.opacity(0.88) : RetroPalette.studioAccent,
+                    RetroPalette.studioAccent,
+                    Color.white
+                )
+            case .danger:
+                return (
+                    pressed ? RetroPalette.danger.opacity(0.90) : RetroPalette.danger.opacity(0.82),
+                    RetroPalette.danger,
+                    Color.white
+                )
+            }
+        }
+
         switch tone {
         case .primary:
             return (
@@ -277,16 +387,17 @@ struct RetroActionButtonStyle: ButtonStyle {
 
 struct RetroTextFieldModifier: ViewModifier {
     @Environment(\.retroDensity) private var density
+    @Environment(\.retroChromeStyle) private var chromeStyle
 
     func body(content: Content) -> some View {
         content
-            .font(.system(size: 13, weight: .medium, design: .monospaced))
+            .font(.system(size: 13, weight: chromeStyle == .studio ? .regular : .medium, design: .monospaced))
             .padding(.horizontal, RetroMetrics.metrics(for: density).controlHorizontalPadding)
             .padding(.vertical, RetroMetrics.metrics(for: density).controlVerticalPadding)
             .background(
                 RetroPanelBackground(
-                    fill: RetroPalette.fieldFill,
-                    accent: RetroPalette.chromeTeal,
+                    fill: chromeStyle == .studio ? RetroPalette.studioField : RetroPalette.fieldFill,
+                    accent: chromeStyle == .studio ? RetroPalette.studioAccentMuted : RetroPalette.chromeTeal,
                     inset: true
                 )
             )
@@ -296,20 +407,21 @@ struct RetroTextFieldModifier: ViewModifier {
 
 struct RetroCapsuleLabel: View {
     @Environment(\.retroDensity) private var density
+    @Environment(\.retroChromeStyle) private var chromeStyle
 
     let text: String
     var accent: Color = RetroPalette.chromePink
 
     var body: some View {
-        Text(text.uppercased())
+        Text(chromeStyle == .studio ? text : text.uppercased())
             .font(.system(size: 10, weight: .semibold, design: .monospaced))
-            .tracking(0.35)
+            .tracking(chromeStyle == .studio ? 0.1 : 0.35)
             .foregroundStyle(accent)
             .padding(.horizontal, max(6, RetroMetrics.metrics(for: density).controlHorizontalPadding - 2))
             .padding(.vertical, max(2, RetroMetrics.metrics(for: density).controlVerticalPadding - 3))
             .background(
                 RetroPanelBackground(
-                    fill: RetroPalette.fieldFill,
+                    fill: chromeStyle == .studio ? RetroPalette.studioField : RetroPalette.fieldFill,
                     accent: accent,
                     inset: true
                 )
@@ -322,18 +434,20 @@ struct RetroRule: View {
 
     var body: some View {
         Rectangle()
-            .fill(
+            .fill(chromeStyle == .studio ? AnyShapeStyle(colors.first ?? RetroPalette.studioDivider) : AnyShapeStyle(
                 LinearGradient(
                     colors: colors,
                     startPoint: .leading,
                     endPoint: .trailing
                 )
-            )
+            ))
             .frame(height: chromeStyle == .retroClassic ? 2 : 1)
     }
 
     private var colors: [Color] {
         switch chromeStyle {
+        case .studio:
+            return [RetroPalette.studioDivider]
         case .retroClassic:
             return [RetroPalette.chromePink.opacity(0.72), RetroPalette.chromeGold.opacity(0.72), RetroPalette.chromeCyan.opacity(0.72)]
         case .retroPro:
@@ -346,6 +460,7 @@ struct RetroRule: View {
 
 struct RetroSectionHeader: View {
     @Environment(\.retroDensity) private var density
+    @Environment(\.retroChromeStyle) private var chromeStyle
 
     let title: String
     var systemImage: String? = nil
@@ -361,7 +476,7 @@ struct RetroSectionHeader: View {
 
             Text(title.uppercased())
                 .font(.system(size: 11, weight: .black, design: .monospaced))
-                .tracking(0.8)
+                .tracking(chromeStyle == .studio ? 0.35 : 0.8)
                 .foregroundStyle(RetroPalette.ink)
 
             Rectangle()
@@ -370,12 +485,16 @@ struct RetroSectionHeader: View {
         }
         .padding(.horizontal, RetroMetrics.metrics(for: density).controlHorizontalPadding)
         .padding(.vertical, RetroMetrics.metrics(for: density).controlVerticalPadding)
-        .retroPanel(fill: RetroPalette.panelFillMuted, accent: accent)
+        .retroPanel(
+            fill: chromeStyle == .studio ? RetroPalette.studioPanelMuted : RetroPalette.panelFillMuted,
+            accent: chromeStyle == .studio ? RetroPalette.studioAccentMuted : accent
+        )
     }
 }
 
 struct RetroIconButtonStyle: ButtonStyle {
     @Environment(\.retroDensity) private var density
+    @Environment(\.retroChromeStyle) private var chromeStyle
 
     var accent: Color = RetroPalette.chromeTeal
 
@@ -386,8 +505,10 @@ struct RetroIconButtonStyle: ButtonStyle {
             .padding(max(4, RetroMetrics.metrics(for: density).controlVerticalPadding))
             .background(
                 RetroPanelBackground(
-                    fill: configuration.isPressed ? RetroPalette.panelFillMuted : RetroPalette.fieldFill,
-                    accent: accent,
+                    fill: chromeStyle == .studio
+                        ? (configuration.isPressed ? RetroPalette.studioPanelMuted : RetroPalette.studioField)
+                        : (configuration.isPressed ? RetroPalette.panelFillMuted : RetroPalette.fieldFill),
+                    accent: chromeStyle == .studio ? RetroPalette.studioAccentMuted : accent,
                     inset: configuration.isPressed
                 )
             )

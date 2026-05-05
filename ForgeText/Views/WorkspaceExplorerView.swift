@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct WorkspaceExplorerView: View {
+    @Environment(\.retroChromeStyle) private var chromeStyle
     @ObservedObject var appState: AppState
 
     private var filteredNodes: [WorkspaceExplorerNode] {
@@ -13,7 +14,9 @@ struct WorkspaceExplorerView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                RetroCapsuleLabel(text: "Explorer", accent: RetroPalette.chromeCyan)
+                Text("Explorer")
+                    .font(.system(size: 12, weight: .black, design: .monospaced))
+                    .foregroundStyle(RetroPalette.ink)
                 Spacer(minLength: 0)
 
                 Toggle(
@@ -56,9 +59,7 @@ struct WorkspaceExplorerView: View {
             TextField("Filter files", text: $appState.workspaceExplorerState.filterQuery)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromeBlue)
+                .retroTextField()
 
             if filteredNodes.isEmpty {
                 Button {
@@ -70,12 +71,15 @@ struct WorkspaceExplorerView: View {
                 .buttonStyle(RetroActionButtonStyle(tone: .secondary))
             } else {
                 ScrollView {
-                    OutlineGroup(filteredNodes, children: \.childrenOrNil) { node in
-                        WorkspaceExplorerRow(appState: appState, node: node)
+                    VStack(alignment: .leading, spacing: 0) {
+                        OutlineGroup(filteredNodes, children: \.childrenOrNil) { node in
+                            WorkspaceExplorerRow(appState: appState, node: node)
+                        }
                     }
                     .padding(.vertical, 4)
                 }
-                .frame(maxHeight: 260)
+                .frame(minHeight: 280, maxHeight: 520)
+                .retroInsetPanel(fill: chromeStyle == .studio ? RetroPalette.studioField : RetroPalette.fieldFill, accent: RetroPalette.chromeBlue)
             }
         }
         .padding(12)
@@ -84,6 +88,7 @@ struct WorkspaceExplorerView: View {
 }
 
 private struct WorkspaceExplorerRow: View {
+    @Environment(\.retroChromeStyle) private var chromeStyle
     @ObservedObject var appState: AppState
     let node: WorkspaceExplorerNode
 
@@ -118,6 +123,9 @@ private struct WorkspaceExplorerRow: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
-        .retroInsetPanel(fill: RetroPalette.fieldFill, accent: node.isFavorite ? RetroPalette.chromePink : RetroPalette.chromeTeal)
+        .background(
+            RoundedRectangle(cornerRadius: chromeStyle == .studio ? 6 : 0, style: .continuous)
+                .fill(node.isFavorite ? RetroPalette.chromePink.opacity(chromeStyle == .studio ? 0.08 : 0.0) : Color.clear)
+        )
     }
 }

@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct QuickOpenView: View {
+    @Environment(\.retroChromeStyle) private var chromeStyle
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var appState: AppState
     @State private var query = ""
@@ -33,86 +34,90 @@ struct QuickOpenView: View {
     }
 
     var body: some View {
-        ZStack {
-            RetroBackdropView()
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Label("Quick Open", systemImage: "doc.text.magnifyingglass")
+                    .font(.system(size: 18, weight: .black, design: .monospaced))
+                    .foregroundStyle(RetroPalette.ink)
 
-            VStack(alignment: .leading, spacing: 14) {
-                ProductivityHeader(
-                    title: "Quick Open",
-                    systemImage: "doc.text.magnifyingglass",
-                    subtitle: appState.workspaceIndexSummary.statusMessage ?? "Jump around the workspace without touching the mouse."
-                ) {
-                    Button("Reindex") {
-                        appState.refreshWorkspaceIndex()
-                    }
-                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+                Spacer(minLength: 0)
 
-                    Button("Close") {
-                        dismiss()
-                    }
-                    .buttonStyle(RetroActionButtonStyle(tone: .primary))
+                Text(appState.workspaceIndexSummary.statusMessage ?? "Jump around the workspace without touching the mouse.")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
+                    .lineLimit(1)
+
+                Button("Close") {
+                    dismiss()
                 }
+                .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+            }
 
-                HStack(spacing: 10) {
-                    Picker("Mode", selection: $mode) {
-                        Text("Files").tag(CommandPaletteMode.files)
-                        Text("Symbols").tag(CommandPaletteMode.symbols)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 220)
-
-                    TextField(mode == .files ? "@ file name or path" : "# symbol or function", text: $query)
-                        .textFieldStyle(.plain)
-                        .retroTextField()
+            HStack(spacing: 10) {
+                Picker("Mode", selection: $mode) {
+                    Text("Files").tag(CommandPaletteMode.files)
+                    Text("Symbols").tag(CommandPaletteMode.symbols)
                 }
+                .pickerStyle(.segmented)
+                .frame(width: 220)
 
-                if appState.workspaceIndexSummary.isIndexing {
-                    ProgressView("Indexing workspace...")
-                        .font(.system(size: 12, weight: .bold, design: .monospaced))
-                        .foregroundStyle(RetroPalette.link)
+                TextField(mode == .files ? "@ file name or path" : "# symbol or function", text: $query)
+                    .textFieldStyle(.plain)
+                    .retroTextField()
+
+                Button("Reindex") {
+                    appState.refreshWorkspaceIndex()
                 }
+                .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+            }
 
-                ScrollView {
-                    LazyVStack(spacing: 8) {
-                        if mode == .files {
-                            if matchingFiles.isEmpty {
-                                emptyMessage("No indexed files match that search.")
-                            } else {
-                                ForEach(Array(matchingFiles.prefix(120))) { entry in
-                                    Button {
-                                        appState.openIndexedFile(entry.url)
-                                        dismiss()
-                                    } label: {
-                                        indexFileRow(entry)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
+            if appState.workspaceIndexSummary.isIndexing {
+                ProgressView("Indexing workspace...")
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
+            }
+
+            ScrollView {
+                LazyVStack(spacing: 8) {
+                    if mode == .files {
+                        if matchingFiles.isEmpty {
+                            emptyMessage("No indexed files match that search.")
                         } else {
-                            if matchingSymbols.isEmpty {
-                                emptyMessage("No symbols match that search.")
-                            } else {
-                                ForEach(Array(matchingSymbols.prefix(120))) { symbol in
-                                    Button {
-                                        appState.openIndexedSymbol(symbol)
-                                        dismiss()
-                                    } label: {
-                                        symbolRow(symbol)
-                                    }
-                                    .buttonStyle(.plain)
+                            ForEach(Array(matchingFiles.prefix(120))) { entry in
+                                Button {
+                                    appState.openIndexedFile(entry.url)
+                                    dismiss()
+                                } label: {
+                                    indexFileRow(entry)
                                 }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    } else {
+                        if matchingSymbols.isEmpty {
+                            emptyMessage("No symbols match that search.")
+                        } else {
+                            ForEach(Array(matchingSymbols.prefix(120))) { symbol in
+                                Button {
+                                    appState.openIndexedSymbol(symbol)
+                                    dismiss()
+                                } label: {
+                                    symbolRow(symbol)
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                     }
-                    .padding(12)
                 }
-                .retroInsetPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
+                .padding(10)
             }
-            .padding(18)
-            .frame(minWidth: 760, minHeight: 560)
-            .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
-            .padding(18)
+            .retroInsetPanel(fill: chromeStyle == .studio ? RetroPalette.studioPanelMuted : RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
         }
+        .padding(14)
+        .frame(minWidth: 720, idealWidth: 760, minHeight: 460)
+        .background(chromeStyle == .studio ? RetroPalette.studioCanvasMuted : RetroPalette.pageCream)
+        .retroPanel(fill: chromeStyle == .studio ? RetroPalette.studioPanel : RetroPalette.panelFill, accent: RetroPalette.chromePink)
+        .padding(14)
     }
 
     private func indexFileRow(_ entry: WorkspaceIndexEntry) -> some View {
@@ -144,7 +149,7 @@ struct QuickOpenView: View {
             }
         }
         .padding(10)
-        .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromeBlue)
+        .retroPanel(fill: chromeStyle == .studio ? RetroPalette.studioPanelMuted : RetroPalette.panelFill, accent: RetroPalette.chromeBlue)
     }
 
     private func symbolRow(_ symbol: WorkspaceSymbolEntry) -> some View {
@@ -166,7 +171,7 @@ struct QuickOpenView: View {
             RetroCapsuleLabel(text: "line \(symbol.lineNumber)", accent: RetroPalette.chromeGold)
         }
         .padding(10)
-        .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
+        .retroPanel(fill: chromeStyle == .studio ? RetroPalette.studioPanelMuted : RetroPalette.panelFill, accent: RetroPalette.chromePink)
     }
 }
 
@@ -369,23 +374,42 @@ struct PerformanceHUDView: View {
                     .buttonStyle(RetroActionButtonStyle(tone: .primary))
                 }
 
-                if let snapshot {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
-                        statCard("Open Docs", "\(snapshot.openDocumentCount)", "Dirty \(snapshot.dirtyDocumentCount)")
-                        statCard("Index Files", "\(snapshot.indexedFileCount)", "Symbols \(snapshot.indexedSymbolCount)")
-                        statCard("Roots", "\(snapshot.workspaceRootCount)", "Workspace")
-                        statCard("Plugins", "\(snapshot.enabledPluginCount)", "Enabled")
-                        statCard("Tasks", "\(snapshot.taskCount)", "Detected")
-                        statCard("Memory", String(format: "%.1f GB", snapshot.physicalMemoryGB), "System")
-                    }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let snapshot {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+                                statCard("Open Docs", "\(snapshot.openDocumentCount)", "Dirty \(snapshot.dirtyDocumentCount)")
+                                statCard("Index Files", "\(snapshot.indexedFileCount)", "Symbols \(snapshot.indexedSymbolCount)")
+                                statCard("Roots", "\(snapshot.workspaceRootCount)", "Workspace")
+                                statCard("Plugins", "\(snapshot.enabledPluginCount)", "Enabled")
+                                statCard("Tasks", "\(snapshot.taskCount)", "Detected")
+                                statCard("Memory", String(format: "%.1f GB", snapshot.physicalMemoryGB), "System")
+                            }
 
-                    Text("Captured \(snapshot.capturedAt.formatted(date: .abbreviated, time: .standard)). System uptime \(formatDuration(snapshot.uptime)).")
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundStyle(RetroPalette.link)
-                        .padding(12)
-                        .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromeBlue)
-                } else {
-                    emptyMessage("No performance snapshot yet.")
+                            if snapshot.metrics.isEmpty {
+                                emptyMessage("Open a larger file, switch views, or refresh Git insights to populate live timing probes.")
+                            } else {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    RetroSectionHeader(title: "Timing Probes", systemImage: "waveform.path.ecg", accent: RetroPalette.chromeTeal)
+
+                                    ForEach(snapshot.metrics, id: \.kind) { metric in
+                                        metricRow(metric)
+                                    }
+                                }
+                                .padding(12)
+                                .retroInsetPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeTeal)
+                            }
+
+                            Text("Captured \(snapshot.capturedAt.formatted(date: .abbreviated, time: .standard)). System uptime \(formatDuration(snapshot.uptime)).")
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .foregroundStyle(RetroPalette.link)
+                                .padding(12)
+                                .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromeBlue)
+                        } else {
+                            emptyMessage("No performance snapshot yet.")
+                        }
+                    }
+                    .padding(.vertical, 2)
                 }
             }
             .padding(18)
@@ -396,6 +420,45 @@ struct PerformanceHUDView: View {
         .onAppear {
             appState.refreshPerformanceSnapshot()
         }
+    }
+
+    private func metricRow(_ metric: PerformanceMetricSnapshot) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(metric.kind.displayName)
+                        .font(.system(size: 13, weight: .black, design: .monospaced))
+                        .foregroundStyle(RetroPalette.ink)
+                    RetroCapsuleLabel(text: "\(metric.sampleCount) sample\(metric.sampleCount == 1 ? "" : "s")", accent: RetroPalette.chromeBlue)
+                }
+
+                Text(metric.lastDetail ?? "No detail captured")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
+
+                if let payload = metric.lastPayload {
+                    Text(payload)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(RetroPalette.mutedInk)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            VStack(alignment: .trailing, spacing: 4) {
+                Text("Last \(formatMilliseconds(metric.lastDurationMS))")
+                Text("Avg \(formatMilliseconds(metric.averageDurationMS))")
+                Text("Max \(formatMilliseconds(metric.maxDurationMS))")
+            }
+            .font(.system(size: 11, weight: .bold, design: .monospaced))
+            .foregroundStyle(RetroPalette.ink)
+        }
+        .padding(10)
+        .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromeTeal)
+    }
+
+    private func formatMilliseconds(_ value: Double) -> String {
+        String(format: "%.1f ms", value)
     }
 }
 
@@ -583,7 +646,7 @@ struct FirstRunSetupView: View {
             ("Configure AI", "Review AI providers, rule files, and reusable prompts.", appState.selectedAIProvider != nil || !appState.aiContextState.ruleFiles.isEmpty, appState.showAIContextCenterPanel),
             ("Enable Plugins", "Review IDE plugins, tasks, snippets, and diagnostics.", !appState.enabledPlugins.isEmpty, appState.showPluginManagerPanel),
             ("Check Updates", "Confirm Sparkle, appcast, docs, and DMG readiness.", appState.releaseReadinessState.failureCount == 0, appState.showReleaseReadinessPanel),
-            ("Tune Interface", "Pick the 90s chrome level, density, and editor theme.", true, appState.showThemeLabPanel),
+            ("Tune Interface", "Pick a workbench style, density, and editor theme.", true, appState.showThemeLabPanel),
         ]
     }
 
@@ -595,9 +658,10 @@ struct FirstRunSetupView: View {
                 ProductivityHeader(
                     title: "First-Run Setup",
                     systemImage: "checklist",
-                    subtitle: "The friendly onboarding cassette: workspace, Git, AI, plugins, updates, and the vibe."
+                    subtitle: "Set up your workspace, indexing, AI, plugins, updates, and workbench defaults."
                 ) {
                     Button("Close") {
+                        appState.completeFirstRunExperienceIfNeeded()
                         dismiss()
                     }
                     .buttonStyle(RetroActionButtonStyle(tone: .primary))
@@ -605,6 +669,8 @@ struct FirstRunSetupView: View {
 
                 ScrollView {
                     VStack(spacing: 10) {
+                        presetChooserCard
+
                         ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
                             setupRow(index: index + 1, title: step.0, detail: step.1, isComplete: step.2, action: step.3)
                         }
@@ -622,6 +688,63 @@ struct FirstRunSetupView: View {
             appState.refreshAIContextState()
             appState.refreshReleaseReadiness()
         }
+        .onDisappear {
+            appState.completeFirstRunExperienceIfNeeded()
+        }
+    }
+
+    private var presetChooserCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            RetroSectionHeader(title: "Choose A Starting Layout", systemImage: "switch.2", accent: RetroPalette.chromePink)
+
+            Text("ForgeText starts in Quiet UI by default. Choose a calmer Studio workbench or keep Full Retro if you want the more expressive shell.")
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(RetroPalette.link)
+
+            HStack(spacing: 10) {
+                presetButton(.quiet, tone: .accent)
+                presetButton(.fullRetro, tone: .secondary)
+            }
+
+            HStack(spacing: 8) {
+                Button("Use Balanced") {
+                    appState.applyWorkbenchPreset(.balanced, markFirstRunComplete: true)
+                }
+                .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+
+                if let preset = appState.selectedWorkbenchPreset {
+                    Text("Current: \(preset.displayName)")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(RetroPalette.mutedInk)
+                }
+            }
+        }
+        .padding(12)
+        .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
+    }
+
+    private func presetButton(_ preset: WorkbenchPreset, tone: RetroActionButtonStyle.Tone) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(preset.displayName)
+                .font(.system(size: 13, weight: .black, design: .monospaced))
+                .foregroundStyle(RetroPalette.ink)
+
+            Text(preset.summary)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(RetroPalette.link)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Button("Choose \(preset.displayName)") {
+                appState.applyWorkbenchPreset(preset, markFirstRunComplete: true)
+            }
+            .buttonStyle(RetroActionButtonStyle(tone: tone))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .retroInsetPanel(
+            fill: appState.selectedWorkbenchPreset == preset ? RetroPalette.chromeCyan.opacity(0.15) : RetroPalette.fieldFill,
+            accent: appState.selectedWorkbenchPreset == preset ? RetroPalette.chromeCyan : RetroPalette.chromeBlue
+        )
     }
 
     private func setupRow(index: Int, title: String, detail: String, isComplete: Bool, action: @escaping () -> Void) -> some View {
@@ -668,7 +791,7 @@ struct ThemeLabView: View {
                 ProductivityHeader(
                     title: "Theme Lab",
                     systemImage: "paintpalette",
-                    subtitle: "Keep the late-90s soul, but dial the volume for real production work."
+                    subtitle: "Tune the workbench style, density, layout, and editor theme for real production work."
                 ) {
                     Button("Close") {
                         dismiss()
@@ -677,8 +800,31 @@ struct ThemeLabView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
+                    RetroSectionHeader(title: "Workbench", systemImage: "switch.2", accent: RetroPalette.chromeTeal)
+                    HStack(spacing: 10) {
+                        ForEach(WorkbenchPreset.allCases) { preset in
+                            Button(preset.displayName) {
+                                appState.applyWorkbenchPreset(preset)
+                            }
+                            .buttonStyle(RetroActionButtonStyle(
+                                tone: appState.selectedWorkbenchPreset == preset ? .accent : .secondary
+                            ))
+                        }
+                    }
+
+                    if appState.canRestoreCustomWorkbenchAppearance {
+                        Button("Restore Custom Layout") {
+                            appState.restoreCustomWorkbenchAppearance()
+                        }
+                        .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+                    }
+
+                    Text(appState.activeWorkbenchPresetSummary)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(RetroPalette.link)
+
                     RetroSectionHeader(title: "Chrome", systemImage: "rectangle.3.group", accent: RetroPalette.chromeBlue)
-                    Picker("Retro Intensity", selection: Binding(
+                    Picker("Workbench Style", selection: Binding(
                         get: { appState.settings.chromeStyle },
                         set: { appState.setChromeStyle($0) }
                     )) {

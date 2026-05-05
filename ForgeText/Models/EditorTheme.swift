@@ -1,6 +1,7 @@
 import AppKit
 
 enum AppChromeStyle: String, CaseIterable, Identifiable, Codable {
+    case studio
     case retroClassic
     case retroPro
     case minimalPro
@@ -9,6 +10,8 @@ enum AppChromeStyle: String, CaseIterable, Identifiable, Codable {
 
     var displayName: String {
         switch self {
+        case .studio:
+            return "Studio"
         case .retroClassic:
             return "Retro Classic"
         case .retroPro:
@@ -20,6 +23,8 @@ enum AppChromeStyle: String, CaseIterable, Identifiable, Codable {
 
     var summary: String {
         switch self {
+        case .studio:
+            return "A neutral, editor-first workbench inspired by modern code editors."
         case .retroClassic:
             return "More colorful, high-energy portal-era chrome."
         case .retroPro:
@@ -28,6 +33,88 @@ enum AppChromeStyle: String, CaseIterable, Identifiable, Codable {
             return "The quietest shell with just a hint of retro structure."
         }
     }
+}
+
+enum WorkbenchPreset: String, CaseIterable, Identifiable, Codable {
+    case quiet
+    case balanced
+    case fullRetro
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .quiet:
+            return "Quiet UI"
+        case .balanced:
+            return "Balanced"
+        case .fullRetro:
+            return "Full Retro"
+        }
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .quiet:
+            return "Quiet"
+        case .balanced:
+            return "Balanced"
+        case .fullRetro:
+            return "Retro"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .quiet:
+            return "Studio chrome with the lowest visual noise for long editing sessions."
+        case .balanced:
+            return "Studio chrome with a bit more workbench context while staying calm for daily use."
+        case .fullRetro:
+            return "The full late-90s portal energy with richer chrome and more visible context."
+        }
+    }
+
+    var appearance: WorkbenchAppearanceSnapshot {
+        switch self {
+        case .quiet:
+            return WorkbenchAppearanceSnapshot(
+                chromeStyle: .studio,
+                interfaceDensity: .compact,
+                focusModeEnabled: false,
+                showsInspector: false,
+                showsBreadcrumbs: false
+            )
+        case .balanced:
+            return WorkbenchAppearanceSnapshot(
+                chromeStyle: .studio,
+                interfaceDensity: .comfortable,
+                focusModeEnabled: false,
+                showsInspector: false,
+                showsBreadcrumbs: true
+            )
+        case .fullRetro:
+            return WorkbenchAppearanceSnapshot(
+                chromeStyle: .retroClassic,
+                interfaceDensity: .comfortable,
+                focusModeEnabled: false,
+                showsInspector: true,
+                showsBreadcrumbs: true
+            )
+        }
+    }
+
+    static func matching(_ appearance: WorkbenchAppearanceSnapshot) -> WorkbenchPreset? {
+        allCases.first(where: { $0.appearance == appearance })
+    }
+}
+
+struct WorkbenchAppearanceSnapshot: Codable, Hashable {
+    var chromeStyle: AppChromeStyle
+    var interfaceDensity: InterfaceDensity
+    var focusModeEnabled: Bool
+    var showsInspector: Bool
+    var showsBreadcrumbs: Bool
 }
 
 enum InterfaceDensity: String, CaseIterable, Identifiable, Codable {
@@ -213,15 +300,18 @@ enum EditorTheme: String, CaseIterable, Identifiable, Codable {
 
 struct AppSettings: Codable {
     var theme: EditorTheme = .forge
-    var chromeStyle: AppChromeStyle = .retroPro
+    var chromeStyle: AppChromeStyle = .studio
     var interfaceDensity: InterfaceDensity = .compact
+    var workbenchPreset: WorkbenchPreset? = .quiet
+    var customWorkbenchAppearance = WorkbenchPreset.quiet.appearance
+    var hasCompletedFirstRunExperience = false
     var focusModeEnabled = false
     var wrapLines = false
     var autosaveToDisk = true
     var fontSize: Double = 14
     var showsOutline = true
-    var showsInspector = true
-    var showsBreadcrumbs = true
+    var showsInspector = false
+    var showsBreadcrumbs = false
     var savedLogFilters: [SavedLogFilter] = []
     var enabledPluginIDs: [String] = []
     var showHiddenFilesInExplorer = false
@@ -242,6 +332,9 @@ struct AppSettings: Codable {
         case theme
         case chromeStyle
         case interfaceDensity
+        case workbenchPreset
+        case customWorkbenchAppearance
+        case hasCompletedFirstRunExperience
         case focusModeEnabled
         case wrapLines
         case autosaveToDisk
@@ -267,15 +360,35 @@ struct AppSettings: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         theme = try container.decodeIfPresent(EditorTheme.self, forKey: .theme) ?? .forge
-        chromeStyle = try container.decodeIfPresent(AppChromeStyle.self, forKey: .chromeStyle) ?? .retroPro
+        chromeStyle = try container.decodeIfPresent(AppChromeStyle.self, forKey: .chromeStyle) ?? .studio
         interfaceDensity = try container.decodeIfPresent(InterfaceDensity.self, forKey: .interfaceDensity) ?? .compact
+        workbenchPreset = try container.decodeIfPresent(WorkbenchPreset.self, forKey: .workbenchPreset)
+            ?? WorkbenchPreset.matching(
+                WorkbenchAppearanceSnapshot(
+                    chromeStyle: chromeStyle,
+                    interfaceDensity: interfaceDensity,
+                    focusModeEnabled: try container.decodeIfPresent(Bool.self, forKey: .focusModeEnabled) ?? false,
+                    showsInspector: try container.decodeIfPresent(Bool.self, forKey: .showsInspector) ?? false,
+                    showsBreadcrumbs: try container.decodeIfPresent(Bool.self, forKey: .showsBreadcrumbs) ?? false
+                )
+            )
+            ?? .quiet
+        customWorkbenchAppearance = try container.decodeIfPresent(WorkbenchAppearanceSnapshot.self, forKey: .customWorkbenchAppearance)
+            ?? WorkbenchAppearanceSnapshot(
+                chromeStyle: chromeStyle,
+                interfaceDensity: interfaceDensity,
+                focusModeEnabled: try container.decodeIfPresent(Bool.self, forKey: .focusModeEnabled) ?? false,
+                showsInspector: try container.decodeIfPresent(Bool.self, forKey: .showsInspector) ?? false,
+                showsBreadcrumbs: try container.decodeIfPresent(Bool.self, forKey: .showsBreadcrumbs) ?? false
+            )
+        hasCompletedFirstRunExperience = try container.decodeIfPresent(Bool.self, forKey: .hasCompletedFirstRunExperience) ?? false
         focusModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .focusModeEnabled) ?? false
         wrapLines = try container.decodeIfPresent(Bool.self, forKey: .wrapLines) ?? false
         autosaveToDisk = try container.decodeIfPresent(Bool.self, forKey: .autosaveToDisk) ?? true
         fontSize = try container.decodeIfPresent(Double.self, forKey: .fontSize) ?? 14
         showsOutline = try container.decodeIfPresent(Bool.self, forKey: .showsOutline) ?? true
-        showsInspector = try container.decodeIfPresent(Bool.self, forKey: .showsInspector) ?? true
-        showsBreadcrumbs = try container.decodeIfPresent(Bool.self, forKey: .showsBreadcrumbs) ?? true
+        showsInspector = try container.decodeIfPresent(Bool.self, forKey: .showsInspector) ?? false
+        showsBreadcrumbs = try container.decodeIfPresent(Bool.self, forKey: .showsBreadcrumbs) ?? false
         savedLogFilters = try container.decodeIfPresent([SavedLogFilter].self, forKey: .savedLogFilters) ?? []
         enabledPluginIDs = try container.decodeIfPresent([String].self, forKey: .enabledPluginIDs) ?? PluginHostService.defaultEnabledPluginIDs
         showHiddenFilesInExplorer = try container.decodeIfPresent(Bool.self, forKey: .showHiddenFilesInExplorer) ?? false

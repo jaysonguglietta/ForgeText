@@ -30,6 +30,7 @@ struct WorkspacePlatformView: View {
                     VStack(alignment: .leading, spacing: 14) {
                         workspaceSection
                         trustSection
+                        adminPolicySection
                         profilesSection
                         registriesSection
                         syncSection
@@ -227,6 +228,54 @@ struct WorkspacePlatformView: View {
         .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeTeal)
     }
 
+    private var adminPolicySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Admin Policy", accent: RetroPalette.chromePink)
+
+            HStack(spacing: 10) {
+                RetroCapsuleLabel(
+                    text: appState.managedPolicyState.isManaged ? "MANAGED" : "UNMANAGED",
+                    accent: appState.managedPolicyState.isManaged ? RetroPalette.chromePink : RetroPalette.chromeBlue
+                )
+
+                if let sourcePath = appState.managedPolicyState.sourcePath {
+                    Text(sourcePath)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(RetroPalette.link)
+                        .textSelection(.enabled)
+                } else {
+                    Text("Suggested policy file: \(appState.managedPolicySuggestedPath)")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(RetroPalette.link)
+                        .textSelection(.enabled)
+                }
+            }
+
+            if let loadError = appState.managedPolicyState.loadError {
+                Text(loadError)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(appState.managedPolicySummaryLines.enumerated()), id: \.offset) { item in
+                    Text("• \(item.element)")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(RetroPalette.link)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Button("Reload Policy") {
+                appState.reloadManagedPolicy()
+            }
+            .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+        }
+        .padding(14)
+        .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromePink)
+    }
+
     private var syncSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader("Sync + Runtime", accent: RetroPalette.chromePink)
@@ -298,6 +347,7 @@ struct WorkspacePlatformView: View {
                     )
                 }
                 .buttonStyle(RetroActionButtonStyle(tone: .primary))
+                .disabled(!appState.canAddManagedPluginRegistry)
 
                 Button("Refresh Catalog") {
                     appState.refreshPluginRegistry()
@@ -328,6 +378,13 @@ struct WorkspacePlatformView: View {
                                 .font(.system(size: 11, weight: .medium, design: .monospaced))
                                 .foregroundStyle(RetroPalette.link)
                                 .textSelection(.enabled)
+
+                            if let restrictionReason = EnterprisePolicyService.registrySourceRestrictionReason(registry.source, policy: appState.activeManagedPolicy) {
+                                Text(restrictionReason)
+                                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                    .foregroundStyle(RetroPalette.warning)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
 
                         Spacer(minLength: 0)

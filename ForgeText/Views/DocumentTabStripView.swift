@@ -12,7 +12,7 @@ struct DocumentTabStripView: View {
 
                     HStack(spacing: 7) {
                         Label(document.displayName, systemImage: document.language.symbolName)
-                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .font(.system(size: 12, weight: .medium))
                             .lineLimit(1)
                             .foregroundStyle(isSelected ? RetroPalette.ink : RetroPalette.mutedInk)
 
@@ -30,9 +30,9 @@ struct DocumentTabStripView: View {
                         }
                         .buttonStyle(RetroIconButtonStyle(accent: isSelected ? RetroPalette.chromeBlue : RetroPalette.chromeTeal))
                     }
-                    .padding(.horizontal, 11)
-                    .padding(.vertical, 7)
-                    .frame(minWidth: 150, alignment: .leading)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .frame(minWidth: 132, alignment: .leading)
                     .background(
                         VStack(spacing: 0) {
                             Rectangle()
@@ -44,8 +44,10 @@ struct DocumentTabStripView: View {
                                 .frame(height: 2)
 
                             RetroPanelBackground(
-                                fill: isSelected ? RetroPalette.panelFill : RetroPalette.panelFillMuted,
-                                accent: isSelected ? RetroPalette.chromeBlue : RetroPalette.chromeBlue.opacity(0.72)
+                                fill: isSelected
+                                    ? (chromeStyle == .studio ? RetroPalette.studioPanel : RetroPalette.panelFill)
+                                    : (chromeStyle == .studio ? RetroPalette.studioPanelMuted : RetroPalette.panelFillMuted),
+                                accent: isSelected ? RetroPalette.chromeBlue : RetroPalette.chromeBlue.opacity(0.42)
                             )
                         }
                     )
@@ -60,17 +62,17 @@ struct DocumentTabStripView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "plus")
-                        Text("NEW")
+                        Text("New")
                     }
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .font(.system(size: 12, weight: .medium))
                     .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
+                    .padding(.vertical, 6)
                 }
                 .buttonStyle(RetroActionButtonStyle(tone: .secondary))
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
         }
-        .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromeBlue)
+        .retroPanel(fill: chromeStyle == .studio ? RetroPalette.studioPanelMuted : RetroPalette.railFill, accent: RetroPalette.chromeBlue)
     }
 }

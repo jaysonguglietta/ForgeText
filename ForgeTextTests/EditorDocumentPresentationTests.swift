@@ -2,7 +2,7 @@ import XCTest
 @testable import ForgeText
 
 final class EditorDocumentPresentationTests: XCTestCase {
-    func testLoadedJSONDocumentsDefaultToStructuredTree() {
+    func testLoadedJSONDocumentsDefaultToRawText() {
         let file = TextFileCodec.DecodedFile(
             text: "{\n  \"service\": \"ForgeText\"\n}\n",
             encoding: .utf8,
@@ -19,11 +19,11 @@ final class EditorDocumentPresentationTests: XCTestCase {
         let document = EditorDocument.loaded(file: file, url: URL(fileURLWithPath: "/tmp/config.json"))
 
         XCTAssertEqual(document.language, .json)
-        XCTAssertEqual(document.presentationMode, .structuredJSON)
-        XCTAssertTrue(document.prefersStructuredPresentation)
+        XCTAssertEqual(document.presentationMode, .editor)
+        XCTAssertFalse(document.prefersStructuredPresentation)
     }
 
-    func testLoadedLogDocumentsDefaultToLogExplorer() {
+    func testLoadedLogDocumentsDefaultToRawText() {
         let file = TextFileCodec.DecodedFile(
             text: "2026-04-06 10:00:00 INFO started\n",
             encoding: .utf8,
@@ -40,7 +40,29 @@ final class EditorDocumentPresentationTests: XCTestCase {
         let document = EditorDocument.loaded(file: file, url: URL(fileURLWithPath: "/tmp/service.log"))
 
         XCTAssertEqual(document.language, .log)
-        XCTAssertEqual(document.presentationMode, .logExplorer)
+        XCTAssertEqual(document.presentationMode, .editor)
+        XCTAssertFalse(document.prefersStructuredPresentation)
+    }
+
+    func testLoadedJSONDocumentsCanStillSwitchToStructuredView() {
+        let file = TextFileCodec.DecodedFile(
+            text: "{\n  \"service\": \"ForgeText\"\n}\n",
+            encoding: .utf8,
+            includesByteOrderMark: false,
+            lineEnding: .lf,
+            isReadOnly: false,
+            isPartialPreview: false,
+            fileSize: 32,
+            presentationMode: .editor,
+            preferredLanguage: .json,
+            statusMessage: nil
+        )
+
+        var document = EditorDocument.loaded(file: file, url: URL(fileURLWithPath: "/tmp/config.json"))
+        document.prefersStructuredPresentation = true
+        document.syncPresentationMode()
+
+        XCTAssertEqual(document.presentationMode, .structuredJSON)
         XCTAssertTrue(document.prefersStructuredPresentation)
     }
 

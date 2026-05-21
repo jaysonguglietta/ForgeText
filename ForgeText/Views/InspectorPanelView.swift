@@ -6,12 +6,9 @@ struct InspectorPanelView: View {
     let theme: EditorTheme
     let diagnostics: [PluginDiagnostic]
     let blame: GitBlameInfo?
+    let outline: [OutlineItem]
     let showsOutline: Bool
     let onSelectLine: (Int) -> Void
-
-    private var outline: [OutlineItem] {
-        DocumentOutlineService.outline(for: document)
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

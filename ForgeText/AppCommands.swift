@@ -184,6 +184,12 @@ struct FileEditorCommands: Commands {
         }
 
         CommandMenu("Source Control") {
+            Button("Show Source Control Panel") {
+                appState.showBottomPanel(.sourceControl)
+            }
+
+            Divider()
+
             Button("Git Workbench") {
                 appState.showGitWorkbenchPanel()
             }
@@ -217,6 +223,16 @@ struct FileEditorCommands: Commands {
             }
             .keyboardShortcut("u", modifiers: [.command, .shift])
 
+            Button(appState.isSidebarVisible ? "Hide Sidebar" : "Show Sidebar") {
+                appState.toggleSidebar()
+            }
+            .keyboardShortcut("0", modifiers: [.command])
+
+            Button(appState.isBottomPanelVisible ? "Hide Panel" : "Show Panel") {
+                appState.toggleBottomPanel()
+            }
+            .keyboardShortcut("j", modifiers: [.command])
+
             Menu("Workbench Preset") {
                 ForEach(WorkbenchPreset.allCases) { preset in
                     Button(preset.displayName) {
@@ -232,7 +248,7 @@ struct FileEditorCommands: Commands {
                 }
             }
 
-            Button("Appearance Preferences...") {
+            Button("Workbench + Advanced...") {
                 appState.showAppearancePreferences()
             }
             .keyboardShortcut(",", modifiers: [.command])
@@ -323,6 +339,14 @@ struct FileEditorCommands: Commands {
                 }
             }
 
+            Menu("Bottom Panel") {
+                ForEach(WorkbenchBottomPanel.allCases) { panel in
+                    Button(panel.title) {
+                        appState.showBottomPanel(panel)
+                    }
+                }
+            }
+
             Divider()
 
             Menu("Encoding") {
@@ -350,6 +374,10 @@ struct FileEditorCommands: Commands {
         CommandMenu("Tools") {
             Button("Workspace Center") {
                 appState.showWorkspacePlatformPanel()
+            }
+
+            Button("Reload Managed Policy") {
+                appState.reloadManagedPolicy()
             }
 
             Button("First-Run Setup") {

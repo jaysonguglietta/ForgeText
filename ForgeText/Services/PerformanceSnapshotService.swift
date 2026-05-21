@@ -8,7 +8,9 @@ enum PerformanceSnapshotService {
         enabledPluginCount: Int,
         taskCount: Int,
         activityCount: Int,
-        workspaceIndex: WorkspaceIndexSummary
+        workspaceIndex: WorkspaceIndexSummary,
+        runtimeModeLabel: String,
+        safeModeEnabled: Bool
     ) -> PerformanceSnapshot {
         PerformanceSnapshot(
             capturedAt: Date(),
@@ -22,6 +24,8 @@ enum PerformanceSnapshotService {
             recentActivityCount: activityCount,
             physicalMemoryGB: Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824,
             uptime: ProcessInfo.processInfo.systemUptime,
+            runtimeModeLabel: runtimeModeLabel,
+            safeModeEnabled: safeModeEnabled,
             metrics: EditorPerformanceMonitor.shared.snapshot()
         )
     }

@@ -78,87 +78,88 @@ struct RetroBackdropView: View {
     @Environment(\.retroChromeStyle) private var chromeStyle
 
     var body: some View {
-        ZStack {
-            backgroundGradient
-
+        Group {
             if chromeStyle == .studio {
-                VStack(spacing: 0) {
-                    LinearGradient(
-                        colors: headerColors,
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .frame(height: headerHeight)
+                RetroPalette.studioCanvas
+                    .overlay(alignment: .top) {
+                        VStack(spacing: 0) {
+                            LinearGradient(
+                                colors: headerColors,
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(height: headerHeight)
 
-                    Rectangle()
-                        .fill(RetroPalette.studioDivider)
-                        .frame(height: 1)
-
-                    Spacer(minLength: 0)
-                }
-            } else {
-                VStack(spacing: 0) {
-                    LinearGradient(
-                        colors: headerColors,
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .frame(height: headerHeight)
-
-                    Spacer(minLength: 0)
-                }
-            }
-
-            if chromeStyle == .retroClassic {
-                Canvas { context, size in
-                    let dotColor = GraphicsContext.Shading.color(RetroPalette.chromeBlue.opacity(dotOpacity))
-                    for x in stride(from: 12.0, through: size.width, by: 22.0) {
-                        for y in stride(from: 86.0, through: size.height, by: 28.0) {
-                            context.fill(Path(ellipseIn: CGRect(x: x, y: y, width: 2, height: 2)), with: dotColor)
+                            Rectangle()
+                                .fill(RetroPalette.studioDivider)
+                                .frame(height: 1)
                         }
                     }
-                }
-            }
+            } else {
+                ZStack {
+                    backgroundGradient
 
-            if chromeStyle == .retroClassic {
-                Canvas { context, size in
-                    let lineColor = GraphicsContext.Shading.color(RetroPalette.paperLine)
-                    for y in stride(from: 86.0, through: size.height, by: 34.0) {
-                        context.fill(Path(CGRect(x: 0, y: y, width: size.width, height: 1)), with: lineColor)
+                    VStack(spacing: 0) {
+                        LinearGradient(
+                            colors: headerColors,
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                        .frame(height: headerHeight)
+
+                        Spacer(minLength: 0)
                     }
-                }
-            } else if chromeStyle != .studio {
-                VStack(spacing: 0) {
-                    Rectangle()
-                        .fill(RetroPalette.chromeBlue.opacity(chromeStyle == .retroPro ? 0.10 : 0.06))
-                        .frame(height: chromeStyle == .retroPro ? 1 : 0.5)
-                    Spacer(minLength: 0)
-                }
 
-                VStack {
-                    Spacer(minLength: 0)
-                    LinearGradient(
-                        colors: [
-                            Color.clear,
-                            RetroPalette.chromeTeal.opacity(chromeStyle == .retroPro ? 0.035 : 0.02)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: chromeStyle == .retroPro ? 160 : 110)
-                }
-            }
-
-            if chromeStyle != .studio {
-                VStack(spacing: 0) {
-                    HStack(spacing: 7) {
-                        Rectangle().fill(RetroPalette.chromeGold.opacity(0.54))
-                        Rectangle().fill(RetroPalette.chromePink.opacity(chromeStyle == .retroClassic ? 0.68 : 0.42))
-                        Rectangle().fill(RetroPalette.chromeCyan.opacity(0.46))
+                    if chromeStyle == .retroClassic {
+                        Canvas { context, size in
+                            let dotColor = GraphicsContext.Shading.color(RetroPalette.chromeBlue.opacity(dotOpacity))
+                            for x in stride(from: 12.0, through: size.width, by: 22.0) {
+                                for y in stride(from: 86.0, through: size.height, by: 28.0) {
+                                    context.fill(Path(ellipseIn: CGRect(x: x, y: y, width: 2, height: 2)), with: dotColor)
+                                }
+                            }
+                        }
                     }
-                    .frame(height: chromeStyle == .minimalPro ? 1 : 3)
 
-                    Spacer(minLength: 0)
+                    if chromeStyle == .retroClassic {
+                        Canvas { context, size in
+                            let lineColor = GraphicsContext.Shading.color(RetroPalette.paperLine)
+                            for y in stride(from: 86.0, through: size.height, by: 34.0) {
+                                context.fill(Path(CGRect(x: 0, y: y, width: size.width, height: 1)), with: lineColor)
+                            }
+                        }
+                    } else {
+                        VStack(spacing: 0) {
+                            Rectangle()
+                                .fill(RetroPalette.chromeBlue.opacity(chromeStyle == .retroPro ? 0.10 : 0.06))
+                                .frame(height: chromeStyle == .retroPro ? 1 : 0.5)
+                            Spacer(minLength: 0)
+                        }
+
+                        VStack {
+                            Spacer(minLength: 0)
+                            LinearGradient(
+                                colors: [
+                                    Color.clear,
+                                    RetroPalette.chromeTeal.opacity(chromeStyle == .retroPro ? 0.035 : 0.02)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                            .frame(height: chromeStyle == .retroPro ? 160 : 110)
+                        }
+                    }
+
+                    VStack(spacing: 0) {
+                        HStack(spacing: 7) {
+                            Rectangle().fill(RetroPalette.chromeGold.opacity(0.54))
+                            Rectangle().fill(RetroPalette.chromePink.opacity(chromeStyle == .retroClassic ? 0.68 : 0.42))
+                            Rectangle().fill(RetroPalette.chromeCyan.opacity(0.46))
+                        }
+                        .frame(height: chromeStyle == .minimalPro ? 1 : 3)
+
+                        Spacer(minLength: 0)
+                    }
                 }
             }
         }
@@ -223,15 +224,15 @@ struct RetroPanelBackground: View {
     var body: some View {
         Group {
             if chromeStyle == .studio {
-                RoundedRectangle(cornerRadius: inset ? 8 : 10, style: .continuous)
-                    .fill(inset ? RetroPalette.studioField : RetroPalette.studioPanel)
+                RoundedRectangle(cornerRadius: inset ? 6 : 8, style: .continuous)
+                    .fill(fill)
                     .overlay(
-                        RoundedRectangle(cornerRadius: inset ? 8 : 10, style: .continuous)
+                        RoundedRectangle(cornerRadius: inset ? 6 : 8, style: .continuous)
                             .stroke(RetroPalette.studioBorder, lineWidth: 1)
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: inset ? 8 : 10, style: .continuous)
-                            .stroke(accent.opacity(inset ? 0.18 : 0.10), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: inset ? 6 : 8, style: .continuous)
+                            .stroke(accent.opacity(inset ? 0.12 : 0.06), lineWidth: 1)
                     )
             } else {
                 ZStack {
@@ -310,7 +311,7 @@ struct RetroActionButtonStyle: ButtonStyle {
         let palette = palette(for: tone, pressed: configuration.isPressed)
 
         return configuration.label
-            .font(.system(size: 12, weight: .bold, design: .monospaced))
+            .font(.system(size: 12, weight: .medium, design: chromeStyle == .studio ? .default : .monospaced))
             .tracking(0.2)
             .foregroundStyle(palette.text)
             .padding(.horizontal, RetroMetrics.metrics(for: density).controlHorizontalPadding)
@@ -414,7 +415,7 @@ struct RetroCapsuleLabel: View {
 
     var body: some View {
         Text(chromeStyle == .studio ? text : text.uppercased())
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .font(.system(size: 10, weight: .semibold, design: chromeStyle == .studio ? .default : .monospaced))
             .tracking(chromeStyle == .studio ? 0.1 : 0.35)
             .foregroundStyle(accent)
             .padding(.horizontal, max(6, RetroMetrics.metrics(for: density).controlHorizontalPadding - 2))
@@ -474,8 +475,8 @@ struct RetroSectionHeader: View {
                     .foregroundStyle(accent)
             }
 
-            Text(title.uppercased())
-                .font(.system(size: 11, weight: .black, design: .monospaced))
+            Text(chromeStyle == .studio ? title : title.uppercased())
+                .font(.system(size: 11, weight: .semibold, design: chromeStyle == .studio ? .default : .monospaced))
                 .tracking(chromeStyle == .studio ? 0.35 : 0.8)
                 .foregroundStyle(RetroPalette.ink)
 

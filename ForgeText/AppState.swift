@@ -15,6 +15,16 @@ final class AppState: ObservableObject {
         let message: String
     }
 
+    struct AIPromptReviewState: Identifiable {
+        let id = UUID()
+        let providerName: String
+        let model: String
+        let quickAction: AIQuickAction?
+        let effectivePromptTitle: String
+        let preparedPrompt: AIProviderService.PreparedPrompt
+        let sessionMessages: [AIChatMessage]
+    }
+
     private struct CompletionActivation {
         let textHash: Int
         let selectionLocation: Int
@@ -145,6 +155,7 @@ final class AppState: ObservableObject {
     @Published var workspaceSessions: [WorkspaceSessionRecord] = []
     @Published var settings: AppSettings
     @Published var alertContext: AlertContext?
+    @Published var aiPromptReviewState: AIPromptReviewState?
     @Published var showingDiscardChanges = false
     @Published var showingCommandPalette = false
     @Published var showingGoToLine = false
@@ -197,14 +208,19 @@ final class AppState: ObservableObject {
     @Published var diagnosticBundleSummary: DiagnosticBundleSummary?
     @Published var aiContextState = AIContextState()
     @Published var githubWorkflowState = GitHubWorkflowState()
+    @Published var managedPolicyState = ManagedPolicyState()
     @Published private var pluginCatalog: [EditorPlugin] = PluginHostService.builtInPlugins
     @Published private var documentDiagnosticsByID: [UUID: [PluginDiagnostic]] = [:]
+    @Published private var documentWorkbenchInsightsByID: [UUID: DocumentWorkbenchInsights] = [:]
     @Published private var gitLineDecorationsByDocumentID: [UUID: [EditorLineDecoration]] = [:]
     @Published private var gitBlameCache: [String: GitBlameInfo] = [:]
 
     private var pendingAction: PendingAction?
     private var autosaveTask: Task<Void, Never>?
     private var sessionSaveTask: Task<Void, Never>?
+    private var aiProviderSaveTask: Task<Void, Never>?
+    private var documentDiagnosticsTasksByID: [UUID: Task<Void, Never>] = [:]
+    private var documentWorkbenchInsightTasksByID: [UUID: Task<Void, Never>] = [:]
     private var projectSearchTask: Task<Void, Never>?
     private var gitRefreshTask: Task<Void, Never>?
     private var workspaceIndexTask: Task<Void, Never>?
@@ -214,6 +230,8 @@ final class AppState: ObservableObject {
     private var pluginRegistryRefreshTask: Task<Void, Never>?
     private var pendingCompletionActivationDocumentIDs = Set<UUID>()
     private var completionActivationsByDocumentID: [UUID: CompletionActivation] = [:]
+    private var pendingAIProviderKeychainPersist = false
+    private var textStatisticsByDocumentID: [UUID: CachedTextStatistics] = [:]
     private var fileMonitorTimer: Timer?
     private var untitledCounter = 1
     private let hadUncleanShutdown: Bool
@@ -237,6 +255,8 @@ final class AppState: ObservableObject {
         shouldShowFirstRunSetupOnLaunch = !loadedSettings.hasCompletedFirstRunExperience
         hadUncleanShutdown = CrashRecoveryMonitor.markLaunch()
         settings = loadedSettings
+        managedPolicyState = EnterprisePolicyService.loadState()
+        applyManagedPolicyConstraints()
         workspaceSessions = WorkspaceSessionStore.load()
         aiWorkbenchState = AIWorkbenchState(
             sessions: loadedAISessions,
@@ -277,7 +297,7 @@ final class AppState: ObservableObject {
             return nil
         }
 
-        return EditorMetrics(text: selectedDocument.text, selectedRange: selectedDocument.selectedRange)
+        return metrics(for: selectedDocument)
     }
 
     var canSave: Bool {
@@ -328,12 +348,27 @@ final class AppState: ObservableObject {
         pluginCatalog
     }
 
+    var activeManagedPolicy: EnterpriseManagedPolicy? {
+        managedPolicyState.policy
+    }
+
+    var managedPolicySummaryLines: [String] {
+        EnterprisePolicyService.summaryLines(for: managedPolicyState)
+    }
+
+    var managedPolicySuggestedPath: String {
+        EnterprisePolicyService.defaultPolicyFileURL().path
+    }
+
     var enabledPlugins: [EditorPlugin] {
         PluginHostService.enabledPlugins(
             using: settings,
             workspaceRoots: workspaceRootURLs,
             trustMode: workspaceTrustMode
         )
+        .filter { plugin in
+            pluginPolicyRestrictionReason(plugin) == nil
+        }
     }
 
     var selectedPluginTask: EditorPluginTask? {
@@ -350,11 +385,15 @@ final class AppState: ObservableObject {
 
     var selectedAIProvider: AIProviderConfiguration? {
         if let preferredID = settings.preferredAIProviderID,
-           let provider = settings.aiProviders.first(where: { $0.id == preferredID && $0.isEnabled }) {
+           let provider = settings.aiProviders.first(where: { $0.id == preferredID && $0.isEnabled }),
+           aiPolicyRestrictionReason(for: provider) == nil {
             return provider
         }
 
-        return settings.aiProviders.first(where: \.isEnabled)
+        return settings.aiProviders.first(where: { provider in
+            provider.isEnabled
+                && aiPolicyRestrictionReason(for: provider) == nil
+        })
     }
 
     var selectedAISession: AIChatSession? {
@@ -398,6 +437,18 @@ final class AppState: ObservableObject {
         settings.workbenchPreset
     }
 
+    var activeBottomPanel: WorkbenchBottomPanel {
+        settings.preferredBottomPanel
+    }
+
+    var isSidebarVisible: Bool {
+        !settings.focusModeEnabled && settings.showsSidebar
+    }
+
+    var isBottomPanelVisible: Bool {
+        !settings.focusModeEnabled && settings.showsBottomPanel
+    }
+
     var activeWorkbenchPresetLabel: String {
         settings.workbenchPreset?.displayName ?? "Custom UI"
     }
@@ -418,12 +469,191 @@ final class AppState: ObservableObject {
         workspacePlatformState.registryEntries
     }
 
+    var selectedAIProviderPolicyRestriction: String? {
+        guard let provider = settings.aiProviders.first(where: { $0.id == settings.preferredAIProviderID }) ?? selectedAIProvider else {
+            if let restriction = localAIRestrictionReason(for: nil) {
+                return restriction
+            }
+            return activeManagedPolicy?.ai.isEnabled == false ? "Managed policy disabled AI features for this ForgeText installation." : nil
+        }
+
+        return aiPolicyRestrictionReason(for: provider)
+    }
+
+    var canAddManagedPluginRegistry: Bool {
+        (activeManagedPolicy?.plugins.allowCustomRegistries ?? true) && settings.advanced.plugins.allowCustomRegistries
+    }
+
+    var isSafeModeActive: Bool {
+        settings.advanced.safeMode.isEnabled
+    }
+
+    var effectivePerformanceMode: RuntimePerformanceMode {
+        if settings.advanced.performance.mode == .performance {
+            return .performance
+        }
+
+        if settings.advanced.performance.autoEnableForLargeFiles {
+            let hasLargeDocument = documents.contains(where: \.isLargeFileMode)
+            let largeWorkspace = workspaceIndexSummary.entries.count > 1_200 || workspaceIndexSummary.symbols.count > 4_500
+            if hasLargeDocument || largeWorkspace || settings.advanced.git.largeRepositoryMode {
+                return .performance
+            }
+        }
+
+        return .standard
+    }
+
+    var performanceModeSummary: String {
+        switch effectivePerformanceMode {
+        case .standard:
+            return "Standard runtime is active."
+        case .performance:
+            return "Performance Mode is active. ForgeText is throttling background editor work."
+        }
+    }
+
+    var effectiveDocumentDiagnosticsEnabled: Bool {
+        settings.advanced.performance.liveDiagnosticsEnabled && effectivePerformanceMode == .standard
+    }
+
+    var effectiveDocumentInsightsEnabled: Bool {
+        settings.advanced.performance.documentInsightsEnabled && effectivePerformanceMode == .standard
+    }
+
+    var effectiveWorkspaceSymbolIndexingEnabled: Bool {
+        settings.advanced.performance.indexWorkspaceSymbols && effectivePerformanceMode == .standard
+    }
+
+    var effectiveGitLineDecorationsEnabled: Bool {
+        settings.advanced.git.enableLineDecorations && !settings.advanced.git.largeRepositoryMode && effectivePerformanceMode == .standard
+    }
+
+    var effectiveGitBlameEnabled: Bool {
+        settings.advanced.git.enableBlamePrefetch && !settings.advanced.git.largeRepositoryMode && effectivePerformanceMode == .standard
+    }
+
     var isPortableModeEnabled: Bool {
         StoragePathService.isPortableModeEnabled
     }
 
+    func reloadManagedPolicy() {
+        managedPolicyState = EnterprisePolicyService.loadState()
+        applyManagedPolicyConstraints()
+        refreshPluginRegistry()
+        refreshPluginWorkspaceState()
+        workspacePlatformState.lastStatusMessage = managedPolicyState.isManaged
+            ? "Reloaded managed policy"
+            : "No managed policy file is currently active"
+        recordActivity(
+            "Managed Policy",
+            detail: managedPolicyState.isManaged
+                ? "Reloaded policy from \(managedPolicyState.sourcePath ?? "configured location")."
+                : "No managed policy file is active.",
+            status: managedPolicyState.loadError == nil ? .success : .warning
+        )
+    }
+
+    func applyAdvancedSettingsChanges(message: String? = nil) {
+        settings.advanced.fileHandling.autosaveDelayMilliseconds = min(max(settings.advanced.fileHandling.autosaveDelayMilliseconds, 250), 10_000)
+        settings.advanced.fileHandling.externalChangePollingIntervalSeconds = min(max(settings.advanced.fileHandling.externalChangePollingIntervalSeconds, 1.0), 30.0)
+        settings.advanced.ai.maxContextCharacters = min(max(settings.advanced.ai.maxContextCharacters, 1_500), 120_000)
+
+        applyManagedPolicyConstraints()
+        if !effectiveDocumentDiagnosticsEnabled {
+            clearAllDocumentDiagnostics()
+        } else {
+            refreshAllDocumentDiagnostics()
+        }
+
+        if !effectiveDocumentInsightsEnabled {
+            clearAllDocumentInsights()
+        } else {
+            for document in documents {
+                scheduleDocumentWorkbenchInsightRefresh(for: document.id)
+            }
+        }
+
+        if !effectiveGitLineDecorationsEnabled || !effectiveGitBlameEnabled {
+            invalidateAllGitInsightState()
+        }
+
+        if showingAIWorkbench, localAIRestrictionReason(for: selectedAIProvider) != nil {
+            showingAIWorkbench = false
+        }
+
+        if showingRemoteOpen, localRemoteRestrictionReason(for: .fileAccess) != nil {
+            showingRemoteOpen = false
+        }
+
+        startFileMonitoring()
+        refreshPluginRegistry()
+        refreshPluginWorkspaceState()
+        refreshPerformanceSnapshot()
+        AppSettingsStore.save(settings)
+
+        if let message {
+            recordActivity("Advanced Settings", detail: message, status: .success)
+        }
+    }
+
+    func pluginPolicyRestrictionReason(_ plugin: EditorPlugin) -> String? {
+        EnterprisePolicyService.pluginRestrictionReason(
+            plugin,
+            workspaceRoots: workspaceRootURLs,
+            policy: activeManagedPolicy
+        ) ?? localPluginRestrictionReason(plugin)
+    }
+
+    func registryEntryPolicyRestrictionReason(_ entry: PluginRegistryEntry) -> String? {
+        EnterprisePolicyService.registryEntryRestrictionReason(entry, policy: activeManagedPolicy)
+            ?? localRegistryEntryRestrictionReason(entry)
+    }
+
+    func aiPolicyRestrictionReason(for provider: AIProviderConfiguration) -> String? {
+        EnterprisePolicyService.aiRestrictionReason(for: provider, policy: activeManagedPolicy)
+            ?? localAIRestrictionReason(for: provider)
+    }
+
+    var aiSelectionContextAllowed: Bool {
+        EnterprisePolicyService.effectiveAIContextSelectionEnabled(settings.aiIncludeSelection, policy: activeManagedPolicy)
+    }
+
+    var aiCurrentDocumentContextAllowed: Bool {
+        EnterprisePolicyService.effectiveAICurrentDocumentEnabled(settings.aiIncludeCurrentDocument, policy: activeManagedPolicy)
+    }
+
+    var aiWorkspaceRulesContextAllowed: Bool {
+        EnterprisePolicyService.effectiveAIWorkspaceRulesEnabled(settings.aiIncludeWorkspaceRules, policy: activeManagedPolicy)
+    }
+
+    func showAdvancedSettings() {
+        showingAppearancePreferences = true
+    }
+
     func inlineDiagnostics(for document: EditorDocument) -> [PluginDiagnostic] {
         documentDiagnosticsByID[document.id] ?? []
+    }
+
+    func workbenchInsights(for document: EditorDocument) -> DocumentWorkbenchInsights {
+        documentWorkbenchInsightsByID[document.id] ?? .empty
+    }
+
+    func outline(for document: EditorDocument) -> [OutlineItem] {
+        workbenchInsights(for: document).outline
+    }
+
+    func breadcrumbTrail(for document: EditorDocument, cursorLine: Int) -> [String] {
+        DocumentWorkbenchInsightService.breadcrumbTrail(
+            for: document,
+            cursorLine: cursorLine,
+            outline: outline(for: document)
+        )
+    }
+
+    func metrics(for document: EditorDocument) -> EditorMetrics {
+        let statistics = cachedTextStatistics(for: document)
+        return EditorMetrics(statistics: statistics, selectedRange: document.selectedRange)
     }
 
     func inlineDiagnostics(for document: EditorDocument, lineNumber: Int) -> [PluginDiagnostic] {
@@ -471,6 +701,11 @@ final class AppState: ObservableObject {
     }
 
     func prefetchLineDecorations(for document: EditorDocument) {
+        guard effectiveGitLineDecorationsEnabled else {
+            cancelGitLineDecorationRefresh(for: document.id, clearCache: true)
+            return
+        }
+
         guard !document.isDirty, let fileURL = document.fileURL else {
             cancelGitLineDecorationRefresh(for: document.id, clearCache: document.fileURL == nil)
             return
@@ -505,6 +740,12 @@ final class AppState: ObservableObject {
     }
 
     func prefetchGitBlame(for document: EditorDocument, lineNumber: Int) {
+        guard effectiveGitBlameEnabled else {
+            gitBlamePrefetchTasksByDocumentID[document.id]?.cancel()
+            gitBlamePrefetchTasksByDocumentID[document.id] = nil
+            return
+        }
+
         guard lineNumber > 0, !document.isDirty, let fileURL = document.fileURL else {
             return
         }
@@ -565,13 +806,18 @@ final class AppState: ObservableObject {
     }
 
     func newDocument() {
-        let document = EditorDocument.untitled(named: nextUntitledName())
+        let previousWorkspaceRootPaths = workspaceRootURLs.map(\.path)
+        let document = EditorDocument.untitled(
+            named: nextUntitledName(),
+            lineEnding: settings.advanced.fileHandling.defaultLineEnding
+        )
         documents.append(document)
         selectedDocumentID = document.id
         recordActivity("New Document", detail: document.displayName, status: .success)
         requestEditorFocus()
         scheduleSessionSave()
-        refreshPluginWorkspaceState()
+        refreshSelectionContext(previousWorkspaceRootPaths: previousWorkspaceRootPaths)
+        scheduleDocumentWorkbenchInsightRefresh(for: document.id)
         refreshDocumentDiagnostics(for: document.id)
     }
 
@@ -686,6 +932,12 @@ final class AppState: ObservableObject {
     }
 
     func openRemotePanel() {
+        guard ensureManagedPolicyAllows(
+            remoteRestrictionReason(for: .fileAccess),
+            title: "Remote Access Is Managed"
+        ) else {
+            return
+        }
         remoteLocationDraft = selectedDocument?.remoteReference?.spec ?? recentRemoteLocations.first?.spec ?? ""
         if remoteWorkspaceState.searchRootPath.isEmpty {
             let selectedRemoteDirectory = selectedDocument?.remoteReference.flatMap { reference in
@@ -705,6 +957,12 @@ final class AppState: ObservableObject {
     }
 
     func openRemoteDocument(spec: String) {
+        guard ensureManagedPolicyAllows(
+            remoteRestrictionReason(for: .fileAccess),
+            title: "Remote Access Is Managed"
+        ) else {
+            return
+        }
         let spec = spec.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !spec.isEmpty else {
             alertContext = AlertContext(title: "Remote Location Needed", message: "Enter a remote path like user@host:/absolute/path/to/file.")
@@ -716,14 +974,16 @@ final class AppState: ObservableObject {
 
         Task.detached(priority: .userInitiated) {
             do {
-                let document = try RemoteFileService.open(spec: spec, mode: executionMode)
+                var document = try RemoteFileService.open(spec: spec, mode: executionMode)
                 await MainActor.run {
+                    self.configureOpenedDocument(&document)
                     self.documents.append(document)
                     self.selectedDocumentID = document.id
                     self.recordRecentRemote(document.remoteReference)
                     self.requestEditorFocus()
                     self.scheduleSessionSave()
                     self.refreshPluginWorkspaceState()
+                    self.scheduleDocumentWorkbenchInsightRefresh(for: document.id)
                     self.refreshDocumentDiagnostics(for: document.id)
                 }
             } catch {
@@ -755,11 +1015,13 @@ final class AppState: ObservableObject {
 
             do {
                 let file = try TextFileCodec.open(from: standardizedURL)
-                let document = EditorDocument.loaded(file: file, url: standardizedURL)
+                var document = EditorDocument.loaded(file: file, url: standardizedURL)
+                configureOpenedDocument(&document)
                 documents.append(document)
                 recordRecentFile(standardizedURL)
                 recordActivity("Opened File", detail: standardizedURL.path, status: .success)
                 selectedID = document.id
+                scheduleDocumentWorkbenchInsightRefresh(for: document.id)
                 refreshDocumentDiagnostics(for: document.id)
             } catch {
                 present(error: error, title: "Couldn’t Open File")
@@ -769,6 +1031,8 @@ final class AppState: ObservableObject {
         if let selectedID {
             self.selectedDocumentID = selectedID
             requestEditorFocus()
+            scheduleDocumentWorkbenchInsightRefresh(for: selectedID)
+            refreshDocumentDiagnostics(for: selectedID)
         } else if documents.isEmpty {
             newDocument()
         }
@@ -778,10 +1042,13 @@ final class AppState: ObservableObject {
     }
 
     func selectDocument(_ id: UUID) {
+        let previousWorkspaceRootPaths = workspaceRootURLs.map(\.path)
         selectedDocumentID = id
         requestEditorFocus()
         scheduleSessionSave()
-        refreshPluginWorkspaceState()
+        scheduleDocumentWorkbenchInsightRefresh(for: id)
+        refreshDocumentDiagnostics(for: id)
+        refreshSelectionContext(previousWorkspaceRootPaths: previousWorkspaceRootPaths)
     }
 
     func selectNextDocument() {
@@ -790,10 +1057,14 @@ final class AppState: ObservableObject {
         }
 
         let nextIndex = (selectedDocumentIndex + 1) % documents.count
-        selectedDocumentID = documents[nextIndex].id
+        let previousWorkspaceRootPaths = workspaceRootURLs.map(\.path)
+        let documentID = documents[nextIndex].id
+        selectedDocumentID = documentID
         requestEditorFocus()
         scheduleSessionSave()
-        refreshPluginWorkspaceState()
+        scheduleDocumentWorkbenchInsightRefresh(for: documentID)
+        refreshDocumentDiagnostics(for: documentID)
+        refreshSelectionContext(previousWorkspaceRootPaths: previousWorkspaceRootPaths)
     }
 
     func selectPreviousDocument() {
@@ -802,10 +1073,14 @@ final class AppState: ObservableObject {
         }
 
         let previousIndex = (selectedDocumentIndex - 1 + documents.count) % documents.count
-        selectedDocumentID = documents[previousIndex].id
+        let previousWorkspaceRootPaths = workspaceRootURLs.map(\.path)
+        let documentID = documents[previousIndex].id
+        selectedDocumentID = documentID
         requestEditorFocus()
         scheduleSessionSave()
-        refreshPluginWorkspaceState()
+        scheduleDocumentWorkbenchInsightRefresh(for: documentID)
+        refreshDocumentDiagnostics(for: documentID)
+        refreshSelectionContext(previousWorkspaceRootPaths: previousWorkspaceRootPaths)
     }
 
     func closeSelectedDocument() {
@@ -975,6 +1250,31 @@ final class AppState: ObservableObject {
         persistWorkbenchCustomization()
     }
 
+    func toggleSidebar() {
+        settings.showsSidebar.toggle()
+        persistWorkbenchCustomization()
+    }
+
+    func toggleBottomPanel() {
+        settings.showsBottomPanel.toggle()
+        if settings.showsBottomPanel {
+            settings.focusModeEnabled = false
+        }
+        persistWorkbenchCustomization()
+    }
+
+    func showBottomPanel(_ panel: WorkbenchBottomPanel) {
+        settings.preferredBottomPanel = panel
+        settings.showsBottomPanel = true
+        settings.focusModeEnabled = false
+        persistWorkbenchCustomization()
+    }
+
+    func hideBottomPanel() {
+        settings.showsBottomPanel = false
+        persistWorkbenchCustomization()
+    }
+
     func showAppearancePreferences() {
         showingAppearancePreferences = true
     }
@@ -983,6 +1283,7 @@ final class AppState: ObservableObject {
         if workspaceIndexSummary.entries.isEmpty, !workspaceRootURLs.isEmpty {
             refreshWorkspaceIndex()
         }
+        showingCommandPalette = false
         showingQuickOpen = true
     }
 
@@ -1054,10 +1355,12 @@ final class AppState: ObservableObject {
         recordActivity("Workspace Index", detail: "Started indexing \(roots.count) root\(roots.count == 1 ? "" : "s").", status: .running)
 
         let includeHiddenFiles = settings.showHiddenFilesInExplorer
+        let includeSymbols = effectiveWorkspaceSymbolIndexingEnabled
         workspaceIndexTask = Task.detached(priority: .utility) {
             let summary = WorkspaceIndexService.index(
                 roots: roots,
-                includeHiddenFiles: includeHiddenFiles
+                includeHiddenFiles: includeHiddenFiles,
+                includeSymbols: includeSymbols
             )
 
             await MainActor.run {
@@ -1113,7 +1416,9 @@ final class AppState: ObservableObject {
             enabledPluginCount: enabledPlugins.count,
             taskCount: pluginTaskState.tasks.count,
             activityCount: activityRecords.count,
-            workspaceIndex: workspaceIndexSummary
+            workspaceIndex: workspaceIndexSummary,
+            runtimeModeLabel: effectivePerformanceMode.displayName,
+            safeModeEnabled: isSafeModeActive
         )
     }
 
@@ -1145,6 +1450,13 @@ final class AppState: ObservableObject {
     }
 
     func exportDiagnosticBundle() {
+        guard ensureManagedPolicyAllows(
+            EnterprisePolicyService.diagnosticBundleRestrictionReason(policy: activeManagedPolicy),
+            title: "Diagnostic Export Is Managed"
+        ) else {
+            return
+        }
+
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
@@ -1167,6 +1479,7 @@ final class AppState: ObservableObject {
                         documents: self.documents,
                         workspaceRoots: self.workspaceRootURLs,
                         settings: self.settings,
+                        managedPolicyState: self.managedPolicyState,
                         workspaceIndex: self.workspaceIndexSummary,
                         releaseReadiness: self.releaseReadinessState,
                         activityRecords: self.activityRecords,
@@ -1186,6 +1499,7 @@ final class AppState: ObservableObject {
     }
 
     func showWorkspacePlatformPanel() {
+        reloadManagedPolicy()
         refreshWorkspacePlatformState()
         refreshPluginRegistry()
         showingWorkspacePlatform = true
@@ -1323,6 +1637,7 @@ final class AppState: ObservableObject {
 
     func applyWorkspaceProfile(_ profile: WorkspaceProfile) {
         settings.apply(profileSnapshot: profile.snapshot)
+        applyManagedPolicyConstraints()
         workspacePlatformState.selectedProfileID = profile.id
         AppSettingsStore.save(settings)
         refreshPluginWorkspaceState()
@@ -1342,9 +1657,10 @@ final class AppState: ObservableObject {
         workspacePlatformState.isRefreshingRegistry = true
         pluginRegistryRefreshTask?.cancel()
         let settingsSnapshot = settings
+        let managedPolicy = activeManagedPolicy
 
         pluginRegistryRefreshTask = Task.detached(priority: .utility) { [weak self] in
-            let entries = await PluginRegistryService.catalog(using: settingsSnapshot)
+            let entries = await PluginRegistryService.catalog(using: settingsSnapshot, policy: managedPolicy)
             guard !Task.isCancelled else {
                 return
             }
@@ -1367,6 +1683,14 @@ final class AppState: ObservableObject {
             alertContext = AlertContext(
                 title: "Registry Details Needed",
                 message: "Add both a registry name and a JSON source URL or file path."
+            )
+            return
+        }
+
+        if let restrictionReason = EnterprisePolicyService.registrySourceRestrictionReason(trimmedSource, policy: activeManagedPolicy) {
+            alertContext = AlertContext(
+                title: "Managed Policy Blocked Registry",
+                message: restrictionReason
             )
             return
         }
@@ -1395,6 +1719,14 @@ final class AppState: ObservableObject {
             return
         }
 
+        if let restrictionReason = EnterprisePolicyService.registrySourceRestrictionReason(registry.source, policy: activeManagedPolicy) {
+            alertContext = AlertContext(
+                title: "Managed Policy Blocked Registry",
+                message: restrictionReason
+            )
+            return
+        }
+
         settings.pluginRegistries[index].isEnabled = isEnabled
         AppSettingsStore.save(settings)
         refreshPluginRegistry()
@@ -1409,6 +1741,14 @@ final class AppState: ObservableObject {
     }
 
     func installRegistryPlugin(_ entry: PluginRegistryEntry) {
+        if let restrictionReason = registryEntryPolicyRestrictionReason(entry) {
+            alertContext = AlertContext(
+                title: "Managed Policy Blocked Plugin Install",
+                message: restrictionReason
+            )
+            return
+        }
+
         do {
             _ = try PluginRegistryService.install(entry)
             if !settings.enabledPluginIDs.contains(entry.id), entry.defaultEnabled {
@@ -1482,6 +1822,7 @@ final class AppState: ObservableObject {
                         bundle.appSettings,
                         preservingSecuritySensitiveValuesFrom: self.settings
                     )
+                    self.applyManagedPolicyConstraints()
                     self.workspaceSessions = currentSessions
                     self.aiWorkbenchState.sessions = currentAISessions
                     self.aiWorkbenchState.selectedSessionID = currentAISessions.first?.id
@@ -1684,9 +2025,7 @@ final class AppState: ObservableObject {
 
         pendingCompletionActivationDocumentIDs.insert(id)
         completionActivationsByDocumentID[id] = nil
-        invalidateGitInsightState(for: id, clearLineDecorations: true)
-        scheduleAutosave()
-        refreshDocumentDiagnostics(for: id)
+        didMutateDocumentContent(for: id)
     }
 
     func updateSelectedDocumentSelection(_ selectedRange: NSRange) {
@@ -1800,13 +2139,17 @@ final class AppState: ObservableObject {
         }
 
         requestEditorFocus()
-        scheduleAutosave()
-        refreshDocumentDiagnostics(for: documentID)
+        didMutateDocumentContent(for: documentID)
     }
 
     func isPluginEnabled(_ pluginID: String) -> Bool {
         let isPersistedEnabled = PluginHostService.normalizedEnabledPluginIDs(from: settings, installedPlugins: pluginCatalog).contains(pluginID)
         guard isPersistedEnabled else {
+            return false
+        }
+
+        if let plugin = pluginCatalog.first(where: { $0.id == pluginID }),
+           pluginPolicyRestrictionReason(plugin) != nil {
             return false
         }
 
@@ -1819,6 +2162,15 @@ final class AppState: ObservableObject {
 
     func togglePluginEnabled(_ pluginID: String) {
         var enabledIDs = PluginHostService.normalizedEnabledPluginIDs(from: settings, installedPlugins: pluginCatalog)
+        if let plugin = pluginCatalog.first(where: { $0.id == pluginID }),
+           let restrictionReason = pluginPolicyRestrictionReason(plugin),
+           !enabledIDs.contains(pluginID) {
+            alertContext = AlertContext(
+                title: "Managed Policy Blocked Plugin",
+                message: restrictionReason
+            )
+            return
+        }
 
         if enabledIDs.contains(pluginID) {
             enabledIDs.remove(pluginID)
@@ -1842,13 +2194,15 @@ final class AppState: ObservableObject {
             workspaceRoots: workspaceRootURLs,
             trustMode: workspaceTrustMode
         )
+        let allowedPluginIDs = Set(enabledPlugins.map(\.id))
+        let filteredSnippets = snippets.filter { allowedPluginIDs.contains($0.pluginID) }
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedQuery.isEmpty else {
-            return snippets
+            return filteredSnippets
         }
 
-        return snippets.filter { snippet in
+        return filteredSnippets.filter { snippet in
             let candidate = [snippet.title, snippet.detail, snippet.previewText]
                 .joined(separator: " ")
             return candidate.localizedCaseInsensitiveContains(trimmedQuery)
@@ -1856,6 +2210,7 @@ final class AppState: ObservableObject {
     }
 
     func showPluginManagerPanel() {
+        reloadManagedPolicy()
         refreshPluginRegistry()
         showingPluginManager = true
     }
@@ -1866,17 +2221,24 @@ final class AppState: ObservableObject {
     }
 
     func showProblemsPanelView() {
-        showingProblemsPanel = true
+        showBottomPanel(.problems)
     }
 
     func showTestExplorerPanel() {
         if testExplorerState.selectedTaskID == nil {
             testExplorerState.selectedTaskID = availableTestTasks.first?.id
         }
-        showingTestExplorer = true
+        showBottomPanel(.tests)
     }
 
     func showAIWorkbenchPanel() {
+        reloadManagedPolicy()
+        guard ensureManagedPolicyAllows(
+            localAIRestrictionReason(for: nil) ?? (activeManagedPolicy?.ai.isEnabled == false ? "Managed policy disabled AI features for this ForgeText installation." : nil),
+            title: "AI Is Managed"
+        ) else {
+            return
+        }
         guard ensureTrustedWorkspace(for: "AI workbench actions") else {
             return
         }
@@ -1890,6 +2252,12 @@ final class AppState: ObservableObject {
     }
 
     func showTaskRunnerPanel() {
+        guard ensureManagedPolicyAllows(
+            EnterprisePolicyService.taskExecutionRestrictionReason(policy: activeManagedPolicy) ?? localTaskExecutionRestrictionReason(),
+            title: "Tasks Are Managed"
+        ) else {
+            return
+        }
         guard ensureTrustedWorkspace(for: "workspace tasks") else {
             return
         }
@@ -1898,6 +2266,12 @@ final class AppState: ObservableObject {
     }
 
     func showTerminalConsolePanel() {
+        guard ensureManagedPolicyAllows(
+            EnterprisePolicyService.embeddedTerminalRestrictionReason(policy: activeManagedPolicy),
+            title: "Terminal Access Is Managed"
+        ) else {
+            return
+        }
         guard ensureTrustedWorkspace(for: "embedded terminal commands") else {
             return
         }
@@ -1905,12 +2279,21 @@ final class AppState: ObservableObject {
             terminalPanelState.commandText = EmbeddedTerminalService.suggestedCommands.first ?? ""
         }
 
-        showingTerminalConsole = true
+        showBottomPanel(.terminal)
     }
 
     func updateSelectedAIProviderID(_ id: UUID) {
+        guard let provider = settings.aiProviders.first(where: { $0.id == id }) else {
+            return
+        }
+        guard ensureManagedPolicyAllows(
+            aiPolicyRestrictionReason(for: provider),
+            title: "AI Provider Is Managed"
+        ) else {
+            return
+        }
         settings.preferredAIProviderID = id
-        AppSettingsStore.save(settings)
+        scheduleAIProviderSave(delayMS: 120)
     }
 
     func updateSelectedAIProviderName(_ value: String) {
@@ -1925,16 +2308,59 @@ final class AppState: ObservableObject {
         updateSelectedAIProvider { $0.model = value }
     }
 
+    func updateSelectedAIProviderConnectionMode(_ value: AIProviderConnectionMode) {
+        guard let provider = settings.aiProviders.first(where: { $0.id == settings.preferredAIProviderID }) ?? settings.aiProviders.first(where: \.isEnabled) else {
+            return
+        }
+        let candidate = AIProviderConfiguration(
+            id: provider.id,
+            name: provider.name,
+            kind: provider.kind,
+            connectionMode: value,
+            baseURLString: provider.baseURLString,
+            model: provider.model,
+            apiKey: provider.apiKey,
+            temperature: provider.temperature,
+            isEnabled: provider.isEnabled
+        )
+        guard ensureManagedPolicyAllows(
+            aiPolicyRestrictionReason(for: candidate),
+            title: "AI Provider Mode Is Managed"
+        ) else {
+            return
+        }
+        updateSelectedAIProvider { provider in
+            provider.connectionMode = value
+        }
+    }
+
     func updateSelectedAIProviderAPIKey(_ value: String) {
-        updateSelectedAIProvider { $0.apiKey = value }
+        updateSelectedAIProvider(persistKeychain: true) { $0.apiKey = value }
     }
 
     func updateSelectedAIProviderEnabled(_ isEnabled: Bool) {
-        updateSelectedAIProvider { $0.isEnabled = isEnabled }
+        if isEnabled,
+           let provider = settings.aiProviders.first(where: { $0.id == settings.preferredAIProviderID }) ?? settings.aiProviders.first {
+            guard ensureManagedPolicyAllows(
+                aiPolicyRestrictionReason(for: provider),
+                title: "AI Provider Is Managed"
+            ) else {
+                return
+            }
+        }
+        updateSelectedAIProvider { provider in
+            provider.isEnabled = isEnabled
+        }
     }
 
     func updateSelectedAIProviderTemperature(_ value: Double) {
         updateSelectedAIProvider { $0.temperature = value }
+    }
+
+    func flushPendingAIProviderChanges() {
+        aiProviderSaveTask?.cancel()
+        aiProviderSaveTask = nil
+        persistPendingAIProviderChanges()
     }
 
     func createAISession() {
@@ -1955,6 +2381,12 @@ final class AppState: ObservableObject {
     }
 
     func runEmbeddedTerminalCommand(_ commandOverride: String? = nil) {
+        guard ensureManagedPolicyAllows(
+            EnterprisePolicyService.embeddedTerminalRestrictionReason(policy: activeManagedPolicy),
+            title: "Terminal Access Is Managed"
+        ) else {
+            return
+        }
         guard ensureTrustedWorkspace(for: "embedded terminal commands") else {
             return
         }
@@ -1976,7 +2408,7 @@ final class AppState: ObservableObject {
         terminalPanelState.history.removeAll { $0 == command }
         terminalPanelState.history.insert(command, at: 0)
         terminalPanelState.history = Array(terminalPanelState.history.prefix(20))
-        showingTerminalConsole = true
+        showBottomPanel(.terminal)
 
         Task.detached(priority: .userInitiated) {
             let run = await EmbeddedTerminalService.run(command: command, currentDirectoryURL: workingDirectory)
@@ -2031,6 +2463,12 @@ final class AppState: ObservableObject {
     }
 
     func runRemoteSearch() {
+        guard ensureManagedPolicyAllows(
+            remoteRestrictionReason(for: .search),
+            title: "Remote Search Is Managed"
+        ) else {
+            return
+        }
         guard ensureTrustedWorkspace(for: "remote grep") else {
             return
         }
@@ -2089,6 +2527,12 @@ final class AppState: ObservableObject {
     }
 
     func runRemoteCommand() {
+        guard ensureManagedPolicyAllows(
+            remoteRestrictionReason(for: .commands),
+            title: "Remote Commands Are Managed"
+        ) else {
+            return
+        }
         guard ensureTrustedWorkspace(for: "remote commands") else {
             return
         }
@@ -2214,8 +2658,7 @@ final class AppState: ObservableObject {
         }
 
         requestEditorFocus()
-        scheduleAutosave()
-        refreshDocumentDiagnostics(for: selectedDocumentID)
+        didMutateDocumentContent(for: selectedDocumentID)
     }
 
     func insertSnippet(withID snippetID: String) {
@@ -2270,8 +2713,7 @@ final class AppState: ObservableObject {
                 recomputeFindState(for: &updatedDocument)
             }
 
-            scheduleAutosave()
-            refreshDocumentDiagnostics(for: selectedDocumentID)
+            didMutateDocumentContent(for: selectedDocumentID)
         } catch {
             present(error: error, title: "Couldn’t Format Document")
         }
@@ -2482,7 +2924,11 @@ final class AppState: ObservableObject {
                 using: settings,
                 workspaceRoots: workspaceRootURLs,
                 trustMode: workspaceTrustMode
-            ).count
+            )
+            .filter { snippet in
+                Set(enabledPlugins.map(\.id)).contains(snippet.pluginID)
+            }
+            .count
             if snippetCount > 0 {
                 items.append(
                     PluginStatusItem(
@@ -2580,7 +3026,7 @@ final class AppState: ObservableObject {
 
     func openProblem(_ record: ProblemRecord) {
         guard let filePath = record.filePath else {
-            showingProblemsPanel = false
+            showBottomPanel(.problems)
             return
         }
 
@@ -2590,7 +3036,7 @@ final class AppState: ObservableObject {
            let documentID = documents.first(where: { $0.fileURL?.standardizedFileURL == url.standardizedFileURL })?.id {
             goToLine(lineNumber, in: documentID)
         }
-        showingProblemsPanel = false
+        showBottomPanel(.problems)
     }
 
     func runSelectedTestTask() {
@@ -2599,7 +3045,7 @@ final class AppState: ObservableObject {
         }
 
         runWorkspaceTask(withID: selectedTaskID)
-        showingTestExplorer = true
+        showBottomPanel(.tests)
     }
 
     func runSelectedCoverageTask() {
@@ -2618,10 +3064,16 @@ final class AppState: ObservableObject {
         }
 
         runWorkspaceTask(task, enableCoverage: true)
-        showingTestExplorer = true
+        showBottomPanel(.tests)
     }
 
     func sendAIPrompt(_ promptOverride: String? = nil, quickAction: AIQuickAction? = nil) {
+        guard ensureManagedPolicyAllows(
+            localAIRestrictionReason(for: nil) ?? (activeManagedPolicy?.ai.isEnabled == false ? "Managed policy disabled AI requests for this ForgeText installation." : nil),
+            title: "AI Is Managed"
+        ) else {
+            return
+        }
         guard ensureTrustedWorkspace(for: "AI requests") else {
             return
         }
@@ -2633,6 +3085,12 @@ final class AppState: ObservableObject {
             alertContext = AlertContext(title: "AI Provider Needed", message: "Choose or enable an AI provider before sending a prompt.")
             return
         }
+        guard ensureManagedPolicyAllows(
+            aiPolicyRestrictionReason(for: provider),
+            title: "AI Provider Is Managed"
+        ) else {
+            return
+        }
 
         let promptText = (promptOverride ?? aiWorkbenchState.draftPrompt).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !promptText.isEmpty || quickAction == .draftCommitMessage else {
@@ -2640,8 +3098,11 @@ final class AppState: ObservableObject {
             return
         }
 
+        let includeSelection = aiSelectionContextAllowed
+        let includeCurrentDocument = aiCurrentDocumentContextAllowed
+        let includeWorkspaceRules = aiWorkspaceRulesContextAllowed
         let selectedText = selectedDocument.flatMap(selectedText(in:))
-        let workspaceRules = settings.aiIncludeWorkspaceRules ? AIRulesService.loadRules(for: activeWorkspaceURL) : nil
+        let workspaceRules = includeWorkspaceRules ? AIRulesService.loadRules(for: activeWorkspaceURL) : nil
         let effectivePrompt: String
         if quickAction == .draftCommitMessage {
             let diff = (try? GitService.diffForWorkingTree(at: activeWorkspaceURL)) ?? ""
@@ -2650,56 +3111,65 @@ final class AppState: ObservableObject {
             effectivePrompt = promptText
         }
 
-        let preparedPrompt = AIProviderService.buildPrompt(
+        var preparedPrompt = AIProviderService.buildPrompt(
             userPrompt: effectivePrompt,
-            currentDocument: settings.aiIncludeCurrentDocument ? selectedDocument : nil,
-            selectedText: settings.aiIncludeSelection ? selectedText : nil,
+            currentDocument: includeCurrentDocument ? selectedDocument : nil,
+            selectedText: includeSelection ? selectedText : nil,
             workspaceRules: workspaceRules,
-            includeCurrentDocument: settings.aiIncludeCurrentDocument,
-            includeSelectedText: settings.aiIncludeSelection,
-            includeWorkspaceRules: settings.aiIncludeWorkspaceRules,
+            includeCurrentDocument: includeCurrentDocument,
+            includeSelectedText: includeSelection,
+            includeWorkspaceRules: includeWorkspaceRules,
             quickAction: quickAction
         )
 
-        aiWorkbenchState.isSending = true
-        aiWorkbenchState.lastAction = quickAction
-        aiWorkbenchState.statusMessage = "Sending prompt to \(provider.name)..."
-        showingAIWorkbench = true
+        preparedPrompt = sanitizedPreparedPrompt(preparedPrompt)
 
         let priorMessages = selectedAISession?.messages ?? []
 
-        Task {
-            do {
-                let response = try await AIProviderService.send(
-                    prompt: preparedPrompt,
-                    sessionMessages: priorMessages.filter { $0.role != .system },
-                    provider: provider
-                )
-
-                await MainActor.run {
-                    self.recordAIInteraction(
-                        prompt: effectivePrompt.isEmpty ? quickAction?.displayName ?? "AI Request" : effectivePrompt,
-                        response: response,
-                        provider: provider
-                    )
-                    self.aiWorkbenchState.isSending = false
-                    self.aiWorkbenchState.lastResponseText = response
-                    self.aiWorkbenchState.statusMessage = "Received response from \(provider.name)"
-                    if quickAction == .draftCommitMessage {
-                        self.gitPanelState.commitMessage = response
-                        self.showingGitWorkbench = true
-                    } else {
-                        self.aiWorkbenchState.draftPrompt = ""
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    self.aiWorkbenchState.isSending = false
-                    self.aiWorkbenchState.statusMessage = error.localizedDescription
-                    self.present(error: error, title: "Couldn’t Complete AI Request")
-                }
-            }
+        if settings.advanced.ai.requireReviewBeforeSend {
+            aiPromptReviewState = AIPromptReviewState(
+                providerName: provider.name,
+                model: provider.model,
+                quickAction: quickAction,
+                effectivePromptTitle: effectivePrompt.isEmpty ? (quickAction?.displayName ?? "AI Request") : effectivePrompt,
+                preparedPrompt: preparedPrompt,
+                sessionMessages: priorMessages.filter { $0.role != .system }
+            )
+            aiWorkbenchState.lastAction = quickAction
+            aiWorkbenchState.statusMessage = "Review the prepared AI request before sending."
+            showBottomPanel(.assistant)
+            return
         }
+
+        executeAIPromptReview(
+            AIPromptReviewState(
+                providerName: provider.name,
+                model: provider.model,
+                quickAction: quickAction,
+                effectivePromptTitle: effectivePrompt.isEmpty ? (quickAction?.displayName ?? "AI Request") : effectivePrompt,
+                preparedPrompt: preparedPrompt,
+                sessionMessages: priorMessages.filter { $0.role != .system }
+            ),
+            provider: provider
+        )
+    }
+
+    func approveAIPromptReview() {
+        guard let reviewState = aiPromptReviewState else {
+            return
+        }
+        ensureAIProviderSelection()
+        guard let provider = selectedAIProvider else {
+            alertContext = AlertContext(title: "AI Provider Needed", message: "Choose or enable an AI provider before sending a prompt.")
+            return
+        }
+        aiPromptReviewState = nil
+        executeAIPromptReview(reviewState, provider: provider)
+    }
+
+    func cancelAIPromptReview() {
+        aiPromptReviewState = nil
+        aiWorkbenchState.statusMessage = "Canceled AI request review"
     }
 
     func runAIQuickAction(_ action: AIQuickAction) {
@@ -2842,8 +3312,7 @@ final class AppState: ObservableObject {
             recomputeFindState(for: &updatedDocument)
         }
 
-        scheduleAutosave()
-        refreshDocumentDiagnostics(for: selectedDocumentID)
+        didMutateDocumentContent(for: selectedDocumentID)
     }
 
     func replaceAllMatches() {
@@ -2870,8 +3339,7 @@ final class AppState: ObservableObject {
             recomputeFindState(for: &updatedDocument)
         }
 
-        scheduleAutosave()
-        refreshDocumentDiagnostics(for: selectedDocumentID)
+        didMutateDocumentContent(for: selectedDocumentID)
     }
 
     func showGoToLine() {
@@ -2888,6 +3356,7 @@ final class AppState: ObservableObject {
         }
 
         projectSearchState.isPresented = true
+        showBottomPanel(.search)
     }
 
     func chooseWorkspaceRoot() {
@@ -3272,7 +3741,8 @@ final class AppState: ObservableObject {
                         preservingSecuritySensitiveValuesFrom: self.settings
                     )
                     self.settings = mergedSettings
-                    AppSettingsStore.save(mergedSettings)
+                    self.applyManagedPolicyConstraints()
+                    AppSettingsStore.save(self.settings)
                     self.refreshPluginWorkspaceState()
                     self.refreshPluginRegistry()
                     self.workspacePlatformState.lastStatusMessage = "Imported settings. Trusted workspaces and plugin registries stayed local."
@@ -3307,7 +3777,7 @@ final class AppState: ObservableObject {
             PaletteItem(id: "openWorkspace", title: "Open Workspace File", subtitle: "Load a multi-root ForgeText workspace file", symbolName: "square.3.layers.3d.down.left", action: .openWorkspaceFile),
             PaletteItem(id: "saveWorkspace", title: "Save Workspace File", subtitle: "Persist the current roots and profile into a workspace file", symbolName: "square.3.layers.3d.top.filled", action: .saveWorkspaceFile),
             PaletteItem(id: "workspaceCenter", title: "Workspace Center", subtitle: "Manage workspace roots, trust, profiles, and sync", symbolName: "square.3.layers.3d", action: .showWorkspacePlatform),
-            PaletteItem(id: "appearancePreferences", title: "Appearance Preferences", subtitle: "Tune Retro Pro, density, focus mode, and inspector settings", symbolName: "paintbrush.pointed", action: .showAppearancePreferences),
+            PaletteItem(id: "appearancePreferences", title: "Workbench + Advanced", subtitle: "Tune layout, runtime, AI privacy, file handling, and editor defaults", symbolName: "paintbrush.pointed", action: .showAppearancePreferences),
             PaletteItem(id: "quickOpen", title: "Quick Open", subtitle: "Jump to indexed workspace files", symbolName: "doc.text.magnifyingglass", action: .showQuickOpen),
             PaletteItem(id: "activityCenter", title: "Activity Center", subtitle: "Review recent editor, Git, AI, and workspace events", symbolName: "list.bullet.rectangle.portrait", action: .showActivityCenter),
             PaletteItem(id: "refreshWorkspaceIndex", title: "Refresh Workspace Index", subtitle: "Rebuild the file, symbol, TODO, and warning index", symbolName: "tray.full", action: .refreshWorkspaceIndex),
@@ -3833,6 +4303,7 @@ final class AppState: ObservableObject {
             recordRecentFile(url)
             recordActivity("Saved File", detail: url.path, status: .success)
             refreshPluginWorkspaceState()
+            scheduleDocumentWorkbenchInsightRefresh(for: id)
             refreshDocumentDiagnostics(for: id)
         } catch {
             if !initiatedByAutosave, PrivilegedFileService.isPermissionFailure(error), PrivilegedFileService.likelyNeedsPrivilege(for: url) {
@@ -3867,6 +4338,7 @@ final class AppState: ObservableObject {
                     RecoveryService.deleteSnapshot(for: id)
                     self.recordRecentRemote(document.remoteReference)
                     self.refreshPluginWorkspaceState()
+                    self.scheduleDocumentWorkbenchInsightRefresh(for: id)
                     self.refreshDocumentDiagnostics(for: id)
                 }
             } catch {
@@ -3880,7 +4352,13 @@ final class AppState: ObservableObject {
     private func finalizeClose(id: UUID) {
         RecoveryService.deleteSnapshot(for: id)
         documents.removeAll { $0.id == id }
+        textStatisticsByDocumentID[id] = nil
         documentDiagnosticsByID[id] = nil
+        documentWorkbenchInsightsByID[id] = nil
+        documentDiagnosticsTasksByID[id]?.cancel()
+        documentDiagnosticsTasksByID[id] = nil
+        documentWorkbenchInsightTasksByID[id]?.cancel()
+        documentWorkbenchInsightTasksByID[id] = nil
         invalidateGitInsightState(for: id, clearLineDecorations: true)
 
         if selectedDocumentID == id {
@@ -3891,6 +4369,8 @@ final class AppState: ObservableObject {
             let document = EditorDocument.untitled(named: nextUntitledName())
             documents = [document]
             selectedDocumentID = document.id
+            scheduleDocumentWorkbenchInsightRefresh(for: document.id)
+            refreshDocumentDiagnostics(for: document.id)
         }
 
         requestEditorFocus()
@@ -3938,7 +4418,13 @@ final class AppState: ObservableObject {
     private func discardDocumentWithoutReplacement(id: UUID) {
         RecoveryService.deleteSnapshot(for: id)
         documents.removeAll { $0.id == id }
+        textStatisticsByDocumentID[id] = nil
         documentDiagnosticsByID[id] = nil
+        documentWorkbenchInsightsByID[id] = nil
+        documentDiagnosticsTasksByID[id]?.cancel()
+        documentDiagnosticsTasksByID[id] = nil
+        documentWorkbenchInsightTasksByID[id]?.cancel()
+        documentWorkbenchInsightTasksByID[id] = nil
         invalidateGitInsightState(for: id, clearLineDecorations: true)
 
         if selectedDocumentID == id {
@@ -3952,6 +4438,22 @@ final class AppState: ObservableObject {
             .map(URL.init(fileURLWithPath:))
             .filter { FileManager.default.fileExists(atPath: $0.path) }
         recentRemoteLocations = session.recentRemoteSpecs.compactMap(RemoteFileReference.parse)
+
+        let shouldRestorePreviousSession = settings.advanced.fileHandling.restorePreviousSessionOnLaunch
+            && (!isSafeModeActive || settings.advanced.safeMode.restoresPreviousSession)
+
+        guard shouldRestorePreviousSession else {
+            let document = EditorDocument.untitled(
+                named: nextUntitledName(),
+                lineEnding: settings.advanced.fileHandling.defaultLineEnding
+            )
+            documents = [document]
+            selectedDocumentID = document.id
+            requestEditorFocus()
+            refreshPluginWorkspaceState()
+            return
+        }
+
         let sessionRoots = (session.workspaceRootPaths.isEmpty ? session.workspaceRootPath.map { [$0] } ?? [] : session.workspaceRootPaths)
             .map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
         let activeRoot = (session.activeWorkspaceRootPath ?? session.workspaceRootPath).map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
@@ -3977,7 +4479,9 @@ final class AppState: ObservableObject {
 
             do {
                 let file = try TextFileCodec.open(from: url)
-                documents.append(EditorDocument.loaded(file: file, url: url))
+                var document = EditorDocument.loaded(file: file, url: url)
+                configureOpenedDocument(&document)
+                documents.append(document)
             } catch {
                 continue
             }
@@ -4007,12 +4511,16 @@ final class AppState: ObservableObject {
 
         requestEditorFocus()
         refreshPluginWorkspaceState()
+        for document in documents {
+            scheduleDocumentWorkbenchInsightRefresh(for: document.id)
+        }
         refreshAllDocumentDiagnostics()
     }
 
     private func startFileMonitoring() {
         fileMonitorTimer?.invalidate()
-        fileMonitorTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
+        let interval = settings.advanced.fileHandling.externalChangePollingIntervalSeconds
+        fileMonitorTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.pollExternalChanges()
             }
@@ -4039,6 +4547,7 @@ final class AppState: ObservableObject {
                     updatedDocument.hasExternalChanges = true
                     updatedDocument.statusMessage = "File missing on disk"
                 }
+                scheduleDocumentWorkbenchInsightRefresh(for: document.id)
                 continue
             }
 
@@ -4051,6 +4560,7 @@ final class AppState: ObservableObject {
                         updatedDocument.fileMissingOnDisk = false
                         updatedDocument.statusMessage = "Changed outside ForgeText"
                     }
+                    scheduleDocumentWorkbenchInsightRefresh(for: document.id)
                 } else {
                     reloadDocumentFromDisk(id: document.id, preserveSelection: true, announce: "Reloaded external changes")
                 }
@@ -4101,6 +4611,8 @@ final class AppState: ObservableObject {
             }
 
             RecoveryService.deleteSnapshot(for: id)
+            textStatisticsByDocumentID[id] = nil
+            scheduleDocumentWorkbenchInsightRefresh(for: id)
             refreshDocumentDiagnostics(for: id)
         } catch {
             present(error: error, title: "Couldn’t Reload File")
@@ -4146,8 +4658,9 @@ final class AppState: ObservableObject {
 
     private func scheduleAutosave() {
         autosaveTask?.cancel()
+        let delayNanoseconds = UInt64(settings.advanced.fileHandling.autosaveDelayMilliseconds) * 1_000_000
         autosaveTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(nanoseconds: delayNanoseconds)
             await MainActor.run {
                 self?.performAutosaveCycle()
             }
@@ -4187,20 +4700,26 @@ final class AppState: ObservableObject {
         let selectedFile = selectedDocument?.fileURL
         let openRemoteSpecs = documents.compactMap { $0.remoteReference?.spec }
         let selectedRemoteSpec = selectedDocument?.remoteReference?.spec
-        SessionStore.save(
-            openFiles: openFiles,
-            openRemoteSpecs: openRemoteSpecs,
-            recentFiles: recentFiles,
-            recentRemoteSpecs: recentRemoteLocations.map(\.spec),
-            selectedFile: selectedFile,
-            selectedRemoteSpec: selectedRemoteSpec,
-            workspaceRoot: projectSearchState.rootURL,
-            workspaceRoots: workspaceRootURLs,
-            activeWorkspaceRoot: activeWorkspaceURL,
-            workspaceFileURL: workspacePlatformState.workspaceFilePath.map(URL.init(fileURLWithPath:)),
-            selectedProfileID: workspacePlatformState.selectedProfileID
-        )
-        AppSettingsStore.save(settings)
+        EditorPerformanceMonitor.shared.measure(
+            .sessionPersistence,
+            detail: selectedDocument?.displayName,
+            payload: "\(documents.count) docs · \(recentFiles.count) recent"
+        ) {
+            SessionStore.save(
+                openFiles: openFiles,
+                openRemoteSpecs: openRemoteSpecs,
+                recentFiles: recentFiles,
+                recentRemoteSpecs: recentRemoteLocations.map(\.spec),
+                selectedFile: selectedFile,
+                selectedRemoteSpec: selectedRemoteSpec,
+                workspaceRoot: projectSearchState.rootURL,
+                workspaceRoots: workspaceRootURLs,
+                activeWorkspaceRoot: activeWorkspaceURL,
+                workspaceFileURL: workspacePlatformState.workspaceFilePath.map(URL.init(fileURLWithPath:)),
+                selectedProfileID: workspacePlatformState.selectedProfileID
+            )
+            AppSettingsStore.save(settings)
+        }
     }
 
     private func recordRecentFile(_ url: URL) {
@@ -4347,6 +4866,12 @@ final class AppState: ObservableObject {
     }
 
     func installRemoteAgent() {
+        guard ensureManagedPolicyAllows(
+            remoteRestrictionReason(for: .agentInstall),
+            title: "Remote Agent Install Is Managed"
+        ) else {
+            return
+        }
         guard ensureTrustedWorkspace(for: "remote agent installation") else {
             return
         }
@@ -4401,6 +4926,150 @@ final class AppState: ObservableObject {
             ?? recentRemoteLocations.first?.connection
     }
 
+    private func localPluginRestrictionReason(_ plugin: EditorPlugin) -> String? {
+        if isSafeModeActive, !settings.advanced.safeMode.allowsExternalPlugins, !plugin.manifest.isBuiltIn {
+            return "Safe Mode blocks external plugins for this session."
+        }
+
+        let origin = EnterprisePolicyService.pluginOrigin(for: plugin, workspaceRoots: workspaceRootURLs)
+        if origin == .workspaceLocal, !settings.advanced.plugins.allowWorkspacePlugins {
+            return "Advanced Settings blocked workspace-local plugins."
+        }
+
+        if plugin.manifest.capabilities.contains(.tasks), !settings.advanced.plugins.allowTaskCapablePlugins {
+            return "Advanced Settings blocked task-capable plugins."
+        }
+
+        return nil
+    }
+
+    private func localRegistryEntryRestrictionReason(_ entry: PluginRegistryEntry) -> String? {
+        if !settings.advanced.plugins.allowTaskCapablePlugins,
+           (entry.capabilities.contains(.tasks) || !entry.tasks.isEmpty) {
+            return "Advanced Settings blocked task-capable plugins."
+        }
+
+        return nil
+    }
+
+    private func localTaskExecutionRestrictionReason() -> String? {
+        settings.advanced.plugins.allowTaskCapablePlugins ? nil : "Advanced Settings disabled task-capable plugins and workspace task execution."
+    }
+
+    private func localAIRestrictionReason(for provider: AIProviderConfiguration?) -> String? {
+        if isSafeModeActive, !settings.advanced.safeMode.allowsAI {
+            return "Safe Mode blocks AI requests for this session."
+        }
+
+        guard let provider else {
+            return nil
+        }
+
+        if settings.advanced.ai.localModelsOnly, provider.effectiveConnectionMode == .bringYourOwnKey {
+            return "Advanced Settings restricted ForgeText to local model endpoints only."
+        }
+
+        return nil
+    }
+
+    private func localRemoteRestrictionReason(for capability: EnterprisePolicyService.RemoteCapability) -> String? {
+        if isSafeModeActive, !settings.advanced.safeMode.allowsRemoteConnections {
+            return "Safe Mode blocks remote connections for this session."
+        }
+
+        switch capability {
+        case .fileAccess, .search:
+            return nil
+        case .commands:
+            return settings.advanced.remote.allowRemoteCommands ? nil : "Advanced Settings blocked remote command execution."
+        case .agentInstall:
+            return settings.advanced.remote.allowRemoteAgentInstall ? nil : "Advanced Settings blocked remote agent installation."
+        }
+    }
+
+    private func remoteRestrictionReason(for capability: EnterprisePolicyService.RemoteCapability) -> String? {
+        EnterprisePolicyService.remoteRestrictionReason(for: capability, policy: activeManagedPolicy)
+            ?? localRemoteRestrictionReason(for: capability)
+    }
+
+    private func configureOpenedDocument(_ document: inout EditorDocument) {
+        if settings.advanced.fileHandling.alwaysOpenInRawView,
+           document.presentationMode.isStructured,
+           document.presentationMode != .archiveBrowser {
+            document.prefersStructuredPresentation = false
+            document.presentationMode = .editor
+        }
+
+        if document.remoteReference != nil, settings.advanced.remote.openFilesReadOnly {
+            document.isReadOnly = true
+            document.statusMessage = "Opened remote file read-only"
+            document.syncDirtyState()
+        }
+    }
+
+    private func clearAllDocumentDiagnostics() {
+        for task in documentDiagnosticsTasksByID.values {
+            task.cancel()
+        }
+        documentDiagnosticsTasksByID.removeAll()
+        documentDiagnosticsByID.removeAll()
+    }
+
+    private func clearAllDocumentInsights() {
+        for task in documentWorkbenchInsightTasksByID.values {
+            task.cancel()
+        }
+        documentWorkbenchInsightTasksByID.removeAll()
+        documentWorkbenchInsightsByID.removeAll()
+    }
+
+    private func applyManagedPolicyConstraints() {
+        guard let policy = activeManagedPolicy else {
+            ensureAIProviderSelection()
+            return
+        }
+
+        var didChange = false
+
+        if !policy.ai.allowsSelectionContext, settings.aiIncludeSelection {
+            settings.aiIncludeSelection = false
+            didChange = true
+        }
+        if !policy.ai.allowsCurrentDocumentContext, settings.aiIncludeCurrentDocument {
+            settings.aiIncludeCurrentDocument = false
+            didChange = true
+        }
+        if !policy.ai.allowsWorkspaceRulesContext, settings.aiIncludeWorkspaceRules {
+            settings.aiIncludeWorkspaceRules = false
+            didChange = true
+        }
+
+        let allowedProviderIDs = settings.aiProviders
+            .filter { $0.isEnabled && EnterprisePolicyService.aiRestrictionReason(for: $0, policy: policy) == nil }
+            .map(\.id)
+        if let preferredAIProviderID = settings.preferredAIProviderID,
+           !allowedProviderIDs.contains(preferredAIProviderID) {
+            settings.preferredAIProviderID = allowedProviderIDs.first
+            didChange = true
+        }
+
+        if didChange {
+            AppSettingsStore.save(settings)
+        }
+
+        ensureAIProviderSelection()
+    }
+
+    private func ensureManagedPolicyAllows(_ restrictionReason: String?, title: String) -> Bool {
+        guard let restrictionReason else {
+            return true
+        }
+
+        recordActivity("Managed Policy", detail: "\(title): \(restrictionReason)", status: .warning)
+        alertContext = AlertContext(title: title, message: restrictionReason)
+        return false
+    }
+
     private func ensureTrustedWorkspace(for feature: String) -> Bool {
         guard workspaceTrustMode == .restricted, !workspaceRootURLs.isEmpty else {
             return true
@@ -4448,19 +5117,35 @@ final class AppState: ObservableObject {
             : workspacePlatformState.workspaceName
     }
 
+    private func refreshSelectionContext(previousWorkspaceRootPaths: [String]) {
+        let currentWorkspaceRootPaths = workspaceRootURLs.map(\.path)
+        if currentWorkspaceRootPaths != previousWorkspaceRootPaths {
+            refreshPluginWorkspaceState()
+            return
+        }
+
+        refreshWorkspacePlatformState()
+        workspaceExplorerState.selectedRootPath = activeWorkspaceURL?.path
+    }
+
     private func openRestoredRemoteDocument(_ spec: String) {
+        guard remoteRestrictionReason(for: .fileAccess) == nil else {
+            return
+        }
         let executionMode = remoteWorkspaceState.executionMode
         Task.detached(priority: .utility) {
             do {
-                let document = try RemoteFileService.open(spec: spec, mode: executionMode)
+                var document = try RemoteFileService.open(spec: spec, mode: executionMode)
                 await MainActor.run {
                     guard !self.documents.contains(where: { $0.remoteReference?.spec == spec }) else {
                         return
                     }
 
+                    self.configureOpenedDocument(&document)
                     self.documents.append(document)
                     self.recordRecentRemote(document.remoteReference)
                     self.refreshPluginWorkspaceState()
+                    self.scheduleDocumentWorkbenchInsightRefresh(for: document.id)
                     self.refreshDocumentDiagnostics(for: document.id)
                 }
             } catch {
@@ -4479,11 +5164,30 @@ final class AppState: ObservableObject {
         var updatedDocuments = documents
         mutate(&updatedDocuments[index])
         documents = updatedDocuments
-        scheduleSessionSave()
     }
 
     private func document(withID id: UUID) -> EditorDocument? {
         documents.first { $0.id == id }
+    }
+
+    private func cachedTextStatistics(for document: EditorDocument) -> CachedTextStatistics {
+        if let cachedStatistics = textStatisticsByDocumentID[document.id], cachedStatistics.matches(text: document.text) {
+            return cachedStatistics
+        }
+
+        let computedStatistics = CachedTextStatistics(text: document.text)
+        textStatisticsByDocumentID[document.id] = computedStatistics
+        return computedStatistics
+    }
+
+    private func didMutateDocumentContent(for documentID: UUID, invalidateGitInsights: Bool = true) {
+        textStatisticsByDocumentID[documentID] = nil
+        if invalidateGitInsights {
+            invalidateGitInsightState(for: documentID, clearLineDecorations: true)
+        }
+        scheduleAutosave()
+        scheduleDocumentWorkbenchInsightRefresh(for: documentID)
+        refreshDocumentDiagnostics(for: documentID)
     }
 
     private func gitBlameCacheKey(for documentID: UUID, lineNumber: Int) -> String {
@@ -4547,6 +5251,9 @@ final class AppState: ObservableObject {
     private func refreshPluginWorkspaceState(showNoGitAlert: Bool = false) {
         pluginCatalog = PluginHostService.installedPlugins(workspaceRoots: workspaceRootURLs)
         let allowsTaskExecution = workspaceTrustMode == .trusted
+            && EnterprisePolicyService.taskExecutionRestrictionReason(policy: activeManagedPolicy) == nil
+            && localTaskExecutionRestrictionReason() == nil
+            && settings.advanced.plugins.allowTaskCapablePlugins
         let detectedTasks = allowsTaskExecution ? WorkspaceTaskService.detectTasks(rootURLs: workspaceRootURLs) : []
         let externalPluginTasks = allowsTaskExecution ? enabledPlugins.flatMap(\.tasks) : []
         pluginTaskState.tasks = detectedTasks + externalPluginTasks
@@ -4565,12 +5272,22 @@ final class AppState: ObservableObject {
             testExplorerState.selectedTaskID = availableTestTasks.first?.id
         }
 
-        refreshGitWorkbench(showNoRepositoryAlert: showNoGitAlert)
+        if settings.advanced.git.largeRepositoryMode && !showNoGitAlert {
+            gitPanelState.lastOperationMessage = "Large repository mode keeps Git refresh manual."
+        } else {
+            refreshGitWorkbench(showNoRepositoryAlert: showNoGitAlert)
+        }
         refreshWorkspaceExplorer()
         refreshWorkspacePlatformState()
     }
 
     private func runWorkspaceTask(_ task: EditorPluginTask, enableCoverage: Bool = false) {
+        guard ensureManagedPolicyAllows(
+            EnterprisePolicyService.taskExecutionRestrictionReason(policy: activeManagedPolicy) ?? localTaskExecutionRestrictionReason(),
+            title: "Tasks Are Managed"
+        ) else {
+            return
+        }
         guard ensureTrustedWorkspace(for: "workspace tasks") else {
             return
         }
@@ -4660,8 +5377,19 @@ final class AppState: ObservableObject {
     }
 
     private func ensureAIProviderSelection() {
-        if settings.preferredAIProviderID == nil {
-            settings.preferredAIProviderID = settings.aiProviders.first(where: \.isEnabled)?.id
+        let preferredProviderIsAllowed = settings.preferredAIProviderID.flatMap { preferredID in
+            settings.aiProviders.first(where: { provider in
+                provider.id == preferredID
+                    && provider.isEnabled
+                    && aiPolicyRestrictionReason(for: provider) == nil
+            })
+        } != nil
+
+        if !preferredProviderIsAllowed {
+            settings.preferredAIProviderID = settings.aiProviders.first(where: { provider in
+                provider.isEnabled
+                    && aiPolicyRestrictionReason(for: provider) == nil
+            })?.id
             AppSettingsStore.save(settings)
         }
     }
@@ -4677,14 +5405,131 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func updateSelectedAIProvider(_ mutate: (inout AIProviderConfiguration) -> Void) {
+    private func updateSelectedAIProvider(
+        persistKeychain: Bool = false,
+        delayMS: UInt64 = 450,
+        _ mutate: (inout AIProviderConfiguration) -> Void
+    ) {
         guard let providerID = settings.preferredAIProviderID,
               let index = settings.aiProviders.firstIndex(where: { $0.id == providerID }) else {
             return
         }
 
         mutate(&settings.aiProviders[index])
+        scheduleAIProviderSave(persistKeychain: persistKeychain, delayMS: delayMS)
+    }
+
+    private func scheduleAIProviderSave(persistKeychain: Bool = false, delayMS: UInt64 = 450) {
+        if persistKeychain {
+            pendingAIProviderKeychainPersist = true
+        }
+
+        aiProviderSaveTask?.cancel()
+        aiProviderSaveTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(delayMS))
+            await MainActor.run {
+                self?.persistPendingAIProviderChanges()
+            }
+        }
+    }
+
+    private func persistPendingAIProviderChanges() {
+        if pendingAIProviderKeychainPersist {
+            AIProviderKeychainStore.persistKeys(for: settings.aiProviders)
+            pendingAIProviderKeychainPersist = false
+        }
+
         AppSettingsStore.save(settings)
+    }
+
+    private func executeAIPromptReview(_ reviewState: AIPromptReviewState, provider: AIProviderConfiguration) {
+        aiWorkbenchState.isSending = true
+        aiWorkbenchState.lastAction = reviewState.quickAction
+        aiWorkbenchState.statusMessage = "Sending prompt to \(provider.name)..."
+        showBottomPanel(.assistant)
+
+        Task {
+            do {
+                let response = try await AIProviderService.send(
+                    prompt: reviewState.preparedPrompt,
+                    sessionMessages: reviewState.sessionMessages,
+                    provider: provider
+                )
+
+                await MainActor.run {
+                    self.recordAIInteraction(
+                        prompt: reviewState.effectivePromptTitle,
+                        response: response,
+                        provider: provider
+                    )
+                    self.aiWorkbenchState.isSending = false
+                    self.aiWorkbenchState.lastResponseText = response
+                    self.aiWorkbenchState.statusMessage = "Received response from \(provider.name)"
+                    if reviewState.quickAction == .draftCommitMessage {
+                        self.gitPanelState.commitMessage = response
+                        self.showBottomPanel(.sourceControl)
+                    } else {
+                        self.aiWorkbenchState.draftPrompt = ""
+                        self.showBottomPanel(.assistant)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.aiWorkbenchState.isSending = false
+                    self.aiWorkbenchState.statusMessage = error.localizedDescription
+                    self.present(error: error, title: "Couldn’t Complete AI Request")
+                }
+            }
+        }
+    }
+
+    private func sanitizedPreparedPrompt(_ prompt: AIProviderService.PreparedPrompt) -> AIProviderService.PreparedPrompt {
+        var systemPrompt = prompt.systemPrompt
+        var userPrompt = prompt.userPrompt
+
+        if settings.advanced.ai.redactSensitiveContext {
+            systemPrompt = redactSensitiveText(systemPrompt)
+            userPrompt = redactSensitiveText(userPrompt)
+        }
+
+        let maxCharacters = settings.advanced.ai.maxContextCharacters
+        let maxSystemCharacters = max(800, min(maxCharacters / 3, 6_000))
+        systemPrompt = truncatePromptSection(systemPrompt, maxCharacters: maxSystemCharacters, label: "System context")
+        let remainingBudget = max(1_000, maxCharacters - systemPrompt.count)
+        userPrompt = truncatePromptSection(userPrompt, maxCharacters: remainingBudget, label: "User context")
+
+        return AIProviderService.PreparedPrompt(systemPrompt: systemPrompt, userPrompt: userPrompt)
+    }
+
+    private func truncatePromptSection(_ text: String, maxCharacters: Int, label: String) -> String {
+        guard text.count > maxCharacters else {
+            return text
+        }
+
+        let notice = "\n\n[ForgeText truncated \(label.lowercased()) for privacy and performance.]"
+        let allowedCount = max(0, maxCharacters - notice.count)
+        return String(text.prefix(allowedCount)) + notice
+    }
+
+    private func redactSensitiveText(_ text: String) -> String {
+        var redacted = text
+        let rules: [(String, String)] = [
+            (#"(?m)-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----"#, "[REDACTED PRIVATE KEY]"),
+            (#"\bAKIA[0-9A-Z]{16}\b"#, "[REDACTED AWS ACCESS KEY]"),
+            (#"\bgh[pousr]_[A-Za-z0-9]{20,}\b"#, "[REDACTED GITHUB TOKEN]"),
+            (#"(?mi)\bAuthorization:\s*Bearer\s+[A-Za-z0-9\-._~+/]+=*"#, "Authorization: Bearer [REDACTED]"),
+            (#"(?mi)\b(?:api[_-]?key|secret|token|password)\s*[:=]\s*[\"']?[A-Za-z0-9_\-\/+=]{8,}"#, "[REDACTED SECRET ASSIGNMENT]")
+        ]
+
+        for (pattern, replacement) in rules {
+            redacted = redacted.replacingOccurrences(
+                of: pattern,
+                with: replacement,
+                options: .regularExpression
+            )
+        }
+
+        return redacted
     }
 
     private func recordAIInteraction(prompt: String, response: String, provider: AIProviderConfiguration) {
@@ -4742,8 +5587,7 @@ final class AppState: ObservableObject {
         }
 
         requestEditorFocus()
-        scheduleAutosave()
-        refreshDocumentDiagnostics(for: documentID)
+        didMutateDocumentContent(for: documentID)
     }
 
     private func preferredWorkspaceLandingFile(in rootURL: URL) -> URL? {
@@ -4766,18 +5610,110 @@ final class AppState: ObservableObject {
     }
 
     private func refreshDocumentDiagnostics(for id: UUID) {
-        guard let document = document(withID: id), !document.isLargeFileMode else {
+        guard effectiveDocumentDiagnosticsEnabled,
+              let document = document(withID: id),
+              !document.isLargeFileMode else {
+            documentDiagnosticsTasksByID[id]?.cancel()
+            documentDiagnosticsTasksByID[id] = nil
             documentDiagnosticsByID[id] = []
             return
         }
 
-        gitBlameCache = gitBlameCache.filter { !$0.key.hasPrefix(id.uuidString) }
-        documentDiagnosticsByID[id] = PluginDiagnosticsService.diagnostics(for: document)
+        documentDiagnosticsTasksByID[id]?.cancel()
+        let documentSnapshot = document
+        let debounceMS = effectivePerformanceMode == .performance ? 420 : 260
+        documentDiagnosticsTasksByID[id] = Task.detached(priority: .utility) { [weak self] in
+            try? await Task.sleep(for: .milliseconds(debounceMS))
+            guard !Task.isCancelled else {
+                return
+            }
+
+            let startedAt = DispatchTime.now().uptimeNanoseconds
+            let diagnostics = PluginDiagnosticsService.diagnostics(for: documentSnapshot)
+            let elapsedMS = Double(DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
+            EditorPerformanceMonitor.shared.record(
+                .documentDiagnostics,
+                durationMS: elapsedMS,
+                detail: documentSnapshot.displayName,
+                payload: "\(diagnostics.count) findings"
+            )
+            guard !Task.isCancelled else {
+                return
+            }
+
+            await MainActor.run {
+                guard let self else {
+                    return
+                }
+
+                self.documentDiagnosticsTasksByID[id] = nil
+                guard let latestDocument = self.document(withID: id),
+                      latestDocument.text == documentSnapshot.text,
+                      latestDocument.language == documentSnapshot.language
+                else {
+                    return
+                }
+
+                self.gitBlameCache = self.gitBlameCache.filter { !$0.key.hasPrefix(id.uuidString) }
+                self.documentDiagnosticsByID[id] = diagnostics
+            }
+        }
     }
 
     private func refreshAllDocumentDiagnostics() {
         for document in documents {
             refreshDocumentDiagnostics(for: document.id)
+        }
+    }
+
+    private func scheduleDocumentWorkbenchInsightRefresh(for id: UUID) {
+        guard effectiveDocumentInsightsEnabled,
+              let document = document(withID: id),
+              !document.isLargeFileMode else {
+            documentWorkbenchInsightTasksByID[id]?.cancel()
+            documentWorkbenchInsightTasksByID[id] = nil
+            documentWorkbenchInsightsByID[id] = .empty
+            return
+        }
+
+        documentWorkbenchInsightTasksByID[id]?.cancel()
+        let documentSnapshot = document
+        let debounceMS = effectivePerformanceMode == .performance ? 320 : 180
+        documentWorkbenchInsightTasksByID[id] = Task.detached(priority: .utility) { [weak self] in
+            try? await Task.sleep(for: .milliseconds(debounceMS))
+            guard !Task.isCancelled else {
+                return
+            }
+
+            let startedAt = DispatchTime.now().uptimeNanoseconds
+            let insights = DocumentWorkbenchInsightService.makeInsights(for: documentSnapshot)
+            let elapsedMS = Double(DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
+            EditorPerformanceMonitor.shared.record(
+                .documentInsights,
+                durationMS: elapsedMS,
+                detail: documentSnapshot.displayName,
+                payload: insights.outline.isEmpty ? "no outline" : "\(insights.outline.count) outline items"
+            )
+            guard !Task.isCancelled else {
+                return
+            }
+
+            await MainActor.run {
+                guard let self else {
+                    return
+                }
+
+                self.documentWorkbenchInsightTasksByID[id] = nil
+                guard let latestDocument = self.document(withID: id),
+                      latestDocument.text == documentSnapshot.text,
+                      latestDocument.language == documentSnapshot.language,
+                      latestDocument.fileURL == documentSnapshot.fileURL
+                else {
+                    return
+                }
+
+                self.documentWorkbenchInsightsByID[id] = insights
+            }
         }
     }
 
@@ -4853,7 +5789,7 @@ final class AppState: ObservableObject {
                 recomputeFindState(for: &updatedDocument)
             }
 
-            scheduleAutosave()
+            didMutateDocumentContent(for: selectedDocumentID)
         } catch {
             present(error: error, title: "Couldn’t Format JSON")
         }

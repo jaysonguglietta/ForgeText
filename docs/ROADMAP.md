@@ -65,6 +65,15 @@ ForgeText 1.2.1 hardens the trust and local-data model:
 - A first-run chooser helps new installs land on the right shell immediately.
 - Shared chrome and backdrop rendering are lighter so the shell feels calmer and more responsive.
 
+## Current Main-Branch Runtime And Enterprise Controls
+
+- `Workbench + Advanced` replaces the older appearance-only tuning flow with one control surface for runtime, file handling, AI privacy, plugin/remote safety, and safe-mode behavior.
+- `Performance Mode` becomes a first-class runtime choice for heavier files and repositories.
+- Raw-view-first opens become the safer and calmer default even for structured file types.
+- AI can now be limited to local models, reviewed before send, redacted for likely secrets, and capped with a stricter context budget.
+- Local Safe Mode can suppress external plugins, AI, remote connections, and prior-session restore for recovery or support workflows.
+- Workspace profiles now carry advanced behavior settings so teams can reuse more than just visual preferences.
+
 ## Current Strengths
 
 - ForgeText is now credible as a local developer text workbench, not just a raw text editor.
@@ -72,11 +81,13 @@ ForgeText 1.2.1 hardens the trust and local-data model:
 - Git, AI, plugins, tasks, diagnostics, test output, and terminal output are all surfaced in native panels.
 - The workspace trust model is materially stronger than the original 1.0/1.1 behavior.
 - ForgeText now has a stronger default UI direction: Studio-first for production work, retro as an optional expression layer.
+- ForgeText now has the start of a real enterprise control plane through managed local policy enforcement for AI, plugins, remote flows, updates, and support export.
 
 ## Next Priorities
 
 - Add parser-backed language intelligence and broader symbol extraction.
 - Add direct GitHub PR creation, issue context, review comments, and release drafting.
+- Expand managed policy into a fuller enterprise layer: signed policy bundles, policy diagnostics, policy-controlled updates, private plugin catalogs, and org-approved AI provider packs.
 - Add real shortcut rebinding beyond the current shortcut reference.
 - Deepen table tooling: sorting, filtering, frozen columns, typed columns, and export/copy helpers.
 - Deepen log tooling: timestamp parsing, saved filters, field extraction, timeline clustering, and multi-file sessions.

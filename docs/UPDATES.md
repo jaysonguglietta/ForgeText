@@ -105,3 +105,5 @@ Local installs do not require a DMG, GitHub Release, appcast update, notarizatio
 ForgeText includes `Tools > Export Diagnostic Bundle...`.
 
 Use this when troubleshooting release or updater issues. The bundle includes release-readiness state, app version, workspace paths, recent activity, and index summaries. It intentionally excludes document contents and AI API keys.
+
+On managed installs, the diagnostic bundle can also include a policy summary so support teams can tell whether update checks or related flows were blocked by local admin policy.

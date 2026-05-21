@@ -5,6 +5,8 @@ import Security
 enum SensitiveDataStore {
     private static let service = "com.jaysonguglietta.ForgeText.sensitive-data"
     private static let account = "default"
+    private static let keyCacheLock = NSLock()
+    nonisolated(unsafe) private static var cachedKeyData: Data?
 
     private struct Envelope: Codable {
         let version: Int
@@ -83,7 +85,17 @@ enum SensitiveDataStore {
     }
 
     private static func encryptionKey() -> SymmetricKey? {
+        keyCacheLock.lock()
+        if let cachedKeyData {
+            keyCacheLock.unlock()
+            return SymmetricKey(data: cachedKeyData)
+        }
+        keyCacheLock.unlock()
+
         if let keyData = keyDataFromKeychain() {
+            keyCacheLock.lock()
+            cachedKeyData = keyData
+            keyCacheLock.unlock()
             return SymmetricKey(data: keyData)
         }
 
@@ -95,6 +107,9 @@ enum SensitiveDataStore {
             return nil
         }
 
+        keyCacheLock.lock()
+        cachedKeyData = keyData
+        keyCacheLock.unlock()
         return SymmetricKey(data: keyData)
     }
 

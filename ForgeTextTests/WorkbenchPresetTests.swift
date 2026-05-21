@@ -26,7 +26,10 @@ final class WorkbenchPresetTests: XCTestCase {
                 interfaceDensity: .compact,
                 focusModeEnabled: false,
                 showsInspector: true,
-                showsBreadcrumbs: false
+                showsBreadcrumbs: false,
+                showsSidebar: true,
+                showsBottomPanel: false,
+                preferredBottomPanel: .terminal
             )
         )
     }

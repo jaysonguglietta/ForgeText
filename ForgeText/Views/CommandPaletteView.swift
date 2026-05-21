@@ -2,7 +2,6 @@ import SwiftUI
 
 struct CommandPaletteView: View {
     @Environment(\.retroChromeStyle) private var chromeStyle
-    @Environment(\.dismiss) private var dismiss
     @ObservedObject var appState: AppState
     @State private var query = ""
     @State private var mode: CommandPaletteMode = .all
@@ -15,18 +14,18 @@ struct CommandPaletteView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 Label("Command Palette", systemImage: "command")
-                    .font(.system(size: 18, weight: .black, design: .monospaced))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(RetroPalette.ink)
 
                 Spacer(minLength: 0)
 
                 Text("Search commands, files, symbols, tasks, and recent places")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(.system(size: 10, weight: .regular))
                     .foregroundStyle(RetroPalette.link)
                     .lineLimit(1)
 
                 Button("Close") {
-                    dismiss()
+                    dismissOverlay()
                 }
                 .buttonStyle(RetroActionButtonStyle(tone: .secondary))
             }
@@ -59,7 +58,7 @@ struct CommandPaletteView: View {
 
             List(items) { item in
                 Button {
-                    dismiss()
+                    dismissOverlay()
                     appState.performPaletteAction(item.action)
                 } label: {
                     HStack(alignment: .center, spacing: 12) {
@@ -69,10 +68,10 @@ struct CommandPaletteView: View {
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(item.title)
-                                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                                .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(RetroPalette.ink)
                             Text(item.subtitle)
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .font(.system(size: 11, weight: .regular))
                                 .foregroundStyle(RetroPalette.link)
                                 .lineLimit(1)
                         }
@@ -94,9 +93,14 @@ struct CommandPaletteView: View {
             .background(chromeStyle == .studio ? RetroPalette.studioPanelMuted : RetroPalette.panelFillMuted)
         }
         .padding(14)
-        .frame(minWidth: 720, idealWidth: 760, minHeight: 440)
+        .frame(minWidth: 720, idealWidth: 760, minHeight: 400)
         .background(chromeStyle == .studio ? RetroPalette.studioCanvasMuted : RetroPalette.pageCream)
         .retroPanel(fill: chromeStyle == .studio ? RetroPalette.studioPanel : RetroPalette.panelFill, accent: RetroPalette.chromePink)
         .padding(14)
+    }
+
+    private func dismissOverlay() {
+        appState.showingCommandPalette = false
+        appState.showingQuickOpen = false
     }
 }

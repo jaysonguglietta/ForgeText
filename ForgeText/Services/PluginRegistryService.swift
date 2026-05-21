@@ -16,15 +16,20 @@ enum PluginRegistryService {
         }
     }
 
-    static func catalog(using settings: AppSettings) async -> [PluginRegistryEntry] {
+    static func catalog(using settings: AppSettings, policy: EnterpriseManagedPolicy? = nil) async -> [PluginRegistryEntry] {
         var entries = curatedEntries
 
         for registry in settings.pluginRegistries where registry.isEnabled {
+            guard EnterprisePolicyService.registrySourceRestrictionReason(registry.source, policy: policy) == nil else {
+                continue
+            }
             entries.append(contentsOf: await loadRegistryEntries(from: registry.source))
         }
 
         var seenIDs = Set<String>()
-        return entries.filter { seenIDs.insert($0.id).inserted }
+        return entries
+            .filter { seenIDs.insert($0.id).inserted }
+            .filter { EnterprisePolicyService.registryEntryRestrictionReason($0, policy: policy) == nil }
     }
 
     static func install(_ entry: PluginRegistryEntry) throws -> URL {

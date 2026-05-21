@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "organizationName": "Acme Infrastructure",
+  "notes": "Local AI only. Workspace plugins and remote commands are blocked on managed laptops.",
+  "features": {
+    "allowEmbeddedTerminal": true,
+    "allowWorkspaceTasks": true
+  },
+  "ai": {
+    "isEnabled": true,
+    "allowsCloudProviders": false,
+    "allowsLocalModels": true,
+    "allowsSelectionContext": true,
+    "allowsCurrentDocumentContext": false,
+    "allowsWorkspaceRulesContext": true,
+    "allowedProviderKinds": [
+      "ollama",
+      "openAICompatible"
+    ],
+    "allowedModelPrefixes": [
+      "qwen",
+      "llama",
+      "deepseek"
+    ]
+  },
+  "plugins": {
+    "allowWorkspacePlugins": false,
+    "allowUserInstalledPlugins": true,
+    "allowCustomRegistries": true,
+    "allowsFileRegistries": false,
+    "allowTaskCapablePlugins": false,
+    "allowedRegistryHosts": [
+      "plugins.acme.example"
+    ],
+    "allowedPluginAuthors": [
+      "ForgeText",
+      "Acme Platform"
+    ]
+  },
+  "remote": {
+    "allowRemoteFiles": true,
+    "allowRemoteSearch": true,
+    "allowRemoteCommands": false,
+    "allowRemoteAgentInstall": false
+  },
+  "updates": {
+    "allowUpdateChecks": false
+  },
+  "support": {
+    "allowDiagnosticBundles": true,
+    "includePolicySummaryInDiagnostics": true
+  }
+}

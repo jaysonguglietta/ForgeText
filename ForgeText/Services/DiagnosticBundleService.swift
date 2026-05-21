@@ -6,6 +6,7 @@ enum DiagnosticBundleService {
         documents: [EditorDocument],
         workspaceRoots: [URL],
         settings: AppSettings,
+        managedPolicyState: ManagedPolicyState,
         workspaceIndex: WorkspaceIndexSummary,
         releaseReadiness: ReleaseReadinessState,
         activityRecords: [ActivityRecord],
@@ -19,6 +20,7 @@ enum DiagnosticBundleService {
             documents: documents,
             workspaceRoots: workspaceRoots,
             settings: settings,
+            managedPolicyState: managedPolicyState,
             workspaceIndex: workspaceIndex,
             releaseReadiness: releaseReadiness,
             gitSummary: gitSummary
@@ -36,13 +38,17 @@ enum DiagnosticBundleService {
         }.joined(separator: "\n")
         try index.write(to: bundleURL.appendingPathComponent("workspace-index.txt"), atomically: true, encoding: .utf8)
 
-        return DiagnosticBundleSummary(url: bundleURL, createdAt: Date(), fileCount: 3)
+        let policySummary = managedPolicySummary(state: managedPolicyState)
+        try policySummary.write(to: bundleURL.appendingPathComponent("managed-policy.txt"), atomically: true, encoding: .utf8)
+
+        return DiagnosticBundleSummary(url: bundleURL, createdAt: Date(), fileCount: 4)
     }
 
     private static func diagnosticOverview(
         documents: [EditorDocument],
         workspaceRoots: [URL],
         settings: AppSettings,
+        managedPolicyState: ManagedPolicyState,
         workspaceIndex: WorkspaceIndexSummary,
         releaseReadiness: ReleaseReadinessState,
         gitSummary: GitRepositorySummary?
@@ -80,6 +86,8 @@ enum DiagnosticBundleService {
         Focus Mode: \(settings.focusModeEnabled)
         Inspector: \(settings.showsInspector)
         AI Providers Enabled: \(enabledProviderNames.isEmpty ? "none" : enabledProviderNames)
+        Managed Policy: \(managedPolicyState.isManaged ? "active" : "none")
+        Managed Policy Source: \(managedPolicyState.sourcePath ?? "not configured")
 
         Workspace Index
         Files: \(workspaceIndex.entries.count)
@@ -97,6 +105,19 @@ enum DiagnosticBundleService {
 
         Privacy Note
         This bundle intentionally excludes document contents and AI provider keys. It lists paths, settings names, and local status only.
+        """
+    }
+
+    private static func managedPolicySummary(state: ManagedPolicyState) -> String {
+        let lines = EnterprisePolicyService.summaryLines(for: state)
+        let source = state.sourcePath ?? "not configured"
+
+        return """
+        ForgeText Managed Policy
+        Generated: \(Date().formatted(date: .complete, time: .standard))
+        Source: \(source)
+
+        \(lines.joined(separator: "\n"))
         """
     }
 }

@@ -83,7 +83,10 @@ enum WorkbenchPreset: String, CaseIterable, Identifiable, Codable {
                 interfaceDensity: .compact,
                 focusModeEnabled: false,
                 showsInspector: false,
-                showsBreadcrumbs: false
+                showsBreadcrumbs: false,
+                showsSidebar: true,
+                showsBottomPanel: false,
+                preferredBottomPanel: .terminal
             )
         case .balanced:
             return WorkbenchAppearanceSnapshot(
@@ -91,7 +94,10 @@ enum WorkbenchPreset: String, CaseIterable, Identifiable, Codable {
                 interfaceDensity: .comfortable,
                 focusModeEnabled: false,
                 showsInspector: false,
-                showsBreadcrumbs: true
+                showsBreadcrumbs: true,
+                showsSidebar: true,
+                showsBottomPanel: true,
+                preferredBottomPanel: .sourceControl
             )
         case .fullRetro:
             return WorkbenchAppearanceSnapshot(
@@ -99,13 +105,25 @@ enum WorkbenchPreset: String, CaseIterable, Identifiable, Codable {
                 interfaceDensity: .comfortable,
                 focusModeEnabled: false,
                 showsInspector: true,
-                showsBreadcrumbs: true
+                showsBreadcrumbs: true,
+                showsSidebar: true,
+                showsBottomPanel: true,
+                preferredBottomPanel: .terminal
             )
         }
     }
 
     static func matching(_ appearance: WorkbenchAppearanceSnapshot) -> WorkbenchPreset? {
-        allCases.first(where: { $0.appearance == appearance })
+        allCases.first(where: { preset in
+            let candidate = preset.appearance
+            return candidate.chromeStyle == appearance.chromeStyle
+                && candidate.interfaceDensity == appearance.interfaceDensity
+                && candidate.focusModeEnabled == appearance.focusModeEnabled
+                && candidate.showsInspector == appearance.showsInspector
+                && candidate.showsBreadcrumbs == appearance.showsBreadcrumbs
+                && candidate.showsSidebar == appearance.showsSidebar
+                && candidate.showsBottomPanel == appearance.showsBottomPanel
+        })
     }
 }
 
@@ -115,6 +133,54 @@ struct WorkbenchAppearanceSnapshot: Codable, Hashable {
     var focusModeEnabled: Bool
     var showsInspector: Bool
     var showsBreadcrumbs: Bool
+    var showsSidebar: Bool
+    var showsBottomPanel: Bool
+    var preferredBottomPanel: WorkbenchBottomPanel
+}
+
+enum WorkbenchBottomPanel: String, CaseIterable, Identifiable, Codable {
+    case search
+    case sourceControl
+    case terminal
+    case problems
+    case tests
+    case assistant
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .search:
+            return "Search"
+        case .sourceControl:
+            return "Source Control"
+        case .terminal:
+            return "Terminal"
+        case .problems:
+            return "Problems"
+        case .tests:
+            return "Tests"
+        case .assistant:
+            return "AI"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .search:
+            return "magnifyingglass"
+        case .sourceControl:
+            return "arrow.triangle.branch"
+        case .terminal:
+            return "terminal"
+        case .problems:
+            return "exclamationmark.circle"
+        case .tests:
+            return "checkmark.circle"
+        case .assistant:
+            return "sparkles"
+        }
+    }
 }
 
 enum InterfaceDensity: String, CaseIterable, Identifiable, Codable {
@@ -306,6 +372,9 @@ struct AppSettings: Codable {
     var customWorkbenchAppearance = WorkbenchPreset.quiet.appearance
     var hasCompletedFirstRunExperience = false
     var focusModeEnabled = false
+    var showsSidebar = true
+    var showsBottomPanel = false
+    var preferredBottomPanel: WorkbenchBottomPanel = .terminal
     var wrapLines = false
     var autosaveToDisk = true
     var fontSize: Double = 14
@@ -325,6 +394,7 @@ struct AppSettings: Codable {
     var aiIncludeSelection = true
     var aiIncludeCurrentDocument = true
     var aiIncludeWorkspaceRules = true
+    var advanced = AdvancedEditorSettings()
 
     init() {}
 
@@ -336,6 +406,9 @@ struct AppSettings: Codable {
         case customWorkbenchAppearance
         case hasCompletedFirstRunExperience
         case focusModeEnabled
+        case showsSidebar
+        case showsBottomPanel
+        case preferredBottomPanel
         case wrapLines
         case autosaveToDisk
         case fontSize
@@ -355,6 +428,7 @@ struct AppSettings: Codable {
         case aiIncludeSelection
         case aiIncludeCurrentDocument
         case aiIncludeWorkspaceRules
+        case advanced
     }
 
     init(from decoder: Decoder) throws {
@@ -369,7 +443,10 @@ struct AppSettings: Codable {
                     interfaceDensity: interfaceDensity,
                     focusModeEnabled: try container.decodeIfPresent(Bool.self, forKey: .focusModeEnabled) ?? false,
                     showsInspector: try container.decodeIfPresent(Bool.self, forKey: .showsInspector) ?? false,
-                    showsBreadcrumbs: try container.decodeIfPresent(Bool.self, forKey: .showsBreadcrumbs) ?? false
+                    showsBreadcrumbs: try container.decodeIfPresent(Bool.self, forKey: .showsBreadcrumbs) ?? false,
+                    showsSidebar: try container.decodeIfPresent(Bool.self, forKey: .showsSidebar) ?? true,
+                    showsBottomPanel: try container.decodeIfPresent(Bool.self, forKey: .showsBottomPanel) ?? false,
+                    preferredBottomPanel: try container.decodeIfPresent(WorkbenchBottomPanel.self, forKey: .preferredBottomPanel) ?? .terminal
                 )
             )
             ?? .quiet
@@ -379,10 +456,16 @@ struct AppSettings: Codable {
                 interfaceDensity: interfaceDensity,
                 focusModeEnabled: try container.decodeIfPresent(Bool.self, forKey: .focusModeEnabled) ?? false,
                 showsInspector: try container.decodeIfPresent(Bool.self, forKey: .showsInspector) ?? false,
-                showsBreadcrumbs: try container.decodeIfPresent(Bool.self, forKey: .showsBreadcrumbs) ?? false
+                showsBreadcrumbs: try container.decodeIfPresent(Bool.self, forKey: .showsBreadcrumbs) ?? false,
+                showsSidebar: try container.decodeIfPresent(Bool.self, forKey: .showsSidebar) ?? true,
+                showsBottomPanel: try container.decodeIfPresent(Bool.self, forKey: .showsBottomPanel) ?? false,
+                preferredBottomPanel: try container.decodeIfPresent(WorkbenchBottomPanel.self, forKey: .preferredBottomPanel) ?? .terminal
             )
         hasCompletedFirstRunExperience = try container.decodeIfPresent(Bool.self, forKey: .hasCompletedFirstRunExperience) ?? false
         focusModeEnabled = try container.decodeIfPresent(Bool.self, forKey: .focusModeEnabled) ?? false
+        showsSidebar = try container.decodeIfPresent(Bool.self, forKey: .showsSidebar) ?? true
+        showsBottomPanel = try container.decodeIfPresent(Bool.self, forKey: .showsBottomPanel) ?? false
+        preferredBottomPanel = try container.decodeIfPresent(WorkbenchBottomPanel.self, forKey: .preferredBottomPanel) ?? .terminal
         wrapLines = try container.decodeIfPresent(Bool.self, forKey: .wrapLines) ?? false
         autosaveToDisk = try container.decodeIfPresent(Bool.self, forKey: .autosaveToDisk) ?? true
         fontSize = try container.decodeIfPresent(Double.self, forKey: .fontSize) ?? 14
@@ -411,5 +494,90 @@ struct AppSettings: Codable {
         aiIncludeSelection = try container.decodeIfPresent(Bool.self, forKey: .aiIncludeSelection) ?? true
         aiIncludeCurrentDocument = try container.decodeIfPresent(Bool.self, forKey: .aiIncludeCurrentDocument) ?? true
         aiIncludeWorkspaceRules = try container.decodeIfPresent(Bool.self, forKey: .aiIncludeWorkspaceRules) ?? true
+        advanced = try container.decodeIfPresent(AdvancedEditorSettings.self, forKey: .advanced) ?? AdvancedEditorSettings()
     }
+}
+
+enum RuntimePerformanceMode: String, CaseIterable, Identifiable, Codable {
+    case standard
+    case performance
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .standard:
+            return "Standard"
+        case .performance:
+            return "Performance"
+        }
+    }
+
+    var summary: String {
+        switch self {
+        case .standard:
+            return "Keep live editor context, Git hints, and richer workbench signals turned on."
+        case .performance:
+            return "Prioritize typing latency and calmer background work in larger files and heavier repositories."
+        }
+    }
+}
+
+struct FileHandlingAdvancedSettings: Codable, Hashable {
+    var alwaysOpenInRawView = true
+    var autosaveDelayMilliseconds = 1_500
+    var defaultLineEnding: LineEnding = .lf
+    var restorePreviousSessionOnLaunch = true
+    var externalChangePollingIntervalSeconds = 2.5
+}
+
+struct PerformanceAdvancedSettings: Codable, Hashable {
+    var mode: RuntimePerformanceMode = .standard
+    var autoEnableForLargeFiles = true
+    var liveDiagnosticsEnabled = true
+    var documentInsightsEnabled = true
+    var indexWorkspaceSymbols = true
+}
+
+struct GitAdvancedSettings: Codable, Hashable {
+    var enableLineDecorations = true
+    var enableBlamePrefetch = true
+    var largeRepositoryMode = false
+}
+
+struct AIPrivacyAdvancedSettings: Codable, Hashable {
+    var localModelsOnly = false
+    var requireReviewBeforeSend = false
+    var redactSensitiveContext = true
+    var maxContextCharacters = 12_000
+}
+
+struct PluginHardeningAdvancedSettings: Codable, Hashable {
+    var allowWorkspacePlugins = true
+    var allowTaskCapablePlugins = true
+    var allowCustomRegistries = true
+}
+
+struct RemoteAdvancedSettings: Codable, Hashable {
+    var openFilesReadOnly = false
+    var allowRemoteCommands = true
+    var allowRemoteAgentInstall = true
+}
+
+struct SafeModeSettings: Codable, Hashable {
+    var isEnabled = false
+    var restoresPreviousSession = false
+    var allowsExternalPlugins = false
+    var allowsAI = false
+    var allowsRemoteConnections = false
+}
+
+struct AdvancedEditorSettings: Codable, Hashable {
+    var fileHandling = FileHandlingAdvancedSettings()
+    var performance = PerformanceAdvancedSettings()
+    var git = GitAdvancedSettings()
+    var ai = AIPrivacyAdvancedSettings()
+    var plugins = PluginHardeningAdvancedSettings()
+    var remote = RemoteAdvancedSettings()
+    var safeMode = SafeModeSettings()
 }

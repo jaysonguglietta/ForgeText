@@ -5,7 +5,7 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if appState.settings.focusModeEnabled {
+            if !appState.isSidebarVisible {
                 workspaceDetail
             } else {
                 NavigationSplitView {
@@ -18,9 +18,6 @@ struct ContentView: View {
         }
         .background(RetroBackdropView())
         .retroChrome(style: appState.settings.chromeStyle, density: appState.settings.interfaceDensity)
-        .sheet(isPresented: $appState.showingCommandPalette) {
-            CommandPaletteView(appState: appState)
-        }
         .sheet(isPresented: $appState.showingGoToLine) {
             GoToLineView(appState: appState)
         }
@@ -30,20 +27,11 @@ struct ContentView: View {
         .sheet(isPresented: $appState.showingGitWorkbench) {
             GitWorkbenchView(appState: appState)
         }
-        .sheet(isPresented: $appState.projectSearchState.isPresented) {
-            ProjectSearchView(appState: appState)
-        }
         .sheet(isPresented: $appState.showingRemoteOpen) {
             RemoteOpenView(appState: appState)
         }
         .sheet(isPresented: $appState.showingWorkspacePlatform) {
             WorkspacePlatformView(appState: appState)
-        }
-        .sheet(isPresented: $appState.showingProblemsPanel) {
-            ProblemsPanelView(appState: appState)
-        }
-        .sheet(isPresented: $appState.showingTestExplorer) {
-            TestExplorerView(appState: appState)
         }
         .sheet(isPresented: $appState.showingAIWorkbench) {
             AIWorkbenchView(appState: appState)
@@ -56,9 +44,6 @@ struct ContentView: View {
         }
         .sheet(isPresented: $appState.showingKeyboardShortcuts) {
             KeyboardShortcutsView()
-        }
-        .sheet(isPresented: $appState.showingQuickOpen) {
-            QuickOpenView(appState: appState)
         }
         .sheet(isPresented: $appState.showingActivityCenter) {
             ActivityCenterView(appState: appState)
@@ -93,8 +78,8 @@ struct ContentView: View {
         .sheet(isPresented: $appState.showingPluginDiagnostics) {
             PluginDiagnosticsView(appState: appState)
         }
-        .sheet(isPresented: $appState.showingTerminalConsole) {
-            TerminalConsoleView(appState: appState)
+        .sheet(item: $appState.aiPromptReviewState) { reviewState in
+            AIPromptReviewView(appState: appState, reviewState: reviewState)
         }
         .sheet(item: $appState.comparisonState) { comparisonState in
             CompareView(state: comparisonState)
@@ -120,6 +105,11 @@ struct ContentView: View {
                 message: Text(context.message),
                 dismissButton: .default(Text("OK"))
             )
+        }
+        .overlay {
+            if appState.showingCommandPalette || appState.showingQuickOpen {
+                WorkbenchQuickOverlay(appState: appState)
+            }
         }
     }
 
@@ -222,10 +212,7 @@ private struct DocumentSidebarView: View {
     }
 
     private var activityRail: some View {
-        VStack(spacing: 10) {
-            BrandMarkView(size: 28)
-                .padding(.top, 10)
-
+        VStack(spacing: 6) {
             ForEach(SidebarPane.allCases) { pane in
                 Button {
                     selectedPane = pane
@@ -233,16 +220,18 @@ private struct DocumentSidebarView: View {
                         appState.refreshGitWorkbench()
                     }
                 } label: {
-                    VStack(spacing: 5) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(selectedPane == pane ? RetroPalette.studioAccent.opacity(0.12) : Color.clear)
+
                         Image(systemName: pane.symbolName)
                             .font(.system(size: 15, weight: .semibold))
-                        Text(pane.title)
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                            .lineLimit(1)
+                            .foregroundStyle(selectedPane == pane ? RetroPalette.studioAccent : RetroPalette.mutedInk)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .frame(width: 34, height: 34)
                 }
-                .buttonStyle(RetroActionButtonStyle(tone: selectedPane == pane ? .accent : .secondary))
+                .buttonStyle(.plain)
+                .help(pane.title)
                 .accessibilityLabel(pane.title)
             }
 
@@ -253,13 +242,18 @@ private struct DocumentSidebarView: View {
             } label: {
                 Image(systemName: "slider.horizontal.3")
                     .font(.system(size: 14, weight: .semibold))
-                    .frame(maxWidth: .infinity, minHeight: 34)
+                    .frame(width: 34, height: 34)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(RetroPalette.studioPanel)
+                    )
             }
-            .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+            .buttonStyle(.plain)
             .accessibilityLabel("Appearance preferences")
         }
-        .padding(8)
-        .frame(width: 72)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 10)
+        .frame(width: 50)
         .background(
             chromeStyle == .studio ? RetroPalette.studioRail : RetroPalette.railFill
         )
@@ -268,31 +262,21 @@ private struct DocumentSidebarView: View {
     private var sidebarHeader: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("ForgeText")
-                        .font(.system(size: 20, weight: .black, design: .monospaced))
-                        .tracking(0.5)
-                        .foregroundStyle(RetroPalette.ink)
-
-                    Text(selectedPane.title)
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
-                        .foregroundStyle(RetroPalette.link)
-                }
+                Text(selectedPane.title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(RetroPalette.ink)
 
                 Spacer(minLength: 0)
-
-                if appState.workspaceTrustMode == .restricted {
-                    RetroCapsuleLabel(text: "Restricted Folder", accent: RetroPalette.warning)
-                }
             }
 
-            Text(selectedPane.subtitle)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
+            Text(appState.activeWorkspaceURL?.lastPathComponent ?? selectedPane.subtitle)
+                .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(RetroPalette.mutedInk)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .padding(12)
-        .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromeBlue)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .retroPanel(fill: chromeStyle == .studio ? RetroPalette.studioPanel : RetroPalette.railFill, accent: RetroPalette.chromeBlue)
     }
 
     private var quickActionBar: some View {
@@ -545,7 +529,7 @@ private struct DocumentSidebarView: View {
                 actionCard("Plugin Manager", subtitle: "Enable built-in IDE plugins and inspect their capabilities.", symbolName: "puzzlepiece.extension", action: appState.showPluginManagerPanel)
                 actionCard("Task Runner", subtitle: "Run workspace build, test, and lint commands from detected project files.", symbolName: "play.square.stack", action: appState.showTaskRunnerPanel)
                 actionCard("Snippet Library", subtitle: "Insert format-aware snippets into the current document.", symbolName: "text.badge.plus", action: appState.showSnippetLibraryPanel)
-                actionCard("Appearance Preferences", subtitle: "Adjust workbench style, density, layout, and editor theme.", symbolName: "slider.horizontal.3", action: appState.showAppearancePreferences)
+                actionCard("Workbench + Advanced", subtitle: "Adjust layout, runtime, file handling, AI privacy, and editor theme.", symbolName: "slider.horizontal.3", action: appState.showAppearancePreferences)
                 actionCard("Setup Checklist", subtitle: "Review workspace, Git, AI, plugin, and update readiness.", symbolName: "checklist", action: appState.showFirstRunSetupPanel)
             }
         }
@@ -554,7 +538,7 @@ private struct DocumentSidebarView: View {
     private func compactAction(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label(title, systemImage: systemImage)
-                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                .font(.system(size: 12, weight: .medium))
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(RetroActionButtonStyle(tone: .secondary))
@@ -576,11 +560,11 @@ private struct DocumentSidebarView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(RetroPalette.ink)
                     .lineLimit(1)
                 Text(subtitle)
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(RetroPalette.link)
                     .lineLimit(2)
             }
@@ -593,7 +577,10 @@ private struct DocumentSidebarView: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
+        .retroPanel(
+            fill: chromeStyle == .studio ? RetroPalette.studioPanelMuted : RetroPalette.panelFillMuted,
+            accent: RetroPalette.chromeBlue
+        )
     }
 
     private func sourceControlFileRow(_ file: GitChangedFile) -> some View {
@@ -606,12 +593,12 @@ private struct DocumentSidebarView: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(file.displayName)
-                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(RetroPalette.ink)
                         .lineLimit(1)
 
                     Text(file.relativePath)
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .font(.system(size: 10, weight: .regular))
                         .foregroundStyle(RetroPalette.link)
                         .lineLimit(2)
                 }
@@ -642,16 +629,22 @@ private struct DocumentSidebarView: View {
             }
         }
         .padding(10)
-        .retroPanel(fill: RetroPalette.panelFillMuted, accent: file.isConflicted ? RetroPalette.danger : RetroPalette.chromeTeal)
+        .retroPanel(
+            fill: chromeStyle == .studio ? RetroPalette.studioPanelMuted : RetroPalette.panelFillMuted,
+            accent: file.isConflicted ? RetroPalette.danger : RetroPalette.chromeTeal
+        )
     }
 
     private func emptySidebarMessage(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 11, weight: .medium, design: .monospaced))
+            .font(.system(size: 11, weight: .regular))
             .foregroundStyle(RetroPalette.link)
             .fixedSize(horizontal: false, vertical: true)
             .padding(10)
-            .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
+            .retroPanel(
+                fill: chromeStyle == .studio ? RetroPalette.studioPanelMuted : RetroPalette.panelFillMuted,
+                accent: RetroPalette.chromeBlue
+            )
     }
 
     private func sidebarSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -679,7 +672,7 @@ private struct DocumentSidebarRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(document.displayName)
-                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(RetroPalette.ink)
                         .lineLimit(1)
 
@@ -689,7 +682,7 @@ private struct DocumentSidebarRow: View {
                 }
 
                 Text(document.pathDescription)
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(RetroPalette.link)
                     .lineLimit(1)
             }
@@ -705,7 +698,9 @@ private struct DocumentSidebarRow: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .retroPanel(
-            fill: isSelected ? RetroPalette.panelFill : RetroPalette.panelFillMuted,
+            fill: isSelected
+                ? (chromeStyle == .studio ? RetroPalette.studioPanel : RetroPalette.panelFill)
+                : (chromeStyle == .studio ? RetroPalette.studioPanelMuted : RetroPalette.panelFillMuted),
             accent: isSelected ? RetroPalette.chromeBlue : RetroPalette.chromeTeal
         )
         .overlay(alignment: .leading) {
@@ -755,7 +750,7 @@ private struct DocumentWorkspaceView: View {
     }
 
     private var breadcrumbTrail: [String] {
-        DocumentOutlineService.breadcrumbTrail(for: document, cursorLine: currentLine)
+        appState.breadcrumbTrail(for: document, cursorLine: currentLine)
     }
 
     private var alternatePresentationMode: DocumentPresentationMode? {
@@ -875,11 +870,18 @@ private struct DocumentWorkspaceView: View {
                 editorInsightBar
             }
 
-            workspaceArea
+            editorWorkbenchArea
 
             if !isFocusMode {
                 RetroRule()
-                StatusBarView(document: document, metrics: metrics, settings: appState.settings, pluginStatusItems: pluginStatusItems)
+                StatusBarView(
+                    appState: appState,
+                    document: document,
+                    metrics: metrics,
+                    settings: appState.settings,
+                    insights: appState.workbenchInsights(for: document),
+                    pluginStatusItems: pluginStatusItems
+                )
             }
         }
         .padding(isFocusMode ? 0 : 10)
@@ -957,6 +959,18 @@ private struct DocumentWorkspaceView: View {
                 } label: {
                     Label("Console", systemImage: "terminal.fill")
                 }
+
+                Button {
+                    appState.toggleSidebar()
+                } label: {
+                    Label(appState.isSidebarVisible ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.left")
+                }
+
+                Button {
+                    appState.toggleBottomPanel()
+                } label: {
+                    Label(appState.isBottomPanelVisible ? "Hide Panel" : "Show Panel", systemImage: "rectangle.bottomthird.inset.filled")
+                }
             }
         }
     }
@@ -964,12 +978,9 @@ private struct DocumentWorkspaceView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
-                BrandMarkView(size: 24)
-
                 VStack(alignment: .leading, spacing: 6) {
                     Text(document.displayName)
-                        .font(.system(size: 19, weight: .black, design: .monospaced))
-                        .tracking(0.45)
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(RetroPalette.ink)
 
                     FlowBadgeRow {
@@ -989,17 +1000,13 @@ private struct DocumentWorkspaceView: View {
                             headerBadge("Large File", color: RetroPalette.chromeGold)
                         }
 
-                        if appState.workspaceTrustMode == .restricted {
-                            headerBadge("Restricted Folder", color: RetroPalette.warning)
-                        }
-
                         if let structuredBadge {
                             headerBadge(structuredBadge.text, color: structuredBadge.color)
                         }
                     }
 
                     Text(document.pathDescription)
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .font(.system(size: 11, weight: .regular))
                         .foregroundStyle(RetroPalette.mutedInk)
                         .textSelection(.enabled)
                 }
@@ -1086,6 +1093,14 @@ private struct DocumentWorkspaceView: View {
                             appState.toggleFocusMode()
                         }
 
+                        Button(appState.isSidebarVisible ? "Hide Sidebar" : "Show Sidebar") {
+                            appState.toggleSidebar()
+                        }
+
+                        Button(appState.isBottomPanelVisible ? "Hide Panel" : "Show Panel") {
+                            appState.toggleBottomPanel()
+                        }
+
                         Menu("Workbench Preset") {
                             ForEach(WorkbenchPreset.allCases) { preset in
                                 Button(preset.displayName) {
@@ -1101,7 +1116,7 @@ private struct DocumentWorkspaceView: View {
                             }
                         }
 
-                        Button("Appearance Preferences...") {
+                        Button("Workbench + Advanced...") {
                             appState.showAppearancePreferences()
                         }
 
@@ -1323,8 +1338,8 @@ private struct DocumentWorkspaceView: View {
             }
         }
         .padding(.horizontal, 15)
-        .padding(.vertical, 11)
-        .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromeBlue)
+        .padding(.vertical, 9)
+        .retroPanel(fill: appState.settings.chromeStyle == .studio ? RetroPalette.studioPanel : RetroPalette.railFill, accent: RetroPalette.chromeBlue)
     }
 
     private var editorInsightBar: some View {
@@ -1400,6 +1415,7 @@ private struct DocumentWorkspaceView: View {
                     theme: appState.settings.theme,
                     diagnostics: currentLineDiagnostics,
                     blame: currentLineBlame,
+                    outline: appState.outline(for: document),
                     showsOutline: appState.settings.showsOutline,
                     onSelectLine: { lineNumber in
                         appState.goToLine(lineNumber, in: document.id)
@@ -1410,6 +1426,20 @@ private struct DocumentWorkspaceView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(backgroundColor)
+    }
+
+    private var editorWorkbenchArea: some View {
+        VSplitView {
+            workspaceArea
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if appState.isBottomPanelVisible {
+                WorkbenchBottomPanelView(appState: appState)
+                    .frame(minHeight: 200, idealHeight: 260, maxHeight: 360)
+                    .background(backgroundColor)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     @ViewBuilder
@@ -1660,7 +1690,7 @@ private struct DocumentWorkspaceView: View {
 
     private func headerControl(_ text: String, systemImage: String) -> some View {
         Label(text, systemImage: systemImage)
-            .font(.system(size: 12, weight: .bold, design: .monospaced))
+            .font(.system(size: 12, weight: .medium))
             .foregroundStyle(RetroPalette.ink)
             .padding(.horizontal, 9)
             .padding(.vertical, 6)
@@ -1868,6 +1898,628 @@ private struct FlowBadgeRow<Content: View>: View {
             VStack(alignment: .leading, spacing: 6) {
                 content
             }
+        }
+    }
+}
+
+private struct WorkbenchQuickOverlay: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.black.opacity(0.16)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    appState.showingCommandPalette = false
+                    appState.showingQuickOpen = false
+                }
+
+            Group {
+                if appState.showingCommandPalette {
+                    CommandPaletteView(appState: appState)
+                } else if appState.showingQuickOpen {
+                    QuickOpenView(appState: appState)
+                }
+            }
+            .padding(.top, 64)
+        }
+        .transition(.opacity)
+    }
+}
+
+private struct WorkbenchBottomPanelView: View {
+    @Environment(\.retroChromeStyle) private var chromeStyle
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                ForEach(WorkbenchBottomPanel.allCases) { panel in
+                    Button {
+                        appState.showBottomPanel(panel)
+                    } label: {
+                        Label(panel.title, systemImage: panel.symbolName)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(appState.activeBottomPanel == panel ? RetroPalette.ink : RetroPalette.mutedInk)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .fill(appState.activeBottomPanel == panel ? RetroPalette.studioField : Color.clear)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Spacer(minLength: 0)
+
+                panelHeaderActions
+
+                Button {
+                    appState.hideBottomPanel()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                }
+                .buttonStyle(RetroIconButtonStyle(accent: RetroPalette.chromeBlue))
+                .accessibilityLabel("Hide panel")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(chromeStyle == .studio ? RetroPalette.studioPanelMuted : RetroPalette.railFill)
+
+            RetroRule()
+
+            activePanelContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(chromeStyle == .studio ? RetroPalette.studioPanel : RetroPalette.panelFillMuted)
+        }
+        .retroPanel(fill: chromeStyle == .studio ? RetroPalette.studioPanel : RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
+    }
+
+    @ViewBuilder
+    private var panelHeaderActions: some View {
+        switch appState.activeBottomPanel {
+        case .search:
+            Button("Run Search") {
+                appState.runProjectSearch()
+            }
+            .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+        case .sourceControl:
+            Button("Open Full Git") {
+                appState.showGitWorkbenchPanel()
+            }
+            .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+        case .terminal:
+            Button("Run") {
+                appState.runEmbeddedTerminalCommand()
+            }
+            .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+        case .problems:
+            Button("Refresh Git") {
+                appState.refreshGitStatus()
+            }
+            .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+        case .tests:
+            Button("Run Tests") {
+                appState.runSelectedTestTask()
+            }
+            .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+        case .assistant:
+            Button("Open Full AI") {
+                appState.showAIWorkbenchPanel()
+            }
+            .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+        }
+    }
+
+    @ViewBuilder
+    private var activePanelContent: some View {
+        switch appState.activeBottomPanel {
+        case .search:
+            DockedSearchPanel(appState: appState)
+        case .sourceControl:
+            DockedSourceControlPanel(appState: appState)
+        case .terminal:
+            DockedTerminalPanel(appState: appState)
+        case .problems:
+            DockedProblemsPanel(appState: appState)
+        case .tests:
+            DockedTestsPanel(appState: appState)
+        case .assistant:
+            DockedAIPanel(appState: appState)
+        }
+    }
+}
+
+private struct DockedSearchPanel: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                TextField("Search files in the current workspace", text: $appState.projectSearchState.query)
+                    .textFieldStyle(.plain)
+                    .retroTextField()
+                    .onSubmit {
+                        appState.runProjectSearch()
+                    }
+
+                Button("Choose Folder") {
+                    appState.chooseWorkspaceRoot()
+                }
+                .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+            }
+
+            HStack(spacing: 14) {
+                Toggle("Case Sensitive", isOn: $appState.projectSearchState.isCaseSensitive)
+                Toggle("Regex", isOn: $appState.projectSearchState.usesRegularExpression)
+                Toggle("Include Hidden", isOn: $appState.projectSearchState.includeHiddenFiles)
+
+                Spacer(minLength: 0)
+
+                Text(appState.projectSearchState.summary)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(RetroPalette.link)
+            }
+            .toggleStyle(.checkbox)
+
+            if appState.projectSearchState.hits.isEmpty {
+                ContentUnavailableView(
+                    "No Search Results Yet",
+                    systemImage: "magnifyingglass",
+                    description: Text("Run a workspace search to review matching lines here.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach(appState.projectSearchState.hits) { hit in
+                            Button {
+                                appState.openProjectSearchHit(hit)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack {
+                                        Text(hit.fileURL.lastPathComponent)
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundStyle(RetroPalette.ink)
+                                        Spacer(minLength: 0)
+                                        Text("Ln \(hit.lineNumber)")
+                                            .font(.system(size: 10, weight: .medium))
+                                            .foregroundStyle(RetroPalette.link)
+                                    }
+
+                                    Text(hit.fileURL.path(percentEncoded: false))
+                                        .font(.system(size: 10, weight: .regular))
+                                        .foregroundStyle(RetroPalette.mutedInk)
+                                        .lineLimit(1)
+
+                                    Text(hit.lineText)
+                                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                                        .foregroundStyle(RetroPalette.ink)
+                                        .lineLimit(2)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(8)
+                                .retroPanel(fill: RetroPalette.studioPanelMuted, accent: RetroPalette.chromeBlue)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(12)
+    }
+}
+
+private struct DockedSourceControlPanel: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        HSplitView {
+            VStack(alignment: .leading, spacing: 10) {
+                if let summary = appState.gitRepositorySummary {
+                    HStack(spacing: 8) {
+                        RetroCapsuleLabel(text: summary.branchName, accent: RetroPalette.chromeBlue)
+                        RetroCapsuleLabel(text: "\(summary.modifiedCount) modified", accent: RetroPalette.warning)
+                        RetroCapsuleLabel(text: "\(summary.stagedCount) staged", accent: RetroPalette.success)
+                    }
+                } else {
+                    Text("Open a Git-backed workspace to use source control.")
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(RetroPalette.link)
+                }
+
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        if appState.gitPanelState.changedFiles.isEmpty {
+                            Text("No pending changes in the current repository.")
+                                .font(.system(size: 11, weight: .regular))
+                                .foregroundStyle(RetroPalette.link)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.top, 6)
+                        } else {
+                            ForEach(appState.gitPanelState.changedFiles) { file in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack {
+                                        Text(file.displayName)
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundStyle(RetroPalette.ink)
+                                        Spacer(minLength: 0)
+                                        Text(file.statusSummary)
+                                            .font(.system(size: 10, weight: .medium))
+                                            .foregroundStyle(file.isConflicted ? RetroPalette.danger : RetroPalette.link)
+                                    }
+
+                                    Text(file.relativePath)
+                                        .font(.system(size: 10, weight: .regular))
+                                        .foregroundStyle(RetroPalette.mutedInk)
+                                        .lineLimit(1)
+
+                                    HStack(spacing: 8) {
+                                        Button("Open") {
+                                            appState.openGitChangedFile(file)
+                                        }
+                                        .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+
+                                        Button("Stage") {
+                                            appState.stageGitChangedFile(file)
+                                        }
+                                        .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+
+                                        Button("Unstage") {
+                                            appState.unstageGitChangedFile(file)
+                                        }
+                                        .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+                                    }
+                                }
+                                .padding(8)
+                                .retroPanel(fill: RetroPalette.studioPanelMuted, accent: file.isConflicted ? RetroPalette.danger : RetroPalette.chromeBlue)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(12)
+            .frame(minWidth: 320)
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Button("Fetch") {
+                        appState.fetchGitRepository()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+
+                    Button("Pull") {
+                        appState.pullGitRepository()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+
+                    Button("Push") {
+                        appState.pushGitRepository()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+
+                    if !appState.availableGitBranches.isEmpty {
+                        Menu("Branches") {
+                            ForEach(appState.availableGitBranches, id: \.self) { branch in
+                                Button(branch) {
+                                    appState.switchGitBranch(branch)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                TextEditor(text: Binding(
+                    get: { appState.gitPanelState.commitMessage },
+                    set: { appState.gitPanelState.commitMessage = $0 }
+                ))
+                .font(.system(size: 12, design: .monospaced))
+                .frame(minHeight: 88)
+                .padding(8)
+                .retroInsetPanel(fill: RetroPalette.studioField, accent: RetroPalette.chromeBlue)
+
+                HStack(spacing: 8) {
+                    Button("Commit Staged Changes") {
+                        appState.commitGitChanges()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .accent))
+
+                    Button("AI Draft Message") {
+                        appState.runAIQuickAction(.draftCommitMessage)
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+                }
+
+                if let message = appState.gitPanelState.lastOperationMessage {
+                    Text(message)
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(RetroPalette.link)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(12)
+        }
+    }
+}
+
+private struct DockedTerminalPanel: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                TextField("Run a command in the current workspace", text: $appState.terminalPanelState.commandText)
+                    .textFieldStyle(.plain)
+                    .retroTextField()
+                    .onSubmit {
+                        appState.runEmbeddedTerminalCommand()
+                    }
+
+                Button("Run") {
+                    appState.runEmbeddedTerminalCommand()
+                }
+                .buttonStyle(RetroActionButtonStyle(tone: .accent))
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(EmbeddedTerminalService.suggestedCommands, id: \.self) { command in
+                        Button(command) {
+                            appState.terminalPanelState.commandText = command
+                        }
+                        .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+                    }
+                }
+            }
+
+            ScrollView {
+                Text(appState.terminalPanelState.lastRun?.output ?? "Run a command to capture output here.")
+                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                    .foregroundStyle(RetroPalette.ink)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(10)
+            }
+            .retroInsetPanel(fill: RetroPalette.studioField, accent: RetroPalette.chromeBlue)
+        }
+        .padding(12)
+    }
+}
+
+private struct DockedProblemsPanel: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(appState.problemsPanelState.sourceDescription)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(RetroPalette.link)
+
+            if appState.problemsPanelState.records.isEmpty {
+                ContentUnavailableView(
+                    "No Problems",
+                    systemImage: "checkmark.circle",
+                    description: Text("Problems from builds, tests, and terminal runs will appear here.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        ForEach(appState.problemsPanelState.records) { record in
+                            Button {
+                                appState.openProblem(record)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(record.message)
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(RetroPalette.ink)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                                    if let filePath = record.filePath {
+                                        Text(filePath)
+                                            .font(.system(size: 10, weight: .regular))
+                                            .foregroundStyle(RetroPalette.mutedInk)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                .padding(8)
+                                .retroPanel(fill: RetroPalette.studioPanelMuted, accent: record.severity == .error ? RetroPalette.danger : RetroPalette.warning)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(12)
+    }
+}
+
+private struct DockedTestsPanel: View {
+    @ObservedObject var appState: AppState
+
+    private var selectedTask: EditorPluginTask? {
+        guard let selectedTaskID = appState.testExplorerState.selectedTaskID else {
+            return appState.availableTestTasks.first
+        }
+
+        return appState.availableTestTasks.first(where: { $0.id == selectedTaskID }) ?? appState.availableTestTasks.first
+    }
+
+    var body: some View {
+        HSplitView {
+            ScrollView {
+                LazyVStack(spacing: 6) {
+                    ForEach(appState.availableTestTasks) { task in
+                        Button {
+                            appState.testExplorerState.selectedTaskID = task.id
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(task.title)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(RetroPalette.ink)
+                                Text(task.commandDescription)
+                                    .font(.system(size: 10, weight: .regular))
+                                    .foregroundStyle(RetroPalette.link)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                            .retroPanel(
+                                fill: appState.testExplorerState.selectedTaskID == task.id ? RetroPalette.studioField : RetroPalette.studioPanelMuted,
+                                accent: appState.testExplorerState.selectedTaskID == task.id ? RetroPalette.chromeBlue : RetroPalette.studioBorder
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .frame(minWidth: 260)
+            .padding(12)
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Button("Run Selected") {
+                        appState.runSelectedTestTask()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .accent))
+
+                    Button("Run Coverage") {
+                        appState.runSelectedCoverageTask()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+                    .disabled(selectedTask?.supportsCoverage != true)
+                }
+
+                ScrollView {
+                    Text(appState.testExplorerState.lastRun?.output ?? "Run a detected test task to inspect results here.")
+                        .font(.system(size: 11, weight: .regular, design: .monospaced))
+                        .foregroundStyle(RetroPalette.ink)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(10)
+                }
+                .retroInsetPanel(fill: RetroPalette.studioField, accent: RetroPalette.chromeBlue)
+            }
+            .padding(12)
+        }
+    }
+}
+
+private struct DockedAIPanel: View {
+    @ObservedObject var appState: AppState
+
+    var body: some View {
+        HSplitView {
+            ScrollView {
+                LazyVStack(spacing: 6) {
+                    if appState.aiWorkbenchState.sessions.isEmpty {
+                        Text("Create a chat to keep prompts and responses docked with the editor.")
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(RetroPalette.link)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        ForEach(appState.aiWorkbenchState.sessions) { session in
+                            Button {
+                                appState.selectAISession(session.id)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(session.title.isEmpty ? "Untitled Chat" : session.title)
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(RetroPalette.ink)
+                                    Text("\(session.messages.count) messages")
+                                        .font(.system(size: 10, weight: .regular))
+                                        .foregroundStyle(RetroPalette.link)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(8)
+                                .retroPanel(
+                                    fill: appState.aiWorkbenchState.selectedSessionID == session.id ? RetroPalette.studioField : RetroPalette.studioPanelMuted,
+                                    accent: appState.aiWorkbenchState.selectedSessionID == session.id ? RetroPalette.chromeBlue : RetroPalette.studioBorder
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .frame(minWidth: 220)
+            .padding(12)
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Button("New Chat") {
+                        appState.createAISession()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+
+                    ForEach(Array(AIQuickAction.allCases.prefix(3))) { action in
+                        Button(action.displayName) {
+                            appState.runAIQuickAction(action)
+                        }
+                        .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+                    }
+                }
+
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(appState.selectedAISession?.messages ?? []) { message in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(message.role == .assistant ? message.providerName : "You")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(RetroPalette.link)
+                                Text(message.content)
+                                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                                    .foregroundStyle(RetroPalette.ink)
+                                    .textSelection(.enabled)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                            .retroPanel(fill: message.role == .assistant ? RetroPalette.studioPanelMuted : RetroPalette.studioField, accent: message.role == .assistant ? RetroPalette.chromeBlue : RetroPalette.studioBorder)
+                        }
+
+                        if let response = appState.aiWorkbenchState.lastResponseText,
+                           appState.selectedAISession?.messages.last?.content != response {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(appState.selectedAIProvider?.name ?? "AI")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(RetroPalette.link)
+                                Text(response)
+                                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                                    .foregroundStyle(RetroPalette.ink)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8)
+                            .retroPanel(fill: RetroPalette.studioPanelMuted, accent: RetroPalette.chromeBlue)
+                        }
+                    }
+                }
+
+                TextEditor(text: $appState.aiWorkbenchState.draftPrompt)
+                    .font(.system(size: 12, design: .monospaced))
+                    .frame(minHeight: 72, maxHeight: 96)
+                    .padding(8)
+                    .retroInsetPanel(fill: RetroPalette.studioField, accent: RetroPalette.chromeBlue)
+
+                HStack(spacing: 8) {
+                    Button(appState.aiWorkbenchState.isSending ? "Sending..." : "Send") {
+                        appState.sendAIPrompt()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .accent))
+                    .disabled(appState.aiWorkbenchState.isSending)
+
+                    if let statusMessage = appState.aiWorkbenchState.statusMessage {
+                        Text(statusMessage)
+                            .font(.system(size: 10, weight: .regular))
+                            .foregroundStyle(RetroPalette.link)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .padding(12)
         }
     }
 }

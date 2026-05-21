@@ -9,6 +9,7 @@ The current shell includes:
 - a Studio-first workbench style with flatter panels, neutral surfaces, and lower visual noise
 - optional Retro Classic, Retro Pro, and Minimal Pro workbench styles
 - persistent `Quiet UI`, `Balanced`, and `Full Retro` workbench presets that preserve custom layout state
+- a `Workbench + Advanced` control surface for runtime, file-handling, AI privacy, plugin/remote safety, and safe-mode behavior
 - a first-run chooser that helps new installs pick the right shell without hunting through preferences
 - an activity-rail sidebar with focused panes for Explorer, Source Control, Workspace, Navigate, Tools, and Extensions
 - Quick Open and Command Palette as keyboard-first overlays
@@ -28,6 +29,7 @@ The current shell includes:
 - Source control, AI, and terminal tools should feel like peers inside the editor workflow, not detached utilities.
 - Structured viewers should feel like alternate lenses on the same document, not separate products.
 - Status information should stay compact and meaningful: counts, file format, warnings, mode, Git state, and task status.
+- Advanced controls should make the app more predictable, not more intimidating.
 - Retro styling should stay usable when enabled: no noisy content areas, low contrast, or distracting decoration.
 
 ## Current Workbench Surfaces
@@ -81,6 +83,13 @@ The current shell includes:
 
 - Controls workbench style, density, editor theme, focus mode, and inspector state.
 - Should make `Studio` the obvious daily-driver choice while preserving retro variants cleanly.
+
+### Workbench + Advanced
+
+- Should feel like an operator control plane rather than a random pile of toggles.
+- Should group settings by outcome: layout, runtime, file handling, AI privacy, plugin/remote safety, and safe-mode recovery.
+- Should make high-impact settings legible enough that users understand tradeoffs without reading separate docs first.
+- Should not hide enterprise controls, but it should make clear when a managed policy is the real reason an action is blocked.
 
 ## Visual Guardrails
 

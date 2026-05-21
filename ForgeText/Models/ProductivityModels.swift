@@ -251,6 +251,8 @@ struct PerformanceSnapshot: Hashable {
     let recentActivityCount: Int
     let physicalMemoryGB: Double
     let uptime: TimeInterval
+    let runtimeModeLabel: String
+    let safeModeEnabled: Bool
     let metrics: [PerformanceMetricSnapshot]
 }
 
@@ -260,6 +262,9 @@ enum PerformanceMetricKind: String, CaseIterable, Identifiable, Hashable {
     case gitWorkbenchRefresh
     case gitLineDecorations
     case gitBlamePrefetch
+    case documentInsights
+    case documentDiagnostics
+    case sessionPersistence
 
     var id: String { rawValue }
 
@@ -275,6 +280,12 @@ enum PerformanceMetricKind: String, CaseIterable, Identifiable, Hashable {
             return "Git Line Decorations"
         case .gitBlamePrefetch:
             return "Git Blame"
+        case .documentInsights:
+            return "Document Insights"
+        case .documentDiagnostics:
+            return "Document Diagnostics"
+        case .sessionPersistence:
+            return "Session Persistence"
         }
     }
 }

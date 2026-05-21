@@ -1,5 +1,35 @@
 import Foundation
 
+struct CSVWorkbenchInsight: Hashable {
+    let rowCount: Int
+    let columnCount: Int
+}
+
+struct JSONWorkbenchInsight: Hashable {
+    let topLevelType: JSONValueKind
+    let nodeCount: Int
+}
+
+struct LogWorkbenchInsight: Hashable {
+    let entryCount: Int
+    let warningCount: Int
+    let errorCount: Int
+}
+
+struct HTTPWorkbenchInsight: Hashable {
+    let requestCount: Int
+}
+
+struct DocumentWorkbenchInsights: Hashable {
+    var csv: CSVWorkbenchInsight?
+    var json: JSONWorkbenchInsight?
+    var log: LogWorkbenchInsight?
+    var http: HTTPWorkbenchInsight?
+    var outline: [OutlineItem] = []
+
+    static let empty = DocumentWorkbenchInsights()
+}
+
 struct OutlineItem: Identifiable, Hashable {
     let id: String
     let title: String
@@ -206,5 +236,84 @@ enum DocumentOutlineService {
         }
 
         return outline
+    }
+}
+
+enum DocumentWorkbenchInsightService {
+    static func makeInsights(for document: EditorDocument) -> DocumentWorkbenchInsights {
+        makeInsights(
+            text: document.text,
+            language: document.language,
+            fileURL: document.fileURL,
+            remoteReference: document.remoteReference
+        )
+    }
+
+    static func makeInsights(
+        text: String,
+        language: DocumentLanguage,
+        fileURL: URL?,
+        remoteReference: RemoteFileReference?
+    ) -> DocumentWorkbenchInsights {
+        var insights = DocumentWorkbenchInsights()
+        let sourceURL = fileURL ?? remoteReference.map { URL(fileURLWithPath: $0.path) }
+
+        if language == .csv,
+           let tableDocument = DelimitedTextTableService.parse(text, preferredDelimiter: preferredDelimiter(for: fileURL)) {
+            insights.csv = CSVWorkbenchInsight(rowCount: tableDocument.rowCount, columnCount: tableDocument.columnCount)
+        }
+
+        if language == .json, let treeDocument = JSONTreeService.parse(text) {
+            insights.json = JSONWorkbenchInsight(
+                topLevelType: treeDocument.topLevelType,
+                nodeCount: treeDocument.nodeCount
+            )
+        }
+
+        if language == .log, let logDocument = LogExplorerService.parse(text) {
+            insights.log = LogWorkbenchInsight(
+                entryCount: logDocument.entryCount,
+                warningCount: logDocument.warningCount,
+                errorCount: logDocument.errorCount
+            )
+        }
+
+        if language == .http, let requestDocument = HTTPRequestService.parse(text) {
+            insights.http = HTTPWorkbenchInsight(requestCount: requestDocument.requests.count)
+        }
+
+        insights.outline = DocumentOutlineService.outline(text: text, language: language, url: sourceURL)
+        return insights
+    }
+
+    static func breadcrumbTrail(for document: EditorDocument, cursorLine: Int, outline: [OutlineItem]) -> [String] {
+        var trail: [String] = []
+
+        if let url = document.fileURL {
+            let components = url.pathComponents.suffix(3).filter { $0 != "/" }
+            trail.append(contentsOf: components)
+        } else if let remoteReference = document.remoteReference {
+            trail.append(remoteReference.connection)
+            trail.append(contentsOf: remoteReference.path.split(separator: "/").suffix(2).map(String.init))
+        } else {
+            trail.append(document.displayName)
+        }
+
+        if let nearest = outline.last(where: { $0.lineNumber <= cursorLine }) {
+            trail.append(contentsOf: nearest.path)
+        }
+
+        return trail
+    }
+
+    private static func preferredDelimiter(for fileURL: URL?) -> Character? {
+        switch fileURL?.pathExtension.lowercased() {
+        case "tsv", "tab":
+            return "\t"
+        case "csv":
+            return ","
+        default:
+            return nil
+        }
     }
 }

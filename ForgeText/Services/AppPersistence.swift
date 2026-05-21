@@ -13,12 +13,10 @@ enum AppSettingsStore {
             return AppSettings()
         }
 
-        AIProviderKeychainStore.persistKeys(for: settings.aiProviders)
         return settings
     }
 
     static func save(_ settings: AppSettings) {
-        AIProviderKeychainStore.persistKeys(for: settings.aiProviders)
         SensitiveDataStore.save(
             settings,
             to: StoragePathService.dataFileURL(named: filename),
@@ -27,7 +25,6 @@ enum AppSettingsStore {
     }
 
     static func export(_ settings: AppSettings, to url: URL) throws {
-        AIProviderKeychainStore.persistKeys(for: settings.aiProviders)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(WorkspacePlatformService.sanitizedSettingsForTransfer(settings))

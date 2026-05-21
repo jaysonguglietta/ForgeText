@@ -19,6 +19,24 @@ The checklist is safe to run repeatedly. It does not change files by itself unle
 
 Workbench presets stay available later from the document header and `View` menu, so you can switch shells without losing your custom layout state.
 
+## Workbench + Advanced
+
+Open `View > Workbench + Advanced...` or press `Command-,`.
+
+This is now the main control surface for tuning ForgeText on your Mac. It combines visual layout controls with the newer runtime, privacy, file-handling, and safety settings.
+
+Sections:
+
+- `Appearance`: Studio, Retro Classic, Retro Pro, and Minimal Pro styles plus density and editor theme.
+- `Focus + Layout`: workbench presets, custom layout restore, focus mode, inspector, breadcrumbs, sidebar, bottom panel, and outline visibility.
+- `Advanced Runtime`: `Standard` vs `Performance` mode, automatic performance fallback, live diagnostics, document insights, workspace symbol indexing, and large-repository mode.
+- `File Handling`: raw-view-first opens, session restore, autosave behavior, default line endings, autosave delay, and external file polling interval.
+- `AI Privacy`: local-model-only mode, review-before-send, likely-secret redaction, and maximum context size.
+- `Plugin + Remote Safety`: workspace plugins, task-capable plugins, custom registries, remote read-only mode, remote commands, and remote agent install.
+- `Safe Mode`: session-level recovery controls that can suppress external plugins, AI, remote connections, and previous-session restore.
+
+Changes in this panel apply immediately.
+
 ## Workspace Trust And Restricted Mode
 
 Open `Workspace > Workspace Center` to review trust for the active roots.
@@ -37,6 +55,27 @@ ForgeText also treats sync bundles conservatively:
 - AI chat history stays local
 
 Sensitive local editor state such as recovery snapshots and AI chat persistence uses protected local storage rather than plain exported settings.
+
+## Managed Policy
+
+ForgeText can run in an unmanaged personal mode or under a local admin-managed policy file.
+
+Open `Workspace > Workspace Center` to review the current policy state. The Managed Policy section shows:
+
+- whether a policy is active
+- where it was loaded from
+- any load error
+- the effective restrictions currently in force
+
+Policy discovery order:
+
+1. `FORGETEXT_MANAGED_POLICY_FILE`
+2. `/Library/Application Support/ForgeText/managed-policy.json`
+3. the local ForgeText app-data folder
+
+Use `Tools > Reload Managed Policy` after updating the file on disk.
+
+See [Managed Policy](./MANAGED_POLICY.md) for the full schema and a ready-to-edit example.
 
 ## Navigation
 
@@ -166,6 +205,18 @@ Supported provider profiles:
 
 API keys stay local and are not included in settings transfer bundles.
 
+Setup modes:
+
+- `Bring Your Own Key` for cloud providers such as OpenAI, Anthropic, and Gemini
+- `Local Model` for Ollama or OpenAI-compatible local endpoints such as LM Studio
+
+When an admin policy is active, ForgeText can also limit:
+
+- cloud providers vs local models
+- allowed provider kinds
+- allowed model-name prefixes
+- whether selection, current-file, or workspace-rules context is allowed
+
 Quick actions:
 
 - Explain Selection
@@ -175,6 +226,10 @@ Quick actions:
 - Draft Commit Message
 
 Workspace trust must allow AI actions before the workbench opens.
+
+If `Review before send` is enabled in `Workbench + Advanced`, ForgeText will show the final prepared system prompt and user prompt before any request leaves the app. If `Redact likely secrets before send` is also enabled, ForgeText masks likely keys, bearer tokens, private keys, and common secret assignments before you review or send the prompt.
+
+If `Local models only` is enabled, ForgeText limits AI usage to local-model endpoints such as Ollama or OpenAI-compatible local servers like LM Studio.
 
 ## Git And GitHub
 
@@ -217,6 +272,8 @@ Main panes:
 - `Navigate`: Quick Open, Command Palette, search, go-to-line, keyboard shortcuts, and activity
 - `Tools` and `Extensions`: Git, AI, terminal, problems, tests, plugins, tasks, snippets, setup, and appearance
 
+When a managed policy is active, blocked actions stay visible where useful, but they are disabled or intercepted with a clear explanation instead of silently failing.
+
 ## Structured Views
 
 ForgeText recognizes common file types and can switch between raw editing and structured inspection.
@@ -232,6 +289,8 @@ Structured views:
 - binary or undecodable files: hex preview
 
 Use the document header's format toggle to move between the structured view and raw text.
+
+Fresh file opens now begin in raw text view by default. Structured viewers stay available on demand, but ForgeText no longer forces CSV, JSON, log, or HTTP files into their alternate view immediately on open.
 
 ## Release Readiness
 
@@ -266,6 +325,8 @@ The HUD shows:
 
 This is a lightweight snapshot for debugging the local app. It is not telemetry.
 
+The HUD also shows the active runtime mode and whether the current session is in Safe Mode.
+
 ## Theme Lab
 
 Open `Tools > Theme Lab`.
@@ -279,6 +340,29 @@ Theme Lab controls:
 - inspector visibility
 
 The default recommendation is `Studio` for everyday editing, with the retro styles still available as alternate shells.
+
+## Performance Mode And Safe Mode
+
+ForgeText now gives you two different ways to reduce noise or overhead:
+
+- `Performance Mode`: keeps the normal feature set available, but scales back expensive background work so typing latency stays lower in heavier files and repositories.
+- `Safe Mode`: reduces the trust surface of the whole session and is better for support, recovery, or cautious inspection workflows.
+
+Typical `Performance Mode` changes:
+
+- slower or disabled live diagnostics
+- slower or disabled document insight refresh
+- calmer workspace-symbol and Git-side refresh behavior
+- gentler large-repository behavior
+
+Typical `Safe Mode` changes:
+
+- optional clean startup without restoring the last session
+- optional blocking of external plugins
+- optional blocking of AI
+- optional blocking of remote connections
+
+ForgeText surfaces both states in the status bar when active.
 
 ## Keyboard Shortcuts
 
@@ -295,7 +379,7 @@ Core shortcuts:
 - `Command-Shift-P`: Command Palette
 - `Command-L`: Go to Line
 - `Command-Shift-U`: Focus Mode
-- `Command-,`: Appearance Preferences
+- `Command-,`: Workbench + Advanced
 
 Open `Tools > Keyboard Shortcuts` for the full in-app reference.
 

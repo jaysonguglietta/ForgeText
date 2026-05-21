@@ -14,6 +14,10 @@ ForgeText 1.2.1 tightened the trust model and local data handling: restricted wo
 
 The current `main` branch also includes a Studio workbench refresh that is not yet separately version-tagged: calmer default chrome, a cleaner activity-rail sidebar, a dedicated source control pane, tighter Quick Open and Command Palette overlays, persistent workbench presets, a first-run style chooser, and less decorative rendering in the main editor shell.
 
+The current `main` branch also adds an enterprise-managed policy layer for IT and platform teams. ForgeText can now load a local `managed-policy.json` file and enforce admin rules around AI providers, plugin sources, workspace tasks, embedded terminal access, remote workflows, update checks, and diagnostic bundle export.
+
+The current `main` branch also adds a new `Workbench + Advanced` control surface for day-to-day operators and power users. It introduces runtime performance controls, raw-view defaults, session and autosave tuning, AI privacy review controls, plugin/remote safety toggles, and a local Safe Mode for recovery or locked-down workflows.
+
 ## What's New In 1.2.1
 
 1. Restricted mode now blocks external workspace plugins and executable workspace tasks by default.
@@ -33,6 +37,16 @@ The current `main` branch also includes a Studio workbench refresh that is not y
 6. A first-run chooser helps brand-new installs start in a calmer workbench while keeping the retro shell available.
 7. The main workbench renders less decorative chrome so editing feels calmer and more responsive.
 
+## Current Main-Branch Advanced Controls
+
+1. `Workbench + Advanced` replaces the older appearance-only preferences entry point.
+2. `Performance Mode` can be selected directly or enabled automatically for heavier files and repositories.
+3. Fresh opens can start in raw text view even for structured formats such as CSV, JSON, logs, and HTTP request files.
+4. Session restore, autosave delay, external file polling, and default line endings are now user-tunable.
+5. AI can be limited to local models, reviewed before send, redacted for likely secrets, and capped with a stricter context budget.
+6. Workspace plugins, task-capable plugins, custom registries, remote commands, and remote agent install can be limited locally even without an enterprise policy.
+7. `Safe Mode` can suppress external plugins, AI, remote access, and prior-session restore during support or recovery sessions.
+
 ## Highlights
 
 - Native multi-document editing with tabs, sidebar navigation, split panes, line numbers, undo, status metrics, and raw text editing.
@@ -40,9 +54,9 @@ The current `main` branch also includes a Studio workbench refresh that is not y
 - File-aware structured views for CSV/delimited files, JSON, logs, HTTP request files, config formats, archives, large-file previews, and binary hex fallback.
 - Developer workbench features: activity-rail sidebar, workspace explorer, source control pane, project search, Quick Open, command palette, embedded terminal, task runner, problems panel, test explorer, Git workbench, and plugin manager.
 - Workspace indexing for fast file and symbol navigation, TODO/FIXME discovery, and lightweight warning counts.
-- Provider-neutral AI workbench with model profiles, workspace rules, reusable prompt files, chat sessions, and editor quick actions.
+- Provider-neutral AI workbench with model profiles, workspace rules, reusable prompt files, chat sessions, AI privacy review, and editor quick actions.
 - Git and GitHub helpers for clone, branch/status flows, compare-with-HEAD, diff markers, blame context, GitHub remote detection, and compare-page launch.
-- Production helpers for release readiness, Sparkle update configuration, performance snapshots, and safe diagnostic bundle export.
+- Production helpers for release readiness, Sparkle update configuration, performance snapshots, managed policy enforcement, safe mode, and safe diagnostic bundle export.
 
 ## ForgeText 1.1 Productivity Layer
 
@@ -70,6 +84,7 @@ Useful feature paths:
 
 - `Search > Quick Open...` or `Command-P`
 - `Search > Command Palette...` or `Command-Shift-P`
+- `View > Workbench + Advanced...` or `Command-,`
 - `Tools > Activity Center`
 - `Tools > First-Run Setup`
 - `Tools > AI Context Center`
@@ -93,6 +108,14 @@ Command palette prefixes:
 - Find/replace, regex search, go-to-line, project search, Quick Open, and command palette.
 - Language detection, lightweight syntax highlighting, comment toggling, indentation helpers, and bracket matching.
 - Workbench presets, Studio/retro style switching, wrap toggle, font sizing, breadcrumbs, outline panel, inspector, focus mode, and split-pane workspace modes.
+
+### Workbench + Advanced
+
+- Runtime controls for `Standard` vs `Performance` mode with optional auto-performance behavior for heavier files and repositories.
+- File-handling controls for raw-view-first opens, autosave delay, external change polling interval, session restore, and default line endings for new files.
+- AI privacy controls for local-model-only mode, review-before-send, likely-secret redaction, and max context size.
+- Local hardening controls for workspace plugins, task-capable plugins, custom registries, remote read-only behavior, remote commands, and remote agent installation.
+- Safe Mode controls for recovery-oriented launches that keep the editor usable while reducing trust surface.
 
 ### File Reliability
 
@@ -121,6 +144,7 @@ Command palette prefixes:
 - Workspace index for Quick Open, symbol search, TODO counts, and warning counts.
 - Portable mode through a sibling `ForgeTextData` directory or `FORGETEXT_PORTABLE_DATA_DIR`.
 - Sync bundle export/import for safe preferences while keeping trust decisions, plugin registries, workspace sessions, and AI chats local.
+- Managed policy support for org-level control of AI, plugins, tasks, terminal, remote access, updates, and support export.
 
 ### IDE And Plugin Features
 
@@ -134,6 +158,16 @@ Command palette prefixes:
 - Secret-aware warnings for private keys, bearer tokens, and likely credentials.
 - Format-document support for JSON, XML, HTTP, and toolchain-backed language formatting when available.
 
+### Managed Enterprise Controls
+
+- `managed-policy.json` support with discovery through `FORGETEXT_MANAGED_POLICY_FILE`, `/Library/Application Support/ForgeText/managed-policy.json`, or the local ForgeText app-data directory.
+- Admin controls for cloud AI vs local models, allowed provider kinds, allowed model prefixes, and AI context sources.
+- Admin controls for workspace-local plugins, user-installed plugins, custom registries, file registries, task-capable plugins, approved registry hosts, and approved plugin authors.
+- Admin controls for embedded terminal commands, workspace task execution, remote files/search/commands/agent install, manual update checks, and diagnostic bundle export.
+- Managed Policy status surfaced in Workspace Center, the status bar, Activity Center, and diagnostic bundles.
+
+See [Managed Policy](docs/MANAGED_POLICY.md) for the file format and a sample policy.
+
 ### Git And GitHub
 
 - Clone GitHub or other Git repositories directly into a local workspace folder.
@@ -144,9 +178,10 @@ Command palette prefixes:
 ### AI Workbench
 
 - Provider-neutral AI profiles for OpenAI, Anthropic, Gemini, Ollama, and OpenAI-compatible endpoints.
+- Explicit setup modes for `Bring Your Own Key` and `Local Model` workflows.
 - Workspace rule ingestion from `.forgetext/rules.md`, `.forgetext/ai-rules.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `CODEX.md`, `.github/copilot-instructions.md`, and `.cursorrules`.
 - Reusable prompt files from `.forgetext/prompts/*.md`, `.txt`, or `.prompt`.
-- Chat sessions with reusable prompts, provider/model switching, response history, and local-only persistence for sensitive conversation state.
+- Chat sessions with reusable prompts, provider/model switching, response history, prompt review-before-send when enabled, and local-only persistence for sensitive conversation state.
 - Quick AI actions for explain, improve, generate tests, summarize file, and draft commit message.
 - Insert-at-cursor and replace-selection flows from the latest AI response.
 

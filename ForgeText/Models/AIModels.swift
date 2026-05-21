@@ -24,12 +24,58 @@ enum AIProviderKind: String, CaseIterable, Codable, Identifiable {
             return "OpenAI Compatible"
         }
     }
+
+    var supportedConnectionModes: [AIProviderConnectionMode] {
+        switch self {
+        case .openAI, .anthropic, .googleGemini:
+            return [.bringYourOwnKey]
+        case .ollama:
+            return [.localModel]
+        case .openAICompatible:
+            return [.bringYourOwnKey, .localModel]
+        }
+    }
+
+    var defaultConnectionMode: AIProviderConnectionMode {
+        switch self {
+        case .openAI, .anthropic, .googleGemini:
+            return .bringYourOwnKey
+        case .ollama, .openAICompatible:
+            return .localModel
+        }
+    }
+}
+
+enum AIProviderConnectionMode: String, CaseIterable, Codable, Identifiable {
+    case bringYourOwnKey
+    case localModel
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .bringYourOwnKey:
+            return "Bring Your Own Key"
+        case .localModel:
+            return "Local Model"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .bringYourOwnKey:
+            return "key.horizontal"
+        case .localModel:
+            return "desktopcomputer"
+        }
+    }
 }
 
 struct AIProviderConfiguration: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
     var kind: AIProviderKind
+    var connectionMode: AIProviderConnectionMode
     var baseURLString: String
     var model: String
     var apiKey: String
@@ -40,6 +86,7 @@ struct AIProviderConfiguration: Identifiable, Codable, Hashable {
         id: UUID = UUID(),
         name: String,
         kind: AIProviderKind,
+        connectionMode: AIProviderConnectionMode? = nil,
         baseURLString: String,
         model: String,
         apiKey: String = "",
@@ -49,6 +96,7 @@ struct AIProviderConfiguration: Identifiable, Codable, Hashable {
         self.id = id
         self.name = name
         self.kind = kind
+        self.connectionMode = connectionMode ?? kind.defaultConnectionMode
         self.baseURLString = baseURLString
         self.model = model
         self.apiKey = apiKey
@@ -60,6 +108,7 @@ struct AIProviderConfiguration: Identifiable, Codable, Hashable {
         case id
         case name
         case kind
+        case connectionMode
         case baseURLString
         case model
         case apiKey
@@ -72,6 +121,10 @@ struct AIProviderConfiguration: Identifiable, Codable, Hashable {
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? "AI Provider"
         kind = try container.decodeIfPresent(AIProviderKind.self, forKey: .kind) ?? .openAICompatible
+        let decodedConnectionMode = try container.decodeIfPresent(AIProviderConnectionMode.self, forKey: .connectionMode)
+        connectionMode = kind.supportedConnectionModes.contains(decodedConnectionMode ?? kind.defaultConnectionMode)
+            ? (decodedConnectionMode ?? kind.defaultConnectionMode)
+            : kind.defaultConnectionMode
         baseURLString = try container.decodeIfPresent(String.self, forKey: .baseURLString) ?? ""
         model = try container.decodeIfPresent(String.self, forKey: .model) ?? ""
         temperature = try container.decodeIfPresent(Double.self, forKey: .temperature) ?? 0.2
@@ -90,10 +143,43 @@ struct AIProviderConfiguration: Identifiable, Codable, Hashable {
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
         try container.encode(kind, forKey: .kind)
+        try container.encode(effectiveConnectionMode, forKey: .connectionMode)
         try container.encode(baseURLString, forKey: .baseURLString)
         try container.encode(model, forKey: .model)
         try container.encode(temperature, forKey: .temperature)
         try container.encode(isEnabled, forKey: .isEnabled)
+    }
+
+    var effectiveConnectionMode: AIProviderConnectionMode {
+        kind.supportedConnectionModes.contains(connectionMode) ? connectionMode : kind.defaultConnectionMode
+    }
+
+    var requiresAPIKey: Bool {
+        effectiveConnectionMode == .bringYourOwnKey
+    }
+
+    var modeDescription: String {
+        switch effectiveConnectionMode {
+        case .bringYourOwnKey:
+            if kind == .openAICompatible {
+                return "Use your own hosted endpoint and send your stored API key with each request."
+            }
+            return "Use your own cloud-provider API key. ForgeText stores the key in your macOS Keychain."
+        case .localModel:
+            if kind == .ollama {
+                return "Talk directly to your local Ollama server. No cloud key is required."
+            }
+            return "Talk to a local model server such as LM Studio or another OpenAI-compatible endpoint. ForgeText will not require or send an API key in this mode."
+        }
+    }
+
+    var baseURLDescription: String {
+        switch effectiveConnectionMode {
+        case .bringYourOwnKey:
+            return "Cloud endpoints should use HTTPS."
+        case .localModel:
+            return "Local model endpoints can use http://localhost or another local loopback address."
+        }
     }
 }
 

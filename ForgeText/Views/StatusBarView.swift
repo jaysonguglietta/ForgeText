@@ -2,52 +2,12 @@ import SwiftUI
 
 struct StatusBarView: View {
     @Environment(\.retroChromeStyle) private var chromeStyle
+    @ObservedObject var appState: AppState
     let document: EditorDocument
     let metrics: EditorMetrics
     let settings: AppSettings
+    let insights: DocumentWorkbenchInsights
     let pluginStatusItems: [PluginStatusItem]
-
-    private var csvTable: DelimitedTableDocument? {
-        guard document.language == .csv else {
-            return nil
-        }
-
-        let preferredDelimiter: Character?
-        switch document.fileURL?.pathExtension.lowercased() {
-        case "tsv", "tab":
-            preferredDelimiter = "\t"
-        case "csv":
-            preferredDelimiter = ","
-        default:
-            preferredDelimiter = nil
-        }
-
-        return DelimitedTextTableService.parse(document.text, preferredDelimiter: preferredDelimiter)
-    }
-
-    private var jsonTree: JSONTreeDocument? {
-        guard document.language == .json else {
-            return nil
-        }
-
-        return JSONTreeService.parse(document.text)
-    }
-
-    private var logDocument: LogDocument? {
-        guard document.language == .log else {
-            return nil
-        }
-
-        return LogExplorerService.parse(document.text)
-    }
-
-    private var httpRequestDocument: HTTPRequestDocument? {
-        guard document.language == .http else {
-            return nil
-        }
-
-        return HTTPRequestService.parse(document.text)
-    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -74,6 +34,14 @@ struct StatusBarView: View {
                         statusPill("Large File", tone: .warning)
                     }
 
+                    if appState.effectivePerformanceMode == .performance {
+                        statusPill("Performance Mode", tone: .warning)
+                    }
+
+                    if appState.isSafeModeActive {
+                        statusPill("Safe Mode", tone: .warning)
+                    }
+
                     if metrics.selectionLength > 0 {
                         statusPill("Sel \(metrics.selectionLength)")
                     }
@@ -94,30 +62,30 @@ struct StatusBarView: View {
                         statusPill(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))
                     }
 
-                    if let csvTable {
-                        statusPill("\(csvTable.rowCount) rows")
-                        statusPill("\(csvTable.columnCount) cols")
+                    if let csvInsight = insights.csv {
+                        statusPill("\(csvInsight.rowCount) rows")
+                        statusPill("\(csvInsight.columnCount) cols")
                     }
 
-                    if let jsonTree {
-                        statusPill(jsonTree.topLevelType.displayName)
-                        statusPill("\(jsonTree.nodeCount) nodes")
+                    if let jsonInsight = insights.json {
+                        statusPill(jsonInsight.topLevelType.displayName)
+                        statusPill("\(jsonInsight.nodeCount) nodes")
                     }
 
-                    if let logDocument {
-                        statusPill("\(logDocument.entryCount) entries")
+                    if let logInsight = insights.log {
+                        statusPill("\(logInsight.entryCount) entries")
 
-                        if logDocument.warningCount > 0 {
-                            statusPill("\(logDocument.warningCount) warnings", tone: .warning)
+                        if logInsight.warningCount > 0 {
+                            statusPill("\(logInsight.warningCount) warnings", tone: .warning)
                         }
 
-                        if logDocument.errorCount > 0 {
-                            statusPill("\(logDocument.errorCount) errors", tone: .danger)
+                        if logInsight.errorCount > 0 {
+                            statusPill("\(logInsight.errorCount) errors", tone: .danger)
                         }
                     }
 
-                    if let httpRequestDocument {
-                        statusPill("\(httpRequestDocument.requests.count) requests")
+                    if let httpInsight = insights.http {
+                        statusPill("\(httpInsight.requestCount) requests")
                     }
 
                     ForEach(pluginStatusItems) { item in
@@ -131,11 +99,41 @@ struct StatusBarView: View {
                 Text(statusSummary)
                     .foregroundStyle(RetroPalette.link)
                     .lineLimit(1)
-                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .font(.system(size: 11, weight: .medium))
+            }
+
+            HStack(spacing: 6) {
+                Button {
+                    appState.showWorkspacePlatformPanel()
+                } label: {
+                    statusPill(appState.workspaceTrustMode == .trusted ? "Trusted" : "Restricted Folder", tone: appState.workspaceTrustMode == .trusted ? .success : .warning)
+                }
+                .buttonStyle(.plain)
+                .help("Open Workspace Center")
+
+                if appState.managedPolicyState.isManaged {
+                    statusPill("Managed", tone: .accent)
+                }
+
+                Button {
+                    appState.toggleSidebar()
+                } label: {
+                    statusPill(appState.isSidebarVisible ? "Sidebar On" : "Sidebar Off")
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    appState.toggleBottomPanel()
+                } label: {
+                    statusPill(appState.isBottomPanelVisible ? "Panel \(appState.activeBottomPanel.title)" : "Panel Off", tone: .accent)
+                }
+                .buttonStyle(.plain)
+
+                statusPill(appState.activeWorkbenchPresetLabel, tone: .neutral)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
         .retroPanel(
             fill: chromeStyle == .studio ? RetroPalette.studioPanelMuted : RetroPalette.railFill,
             accent: RetroPalette.chromeBlue
@@ -144,7 +142,7 @@ struct StatusBarView: View {
 
     private func statusPill(_ text: String, tone: PluginStatusTone = .neutral) -> some View {
         Text(text)
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .font(.system(size: 10, weight: .semibold, design: chromeStyle == .studio ? .default : .monospaced))
             .foregroundStyle(RetroPalette.ink)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)

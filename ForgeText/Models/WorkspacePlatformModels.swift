@@ -50,6 +50,7 @@ struct WorkspaceProfileSnapshot: Codable, Hashable {
     var aiIncludeSelection: Bool
     var aiIncludeCurrentDocument: Bool
     var aiIncludeWorkspaceRules: Bool
+    var advancedSettings: AdvancedEditorSettings
 
     init(
         theme: EditorTheme,
@@ -66,7 +67,8 @@ struct WorkspaceProfileSnapshot: Codable, Hashable {
         enabledPluginIDs: [String],
         aiIncludeSelection: Bool,
         aiIncludeCurrentDocument: Bool,
-        aiIncludeWorkspaceRules: Bool
+        aiIncludeWorkspaceRules: Bool,
+        advancedSettings: AdvancedEditorSettings = AdvancedEditorSettings()
     ) {
         self.theme = theme
         self.chromeStyle = chromeStyle
@@ -83,6 +85,7 @@ struct WorkspaceProfileSnapshot: Codable, Hashable {
         self.aiIncludeSelection = aiIncludeSelection
         self.aiIncludeCurrentDocument = aiIncludeCurrentDocument
         self.aiIncludeWorkspaceRules = aiIncludeWorkspaceRules
+        self.advancedSettings = advancedSettings
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -101,6 +104,7 @@ struct WorkspaceProfileSnapshot: Codable, Hashable {
         case aiIncludeSelection
         case aiIncludeCurrentDocument
         case aiIncludeWorkspaceRules
+        case advancedSettings
     }
 
     init(from decoder: Decoder) throws {
@@ -120,6 +124,7 @@ struct WorkspaceProfileSnapshot: Codable, Hashable {
         aiIncludeSelection = try container.decodeIfPresent(Bool.self, forKey: .aiIncludeSelection) ?? true
         aiIncludeCurrentDocument = try container.decodeIfPresent(Bool.self, forKey: .aiIncludeCurrentDocument) ?? true
         aiIncludeWorkspaceRules = try container.decodeIfPresent(Bool.self, forKey: .aiIncludeWorkspaceRules) ?? true
+        advancedSettings = try container.decodeIfPresent(AdvancedEditorSettings.self, forKey: .advancedSettings) ?? AdvancedEditorSettings()
     }
 }
 
@@ -399,7 +404,10 @@ extension AppSettings {
             interfaceDensity: interfaceDensity,
             focusModeEnabled: focusModeEnabled,
             showsInspector: showsInspector,
-            showsBreadcrumbs: showsBreadcrumbs
+            showsBreadcrumbs: showsBreadcrumbs,
+            showsSidebar: showsSidebar,
+            showsBottomPanel: showsBottomPanel,
+            preferredBottomPanel: preferredBottomPanel
         )
     }
 
@@ -419,7 +427,8 @@ extension AppSettings {
             enabledPluginIDs: enabledPluginIDs,
             aiIncludeSelection: aiIncludeSelection,
             aiIncludeCurrentDocument: aiIncludeCurrentDocument,
-            aiIncludeWorkspaceRules: aiIncludeWorkspaceRules
+            aiIncludeWorkspaceRules: aiIncludeWorkspaceRules,
+            advancedSettings: advanced
         )
     }
 
@@ -439,6 +448,7 @@ extension AppSettings {
         aiIncludeSelection = profileSnapshot.aiIncludeSelection
         aiIncludeCurrentDocument = profileSnapshot.aiIncludeCurrentDocument
         aiIncludeWorkspaceRules = profileSnapshot.aiIncludeWorkspaceRules
+        advanced = profileSnapshot.advancedSettings
         syncWorkbenchPresetFromCurrentSettings()
     }
 
@@ -448,6 +458,9 @@ extension AppSettings {
         focusModeEnabled = workbenchAppearanceSnapshot.focusModeEnabled
         showsInspector = workbenchAppearanceSnapshot.showsInspector
         showsBreadcrumbs = workbenchAppearanceSnapshot.showsBreadcrumbs
+        showsSidebar = workbenchAppearanceSnapshot.showsSidebar
+        showsBottomPanel = workbenchAppearanceSnapshot.showsBottomPanel
+        preferredBottomPanel = workbenchAppearanceSnapshot.preferredBottomPanel
     }
 
     mutating func syncWorkbenchPresetFromCurrentSettings() {

@@ -2,7 +2,6 @@ import SwiftUI
 
 struct QuickOpenView: View {
     @Environment(\.retroChromeStyle) private var chromeStyle
-    @Environment(\.dismiss) private var dismiss
     @ObservedObject var appState: AppState
     @State private var query = ""
     @State private var mode: CommandPaletteMode = .files
@@ -37,18 +36,18 @@ struct QuickOpenView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 Label("Quick Open", systemImage: "doc.text.magnifyingglass")
-                    .font(.system(size: 18, weight: .black, design: .monospaced))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(RetroPalette.ink)
 
                 Spacer(minLength: 0)
 
                 Text(appState.workspaceIndexSummary.statusMessage ?? "Jump around the workspace without touching the mouse.")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(.system(size: 10, weight: .regular))
                     .foregroundStyle(RetroPalette.link)
                     .lineLimit(1)
 
                 Button("Close") {
-                    dismiss()
+                    dismissOverlay()
                 }
                 .buttonStyle(RetroActionButtonStyle(tone: .secondary))
             }
@@ -86,7 +85,7 @@ struct QuickOpenView: View {
                             ForEach(Array(matchingFiles.prefix(120))) { entry in
                                 Button {
                                     appState.openIndexedFile(entry.url)
-                                    dismiss()
+                                    dismissOverlay()
                                 } label: {
                                     indexFileRow(entry)
                                 }
@@ -100,7 +99,7 @@ struct QuickOpenView: View {
                             ForEach(Array(matchingSymbols.prefix(120))) { symbol in
                                 Button {
                                     appState.openIndexedSymbol(symbol)
-                                    dismiss()
+                                    dismissOverlay()
                                 } label: {
                                     symbolRow(symbol)
                                 }
@@ -114,7 +113,7 @@ struct QuickOpenView: View {
             .retroInsetPanel(fill: chromeStyle == .studio ? RetroPalette.studioPanelMuted : RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
         }
         .padding(14)
-        .frame(minWidth: 720, idealWidth: 760, minHeight: 460)
+        .frame(minWidth: 720, idealWidth: 760, minHeight: 400)
         .background(chromeStyle == .studio ? RetroPalette.studioCanvasMuted : RetroPalette.pageCream)
         .retroPanel(fill: chromeStyle == .studio ? RetroPalette.studioPanel : RetroPalette.panelFill, accent: RetroPalette.chromePink)
         .padding(14)
@@ -128,10 +127,10 @@ struct QuickOpenView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.displayName)
-                    .font(.system(size: 13, weight: .black, design: .monospaced))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(RetroPalette.ink)
                 Text(entry.subtitle)
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(RetroPalette.link)
                     .lineLimit(2)
             }
@@ -160,10 +159,10 @@ struct QuickOpenView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(symbol.title)
-                    .font(.system(size: 13, weight: .black, design: .monospaced))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(RetroPalette.ink)
                 Text(symbol.subtitle)
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(RetroPalette.link)
             }
 
@@ -172,6 +171,11 @@ struct QuickOpenView: View {
         }
         .padding(10)
         .retroPanel(fill: chromeStyle == .studio ? RetroPalette.studioPanelMuted : RetroPalette.panelFill, accent: RetroPalette.chromePink)
+    }
+
+    private func dismissOverlay() {
+        appState.showingQuickOpen = false
+        appState.showingCommandPalette = false
     }
 }
 
@@ -384,6 +388,7 @@ struct PerformanceHUDView: View {
                                 statCard("Plugins", "\(snapshot.enabledPluginCount)", "Enabled")
                                 statCard("Tasks", "\(snapshot.taskCount)", "Detected")
                                 statCard("Memory", String(format: "%.1f GB", snapshot.physicalMemoryGB), "System")
+                                statCard("Runtime", snapshot.runtimeModeLabel, snapshot.safeModeEnabled ? "Safe Mode" : "Normal Session")
                             }
 
                             if snapshot.metrics.isEmpty {

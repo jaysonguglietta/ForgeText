@@ -128,6 +128,7 @@ struct PluginManagerView: View {
 
     private func pluginCard(_ plugin: EditorPlugin) -> some View {
         let manifest = plugin.manifest
+        let restrictionReason = appState.pluginPolicyRestrictionReason(plugin)
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
@@ -172,6 +173,7 @@ struct PluginManagerView: View {
                             .foregroundStyle(RetroPalette.ink)
                     }
                     .toggleStyle(.switch)
+                    .disabled(restrictionReason != nil)
 
                     Text(manifest.isBuiltIn ? "Built In" : "External")
                         .font(.system(size: 10, weight: .bold, design: .monospaced))
@@ -192,6 +194,13 @@ struct PluginManagerView: View {
                 }
             }
 
+            if let restrictionReason {
+                Text(restrictionReason)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             HStack(spacing: 12) {
                 infoStat(title: "Commands", value: "\(plugin.commands.count)")
                 infoStat(title: "Snippets", value: "\(plugin.snippets.count)")
@@ -204,6 +213,7 @@ struct PluginManagerView: View {
 
     private func registryCard(_ entry: PluginRegistryEntry) -> some View {
         let isInstalled = appState.installedPlugins.contains(where: { $0.id == entry.id })
+        let restrictionReason = appState.registryEntryPolicyRestrictionReason(entry)
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
@@ -240,7 +250,7 @@ struct PluginManagerView: View {
                         }
                     }
                     .buttonStyle(RetroActionButtonStyle(tone: isInstalled ? .secondary : .primary))
-                    .disabled(isInstalled)
+                    .disabled(isInstalled || restrictionReason != nil)
                 }
             }
 
@@ -248,6 +258,13 @@ struct PluginManagerView: View {
                 ForEach(entry.capabilities) { capability in
                     RetroCapsuleLabel(text: capability.displayName, accent: RetroPalette.chromeTeal)
                 }
+            }
+
+            if let restrictionReason {
+                Text(restrictionReason)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.warning)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             HStack(spacing: 12) {

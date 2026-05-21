@@ -41,6 +41,9 @@ struct AIWorkbenchView: View {
             .padding(14)
         }
         .frame(minWidth: 1180, minHeight: 760)
+        .onDisappear {
+            appState.flushPendingAIProviderChanges()
+        }
     }
 
     private var leftRail: some View {
@@ -61,6 +64,13 @@ struct AIWorkbenchView: View {
                 .foregroundStyle(RetroPalette.ink)
 
             if let selectedProvider = appState.selectedAIProvider {
+                if let restrictionReason = appState.selectedAIProviderPolicyRestriction {
+                    Text(restrictionReason)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(RetroPalette.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 Picker(
                     "Provider",
                     selection: Binding(
@@ -73,6 +83,8 @@ struct AIWorkbenchView: View {
                     }
                 }
                 .pickerStyle(.menu)
+
+                providerModeSection(for: selectedProvider)
 
                 TextField("Provider Name", text: Binding(
                     get: { appState.selectedAIProvider?.name ?? "" },
@@ -95,12 +107,26 @@ struct AIWorkbenchView: View {
                 .textFieldStyle(.plain)
                 .retroTextField()
 
-                SecureField("API Key", text: Binding(
-                    get: { appState.selectedAIProvider?.apiKey ?? "" },
-                    set: { appState.updateSelectedAIProviderAPIKey($0) }
-                ))
-                .textFieldStyle(.plain)
-                .retroTextField()
+                if selectedProvider.requiresAPIKey {
+                    SecureField("API Key", text: Binding(
+                        get: { appState.selectedAIProvider?.apiKey ?? "" },
+                        set: { appState.updateSelectedAIProviderAPIKey($0) }
+                    ))
+                    .textFieldStyle(.plain)
+                    .retroTextField()
+                }
+
+                Text(selectedProvider.baseURLDescription)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
+
+                if !selectedProvider.requiresAPIKey {
+                    Text(selectedProvider.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                         ? "No API key is required in Local Model mode."
+                         : "A key is still saved for this profile, but ForgeText will not send it while Local Model mode is active.")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(RetroPalette.link)
+                }
 
                 Toggle("Enabled", isOn: Binding(
                     get: { appState.selectedAIProvider?.isEnabled ?? false },
@@ -122,13 +148,47 @@ struct AIWorkbenchView: View {
                     )
                 }
             } else {
-                Text("Enable at least one provider profile to use the AI workbench.")
+                Text(appState.selectedAIProviderPolicyRestriction ?? "Enable at least one provider profile to use the AI workbench.")
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(RetroPalette.link)
             }
         }
         .padding(14)
         .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
+    }
+
+    @ViewBuilder
+    private func providerModeSection(for provider: AIProviderConfiguration) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Setup Mode")
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundStyle(RetroPalette.link)
+
+            if provider.kind.supportedConnectionModes.count > 1 {
+                Picker(
+                    "Setup Mode",
+                    selection: Binding(
+                        get: { appState.selectedAIProvider?.effectiveConnectionMode ?? provider.effectiveConnectionMode },
+                        set: { appState.updateSelectedAIProviderConnectionMode($0) }
+                    )
+                ) {
+                    ForEach(provider.kind.supportedConnectionModes) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+            } else {
+                Label(provider.effectiveConnectionMode.displayName, systemImage: provider.effectiveConnectionMode.symbolName)
+                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    .foregroundStyle(RetroPalette.link)
+            }
+
+            Text(provider.modeDescription)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(RetroPalette.link)
+        }
+        .padding(10)
+        .retroInsetPanel(fill: RetroPalette.fieldFill, accent: RetroPalette.chromeBlue)
     }
 
     private var contextSection: some View {
@@ -146,6 +206,7 @@ struct AIWorkbenchView: View {
             ))
             .font(.system(size: 11, weight: .bold, design: .monospaced))
             .foregroundStyle(RetroPalette.link)
+            .disabled(appState.activeManagedPolicy?.ai.allowsSelectionContext == false)
 
             Toggle("Include Current File", isOn: Binding(
                 get: { appState.settings.aiIncludeCurrentDocument },
@@ -156,6 +217,7 @@ struct AIWorkbenchView: View {
             ))
             .font(.system(size: 11, weight: .bold, design: .monospaced))
             .foregroundStyle(RetroPalette.link)
+            .disabled(appState.activeManagedPolicy?.ai.allowsCurrentDocumentContext == false)
 
             Toggle("Include Workspace Rules", isOn: Binding(
                 get: { appState.settings.aiIncludeWorkspaceRules },
@@ -166,6 +228,16 @@ struct AIWorkbenchView: View {
             ))
             .font(.system(size: 11, weight: .bold, design: .monospaced))
             .foregroundStyle(RetroPalette.link)
+            .disabled(appState.activeManagedPolicy?.ai.allowsWorkspaceRulesContext == false)
+
+            if appState.activeManagedPolicy?.ai.allowsSelectionContext == false
+                || appState.activeManagedPolicy?.ai.allowsCurrentDocumentContext == false
+                || appState.activeManagedPolicy?.ai.allowsWorkspaceRulesContext == false {
+                Text("Managed policy limited one or more AI context sources for this installation.")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(14)
         .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeTeal)
@@ -328,5 +400,82 @@ struct AIWorkbenchView: View {
         case .assistant:
             return RetroPalette.chromePink
         }
+    }
+}
+
+struct AIPromptReviewView: View {
+    @ObservedObject var appState: AppState
+    let reviewState: AppState.AIPromptReviewState
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            RetroBackdropView()
+
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    Label("Review AI Request", systemImage: "checklist")
+                        .font(.system(size: 22, weight: .black, design: .monospaced))
+                        .foregroundStyle(RetroPalette.ink)
+
+                    Spacer(minLength: 0)
+
+                    Button("Cancel") {
+                        appState.cancelAIPromptReview()
+                        dismiss()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+
+                    Button("Send") {
+                        appState.approveAIPromptReview()
+                        dismiss()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .primary))
+                }
+                .padding(16)
+                .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("\(reviewState.providerName) · \(reviewState.model)")
+                        .font(.system(size: 12, weight: .bold, design: .monospaced))
+                        .foregroundStyle(RetroPalette.link)
+                    Text(reviewState.quickAction?.displayName ?? reviewState.effectivePromptTitle)
+                        .font(.system(size: 13, weight: .black, design: .monospaced))
+                        .foregroundStyle(RetroPalette.ink)
+                    Text("ForgeText already applied any active privacy filters, context limits, and local-only restrictions before this review.")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(RetroPalette.link)
+                }
+                .padding(14)
+                .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
+
+                HSplitView {
+                    reviewPane(title: "System Prompt", text: reviewState.preparedPrompt.systemPrompt, accent: RetroPalette.chromeBlue)
+                    reviewPane(title: "User Prompt", text: reviewState.preparedPrompt.userPrompt, accent: RetroPalette.chromeTeal)
+                }
+            }
+            .padding(16)
+        }
+        .frame(minWidth: 980, minHeight: 640)
+    }
+
+    private func reviewPane(title: String, text: String, accent: Color) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.system(size: 14, weight: .black, design: .monospaced))
+                .foregroundStyle(RetroPalette.ink)
+
+            ScrollView {
+                Text(text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .font(.system(size: 12, weight: .medium, design: .monospaced))
+                    .foregroundStyle(RetroPalette.ink)
+                    .textSelection(.enabled)
+                    .padding(12)
+            }
+            .retroInsetPanel(fill: RetroPalette.fieldFill, accent: accent)
+        }
+        .padding(14)
+        .retroPanel(fill: RetroPalette.panelFillMuted, accent: accent)
     }
 }

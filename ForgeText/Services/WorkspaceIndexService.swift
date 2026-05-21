@@ -54,6 +54,7 @@ enum WorkspaceIndexService {
     static func index(
         roots: [URL],
         includeHiddenFiles: Bool,
+        includeSymbols: Bool = true,
         maxFiles: Int = 2_500,
         maxTextBytes: Int = 900_000
     ) -> WorkspaceIndexSummary {
@@ -128,7 +129,7 @@ enum WorkspaceIndexService {
                 let lineCount = text.isEmpty ? 0 : text.split(whereSeparator: \.isNewline).count
                 let todoCount = countMatches(in: text, needles: ["TODO", "FIXME", "HACK"])
                 let warningCount = countMatches(in: text, needles: ["password=", "api_key", "secret=", "private_key", "BEGIN RSA PRIVATE KEY"])
-                let outlineItems = outlineItems(for: text, language: language, url: fileURL)
+                let outlineItems = includeSymbols ? outlineItems(for: text, language: language, url: fileURL) : []
 
                 scannedFileCount += 1
                 totalTodos += todoCount

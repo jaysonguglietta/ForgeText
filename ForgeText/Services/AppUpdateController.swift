@@ -30,6 +30,12 @@ final class AppUpdateController: NSObject, ObservableObject {
     }
 
     func checkForUpdates() {
+        let policyState = EnterprisePolicyService.loadState()
+        if let restrictionReason = EnterprisePolicyService.updateRestrictionReason(policy: policyState.policy) {
+            presentPolicyAlert(message: restrictionReason)
+            return
+        }
+
         guard let updaterController else {
             presentSetupAlert()
             return
@@ -62,6 +68,15 @@ final class AppUpdateController: NSObject, ObservableObject {
 
         Finish the setup in docs/UPDATES.md, then rebuild ForgeText and this button will use Sparkle to check for updates.
         """
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func presentPolicyAlert(message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Updates Are Managed"
+        alert.informativeText = message
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }

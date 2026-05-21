@@ -15,7 +15,7 @@ struct WorkspaceExplorerView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text("Explorer")
-                    .font(.system(size: 12, weight: .black, design: .monospaced))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(RetroPalette.ink)
                 Spacer(minLength: 0)
 
@@ -31,7 +31,7 @@ struct WorkspaceExplorerView: View {
                     )
                 )
                 .toggleStyle(.switch)
-                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(RetroPalette.link)
 
                 Button("Reload") {
@@ -42,17 +42,17 @@ struct WorkspaceExplorerView: View {
 
             if appState.workspaceRootURLs.count > 1 {
                 Text("\(appState.workspaceRootURLs.count) roots active • \(appState.activeWorkspaceURL?.lastPathComponent ?? "none") selected")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(.system(size: 10, weight: .regular))
                     .foregroundStyle(RetroPalette.link)
                     .lineLimit(2)
             } else if let rootURL = appState.activeWorkspaceURL {
                 Text(rootURL.path(percentEncoded: false))
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .font(.system(size: 10, weight: .regular))
                     .foregroundStyle(RetroPalette.link)
                     .lineLimit(2)
             } else {
                 Text("Choose a workspace folder to browse files.")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .font(.system(size: 11, weight: .regular))
                     .foregroundStyle(RetroPalette.link)
             }
 
@@ -103,7 +103,7 @@ private struct WorkspaceExplorerRow: View {
                         .frame(width: 16)
 
                     Text(node.name)
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(RetroPalette.ink)
                         .lineLimit(1)
                 }

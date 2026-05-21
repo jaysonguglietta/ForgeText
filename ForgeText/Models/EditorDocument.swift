@@ -27,7 +27,7 @@ struct EditorDocument: Identifiable {
     var followModeEnabled = false
     var prefersStructuredPresentation = false
 
-    static func untitled(named name: String) -> EditorDocument {
+    static func untitled(named name: String, lineEnding: LineEnding = .lf) -> EditorDocument {
         EditorDocument(
             id: UUID(),
             untitledName: name,
@@ -36,7 +36,7 @@ struct EditorDocument: Identifiable {
             remoteReference: nil,
             encoding: .utf8,
             includesByteOrderMark: false,
-            lineEnding: .lf,
+            lineEnding: lineEnding,
             selectedRange: NSRange(location: 0, length: 0),
             isDirty: false,
             lastSavedText: "",
@@ -59,7 +59,7 @@ struct EditorDocument: Identifiable {
 
             return file.preferredLanguage ?? DocumentLanguage.detect(from: url, text: file.text)
         }()
-        let prefersStructuredPresentation = (detectedLanguage.structuredPresentationMode != nil)
+        let prefersStructuredPresentation = false
         let initialPresentationMode: DocumentPresentationMode = {
             if file.presentationMode == .binaryHex {
                 return .binaryHex
@@ -69,7 +69,7 @@ struct EditorDocument: Identifiable {
                 return .archiveBrowser
             }
 
-            return detectedLanguage.structuredPresentationMode ?? .editor
+            return .editor
         }()
 
         return EditorDocument(
@@ -103,7 +103,7 @@ struct EditorDocument: Identifiable {
 
     static func remote(reference: RemoteFileReference, text: String, encoding: String.Encoding = .utf8) -> EditorDocument {
         let language = DocumentLanguage.detect(from: URL(fileURLWithPath: reference.path), text: text)
-        let prefersStructuredPresentation = language.structuredPresentationMode != nil
+        let prefersStructuredPresentation = false
 
         return EditorDocument(
             id: UUID(),
@@ -128,7 +128,7 @@ struct EditorDocument: Identifiable {
             isReadOnly: false,
             isPartialPreview: false,
             fileSize: Int64(text.utf8.count),
-            presentationMode: language.structuredPresentationMode ?? .editor,
+            presentationMode: .editor,
             followModeEnabled: false,
             prefersStructuredPresentation: prefersStructuredPresentation
         )
@@ -210,15 +210,12 @@ struct EditorDocument: Identifiable {
             return
         }
 
-        let previousLanguage = language
         if sourceURL != nil || language == .plainText {
             language = DocumentLanguage.detect(from: sourceURL, text: text)
         }
 
         if language.structuredPresentationMode == nil {
             prefersStructuredPresentation = false
-        } else if previousLanguage.structuredPresentationMode == nil, sourceURL != nil {
-            prefersStructuredPresentation = true
         }
 
         syncPresentationMode()
@@ -339,53 +336,82 @@ struct EditorMetrics {
     let cursorColumn: Int
 
     init(text: String, selectedRange: NSRange) {
-        lineCount = Self.countLines(in: text)
-        wordCount = text.split { $0.isWhitespace || $0.isNewline }.count
-        characterCount = text.count
+        self.init(statistics: CachedTextStatistics(text: text), selectedRange: selectedRange)
+    }
+
+    init(statistics: CachedTextStatistics, selectedRange: NSRange) {
+        lineCount = statistics.lineCount
+        wordCount = statistics.wordCount
+        characterCount = statistics.characterCount
         selectionLength = selectedRange.length
 
-        let position = Self.cursorPosition(in: text, location: selectedRange.location)
+        let position = statistics.cursorPosition(for: selectedRange.location)
         cursorLine = position.line
         cursorColumn = position.column
     }
+}
 
-    private static func countLines(in text: String) -> Int {
-        if text.isEmpty {
-            return 1
-        }
+struct CachedTextStatistics: Equatable {
+    let textHash: Int
+    let utf16Length: Int
+    let lineCount: Int
+    let wordCount: Int
+    let characterCount: Int
+    let lineStartOffsets: [Int]
 
-        let normalized = text
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
+    init(text: String) {
+        let utf16View = Array(text.utf16)
+        textHash = text.hashValue
+        utf16Length = utf16View.count
+        wordCount = text.split { $0.isWhitespace || $0.isNewline }.count
+        characterCount = text.count
 
-        return normalized.reduce(into: 1) { result, character in
-            if character == "\n" {
-                result += 1
+        var offsets = [0]
+        offsets.reserveCapacity(max(1, utf16View.count / 48))
+
+        var index = 0
+        while index < utf16View.count {
+            let value = utf16View[index]
+            if value == 0x000D {
+                if index + 1 < utf16View.count, utf16View[index + 1] == 0x000A {
+                    offsets.append(index + 2)
+                    index += 2
+                    continue
+                }
+
+                offsets.append(index + 1)
+            } else if value == 0x000A {
+                offsets.append(index + 1)
             }
+
+            index += 1
         }
+
+        lineStartOffsets = offsets
+        lineCount = offsets.count
     }
 
-    private static func cursorPosition(in text: String, location: Int) -> (line: Int, column: Int) {
-        let nsText = text as NSString
-        let clampedLocation = min(max(location, 0), nsText.length)
-        let prefix = nsText.substring(to: clampedLocation)
-        let normalizedPrefix = prefix
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
+    func matches(text: String) -> Bool {
+        textHash == text.hashValue && utf16Length == (text as NSString).length
+    }
 
-        var line = 1
-        var column = 1
+    func cursorPosition(for location: Int) -> (line: Int, column: Int) {
+        let clampedLocation = min(max(location, 0), utf16Length)
 
-        for character in normalizedPrefix {
-            if character == "\n" {
-                line += 1
-                column = 1
+        var lowerBound = 0
+        var upperBound = max(0, lineStartOffsets.count - 1)
+        while lowerBound < upperBound {
+            let midpoint = (lowerBound + upperBound + 1) / 2
+            if lineStartOffsets[midpoint] <= clampedLocation {
+                lowerBound = midpoint
             } else {
-                column += 1
+                upperBound = midpoint - 1
             }
         }
 
-        return (line, column)
+        let lineIndex = max(0, min(lowerBound, lineStartOffsets.count - 1))
+        let lineStart = lineStartOffsets[lineIndex]
+        return (line: lineIndex + 1, column: max(1, clampedLocation - lineStart + 1))
     }
 }
 

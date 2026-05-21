@@ -105,7 +105,7 @@ enum AIProviderService {
         sessionMessages: [AIChatMessage],
         provider: AIProviderConfiguration
     ) async throws -> String {
-        guard !provider.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || provider.kind == .ollama else {
+        guard !provider.requiresAPIKey || !provider.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AIProviderError.missingAPIKey(provider.name)
         }
         let baseURL = try validatedBaseURL(for: provider)
@@ -114,7 +114,9 @@ enum AIProviderService {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(provider.apiKey)", forHTTPHeaderField: "Authorization")
+        if provider.requiresAPIKey {
+            request.setValue("Bearer \(provider.apiKey)", forHTTPHeaderField: "Authorization")
+        }
 
         let messages = openAIStyleMessages(prompt: prompt, sessionMessages: sessionMessages)
         let body: [String: Any] = [
@@ -145,7 +147,7 @@ enum AIProviderService {
         sessionMessages: [AIChatMessage],
         provider: AIProviderConfiguration
     ) async throws -> String {
-        guard !provider.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard !provider.requiresAPIKey || !provider.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AIProviderError.missingAPIKey(provider.name)
         }
         let baseURL = try validatedBaseURL(for: provider)
@@ -198,7 +200,7 @@ enum AIProviderService {
         sessionMessages: [AIChatMessage],
         provider: AIProviderConfiguration
     ) async throws -> String {
-        guard !provider.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard !provider.requiresAPIKey || !provider.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AIProviderError.missingAPIKey(provider.name)
         }
         let baseURL = try validatedBaseURL(for: provider)

@@ -54,4 +54,56 @@ final class DelimitedTextTableServiceTests: XCTestCase {
         XCTAssertEqual(table?.headers, ["service", "status", "owner"])
         XCTAssertEqual(table?.rows, [["api", "green", "platform"]])
     }
+
+    func testCSVParserInfersColumnTypesAndSerializesSafely() {
+        let text = """
+        enabled,count,ratio,note
+        true,42,3.14,"hello, world"
+        false,7,2.5,plain
+        """
+
+        let table = DelimitedTextTableService.parse(text, preferredDelimiter: ",")
+
+        XCTAssertEqual(table?.columnTypes, [.boolean, .integer, .decimal, .text])
+        let serialized = DelimitedTextTableService.serialized(
+            headers: table?.headers ?? [],
+            rows: table?.rows ?? [],
+            delimiter: ","
+        )
+        XCTAssertTrue(serialized.contains("\"hello, world\""))
+    }
+
+    func testSchemaMappingMultiSortAndAggregation() throws {
+        let table = try XCTUnwrap(DelimitedTextTableService.parse(
+            "name,team,score\nAda,Core,9\nBob,Core,9\nCy,Ops,7\n",
+            preferredDelimiter: ","
+        ))
+        let mapped = DelimitedTextTableService.applying(
+            schema: [
+                DelimitedColumnSchema(columnIndex: 2, displayName: "Points", type: .decimal),
+            ],
+            to: table
+        )
+        let sorted = DelimitedTextTableService.sortedRows(
+            mapped.rows.enumerated().map { (offset: $0.offset, row: $0.element) },
+            columnTypes: mapped.columnTypes,
+            descriptors: [
+                DelimitedSortDescriptor(columnIndex: 2, isAscending: false),
+                DelimitedSortDescriptor(columnIndex: 0, isAscending: false),
+            ]
+        )
+        let aggregates = DelimitedTextTableService.aggregate(
+            rows: mapped.rows,
+            headers: mapped.headers,
+            columnTypes: mapped.columnTypes,
+            requests: [
+                DelimitedAggregationRequest(columnIndex: 2, kind: .sum),
+                DelimitedAggregationRequest(columnIndex: 2, kind: .average),
+            ]
+        )
+
+        XCTAssertEqual(mapped.headers[2], "Points")
+        XCTAssertEqual(sorted.map { $0.row[0] }, ["Bob", "Ada", "Cy"])
+        XCTAssertEqual(aggregates.map(\.value), ["25", "8.333"])
+    }
 }

@@ -3,6 +3,7 @@ import Foundation
 enum PluginRegistryService {
     private struct RegistryFile: Codable {
         let entries: [PluginRegistryEntry]
+        let signature: SignedArtifactSignature?
     }
 
     enum RegistryError: LocalizedError {
@@ -24,6 +25,15 @@ enum PluginRegistryService {
                 continue
             }
             entries.append(contentsOf: await loadRegistryEntries(from: registry.source))
+        }
+
+        for catalog in policy?.plugins.managedCatalogs ?? [] {
+            entries.append(contentsOf: await loadRegistryEntries(
+                from: catalog.source,
+                trustedSigningKeys: catalog.trustedSigningKeys ?? [],
+                requiresSignature: true,
+                allowsRemoteTasks: catalog.allowsTaskPlugins == true
+            ))
         }
 
         var seenIDs = Set<String>()
@@ -71,7 +81,12 @@ enum PluginRegistryService {
         return scheme == "https" || scheme == "file"
     }
 
-    private static func loadRegistryEntries(from source: String) async -> [PluginRegistryEntry] {
+    private static func loadRegistryEntries(
+        from source: String,
+        trustedSigningKeys: [String] = [],
+        requiresSignature: Bool = false,
+        allowsRemoteTasks: Bool = false
+    ) async -> [PluginRegistryEntry] {
         let trimmedSource = source.trimmingCharacters(in: .whitespacesAndNewlines)
         guard isRegistrySourceAllowed(trimmedSource) else {
             return []
@@ -94,10 +109,24 @@ enum PluginRegistryService {
 
         let data: Data?
         if sourceURL.isFileURL {
-            data = try? Data(contentsOf: sourceURL)
+            if let values = try? sourceURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
+               values.isRegularFile == true,
+               values.isSymbolicLink != true,
+               (values.fileSize ?? 0) <= 1_024 * 1_024,
+               let localData = try? BoundedFileReadService.read(sourceURL, maximumBytes: 1_024 * 1_024) {
+                data = localData
+            } else {
+                data = nil
+            }
         } else {
             let request = URLRequest(url: sourceURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 8)
-            let responseData = try? await URLSession.shared.data(for: request)
+            let responseData = try? await SecureNetworkService.data(
+                for: request,
+                policy: .publicInternet(
+                    allowedHosts: sourceURL.host.map { [$0] } ?? [],
+                    maximumResponseBytes: 1_024 * 1_024
+                )
+            )
             if let (_, response) = responseData,
                let httpResponse = response as? HTTPURLResponse,
                (!(200 ..< 300).contains(httpResponse.statusCode) || httpResponse.url?.scheme?.lowercased() != "https")
@@ -108,13 +137,24 @@ enum PluginRegistryService {
             }
         }
 
-        guard let data,
-              let file = try? JSONDecoder().decode(RegistryFile.self, from: data)
-        else {
+        guard let data else {
             return []
         }
 
-        guard isRemoteRegistry else {
+        let isManagedCatalog = requiresSignature || !trustedSigningKeys.isEmpty
+        if isManagedCatalog {
+            guard (try? SignedArtifactService.verify(
+                data: data,
+                trustedPublicKeys: trustedSigningKeys,
+                requiresSignature: requiresSignature
+            ))?.verifiedSigningKey != nil else {
+                return []
+            }
+        }
+
+        guard let file = try? JSONDecoder().decode(RegistryFile.self, from: data) else { return [] }
+
+        guard isRemoteRegistry, !(isManagedCatalog && allowsRemoteTasks) else {
             return file.entries
         }
 

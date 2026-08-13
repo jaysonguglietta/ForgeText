@@ -395,6 +395,7 @@ struct AppSettings: Codable {
     var aiIncludeCurrentDocument = true
     var aiIncludeWorkspaceRules = true
     var advanced = AdvancedEditorSettings()
+    var keyboardShortcuts = ShortcutAction.defaultBindings
 
     init() {}
 
@@ -429,6 +430,7 @@ struct AppSettings: Codable {
         case aiIncludeCurrentDocument
         case aiIncludeWorkspaceRules
         case advanced
+        case keyboardShortcuts
     }
 
     init(from decoder: Decoder) throws {
@@ -495,6 +497,106 @@ struct AppSettings: Codable {
         aiIncludeCurrentDocument = try container.decodeIfPresent(Bool.self, forKey: .aiIncludeCurrentDocument) ?? true
         aiIncludeWorkspaceRules = try container.decodeIfPresent(Bool.self, forKey: .aiIncludeWorkspaceRules) ?? true
         advanced = try container.decodeIfPresent(AdvancedEditorSettings.self, forKey: .advanced) ?? AdvancedEditorSettings()
+        keyboardShortcuts = try container.decodeIfPresent([ShortcutAction: ShortcutBinding].self, forKey: .keyboardShortcuts)
+            ?? ShortcutAction.defaultBindings
+    }
+}
+
+enum ShortcutAction: String, Codable, CaseIterable, Hashable, Identifiable {
+    case newDocument
+    case openDocument
+    case save
+    case saveAs
+    case find
+    case searchWorkspace
+    case commandPalette
+    case quickOpen
+    case goToLine
+    case findNext
+    case findPrevious
+    case nextDocument
+    case previousDocument
+    case toggleComment
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .newDocument: return "New Document"
+        case .openDocument: return "Open Files"
+        case .save: return "Save"
+        case .saveAs: return "Save As"
+        case .find: return "Find and Replace"
+        case .searchWorkspace: return "Search in Folder"
+        case .commandPalette: return "Command Palette"
+        case .quickOpen: return "Quick Open"
+        case .goToLine: return "Go to Line"
+        case .findNext: return "Next Match"
+        case .findPrevious: return "Previous Match"
+        case .nextDocument: return "Next Document"
+        case .previousDocument: return "Previous Document"
+        case .toggleComment: return "Toggle Comment"
+        }
+    }
+
+    static let defaultBindings: [ShortcutAction: ShortcutBinding] = [
+        .newDocument: .command("n"), .openDocument: .command("o"), .save: .command("s"),
+        .saveAs: .commandShift("s"), .find: .command("f"), .searchWorkspace: .commandShift("f"),
+        .commandPalette: .commandShift("p"), .quickOpen: .command("p"), .goToLine: .command("l"),
+        .findNext: .command("g"), .findPrevious: .commandShift("g"), .nextDocument: .commandShift("]"),
+        .previousDocument: .commandShift("["), .toggleComment: .command("/"),
+    ]
+
+    static func conflicts(in bindings: [ShortcutAction: ShortcutBinding]) -> Set<ShortcutAction> {
+        let grouped = Dictionary(grouping: allCases) { action in
+            bindings[action]?.normalized
+        }
+        return Set(grouped
+            .filter { binding, actions in binding != nil && actions.count > 1 }
+            .flatMap(\.value))
+    }
+}
+
+struct ShortcutBinding: Codable, Hashable {
+    struct ValidationError: LocalizedError {
+        var errorDescription: String? {
+            "Shortcuts require one key and Command, Option, or Control."
+        }
+    }
+
+    var key: String
+    var usesCommand: Bool
+    var usesShift: Bool
+    var usesOption: Bool
+    var usesControl: Bool
+
+    static func command(_ key: String) -> ShortcutBinding {
+        ShortcutBinding(key: key, usesCommand: true, usesShift: false, usesOption: false, usesControl: false)
+    }
+
+    static func commandShift(_ key: String) -> ShortcutBinding {
+        ShortcutBinding(key: key, usesCommand: true, usesShift: true, usesOption: false, usesControl: false)
+    }
+
+    var normalized: ShortcutBinding {
+        var value = self
+        value.key = String(key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().prefix(1))
+        return value
+    }
+
+    var isValid: Bool {
+        let value = normalized
+        return value.key.count == 1 && (value.usesCommand || value.usesOption || value.usesControl)
+    }
+
+    var displayName: String {
+        var parts: [String] = []
+        if usesControl { parts.append("Control") }
+        if usesOption { parts.append("Option") }
+        if usesShift { parts.append("Shift") }
+        if usesCommand { parts.append("Command") }
+        parts.append(key.uppercased())
+        return parts.joined(separator: "-")
     }
 }
 

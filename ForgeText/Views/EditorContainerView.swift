@@ -348,6 +348,7 @@ struct EditorContainerView: NSViewRepresentable {
         weak var rulerView: LineNumberRulerView?
         var isSyncingFromSwiftUI = false
         var isApplyingRenderPass = false
+        var pendingIncrementalHighlight: DispatchWorkItem?
         var lastLayoutState: LayoutState?
         var lastRenderState: RenderState?
         var lastFocusRequestToken: UUID?
@@ -367,23 +368,38 @@ struct EditorContainerView: NSViewRepresentable {
                 return
             }
 
+            let inputStartedAt = DispatchTime.now().uptimeNanoseconds
             let updatedText = textView.string
+            let editedRange = textView.textStorage.map {
+                let range = $0.editedRange
+                return range.location == NSNotFound ? textView.selectedRange() : range
+            } ?? textView.selectedRange()
             rulerView?.needsDisplay = true
 
-            withRenderPass {
-                SyntaxHighlighter.apply(
-                    to: textView,
-                    theme: parent.theme,
-                    language: parent.language,
-                    fontSize: parent.fontSize,
-                    findState: parent.findState,
-                    largeFileMode: parent.largeFileMode,
-                    lineDecorations: parent.lineDecorations
-                )
+            pendingIncrementalHighlight?.cancel()
+            let highlight = DispatchWorkItem { [weak self, weak textView] in
+                guard let self, let textView, !self.isSyncingFromSwiftUI else {
+                    return
+                }
+
+                self.withRenderPass {
+                    SyntaxHighlighter.applyIncremental(
+                        to: textView,
+                        theme: self.parent.theme,
+                        language: self.parent.language,
+                        fontSize: self.parent.fontSize,
+                        findState: self.parent.findState,
+                        largeFileMode: self.parent.largeFileMode,
+                        lineDecorations: self.parent.lineDecorations,
+                        editedRange: editedRange
+                    )
+                }
+                self.lastRenderState = self.renderState()
             }
+            pendingIncrementalHighlight = highlight
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.025, execute: highlight)
 
             let updatedSelection = textView.selectedRange()
-            lastRenderState = renderState()
 
             DispatchQueue.main.async { [weak self] in
                 guard let self, !self.isSyncingFromSwiftUI else {
@@ -393,6 +409,14 @@ struct EditorContainerView: NSViewRepresentable {
                 self.parent.text = updatedText
                 self.parent.selectedRange = updatedSelection
             }
+
+            let inputElapsedMS = Double(DispatchTime.now().uptimeNanoseconds - inputStartedAt) / 1_000_000
+            EditorPerformanceMonitor.shared.record(
+                .editorInput,
+                durationMS: inputElapsedMS,
+                detail: parent.language.displayName,
+                payload: "\((updatedText as NSString).length) chars"
+            )
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {

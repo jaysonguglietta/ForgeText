@@ -20,27 +20,8 @@ struct StatusBarView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    statusPill("Ln \(metrics.cursorLine), Col \(metrics.cursorColumn)", tone: .accent)
-                    statusPill("\(metrics.lineCount) lines")
-                    statusPill("\(metrics.wordCount) words")
-                    statusPill("\(metrics.characterCount) chars")
+                    statusPill("\(metrics.isApproximate ? "~" : "")Ln \(metrics.cursorLine), Col \(metrics.cursorColumn)", tone: .accent)
                     statusPill(document.language.displayName, tone: .accent)
-                    statusPill(document.encoding.displayName + (document.includesByteOrderMark ? " BOM" : ""))
-                    statusPill(document.lineEnding.label)
-                    statusPill(settings.wrapLines ? "Wrap On" : "Wrap Off")
-                    statusPill(settings.theme.displayName)
-
-                    if document.isLargeFileMode {
-                        statusPill("Large File", tone: .warning)
-                    }
-
-                    if appState.effectivePerformanceMode == .performance {
-                        statusPill("Performance Mode", tone: .warning)
-                    }
-
-                    if appState.isSafeModeActive {
-                        statusPill("Safe Mode", tone: .warning)
-                    }
 
                     if metrics.selectionLength > 0 {
                         statusPill("Sel \(metrics.selectionLength)")
@@ -58,38 +39,8 @@ struct StatusBarView: View {
                         statusPill("Follow", tone: .success)
                     }
 
-                    if let fileSize = document.fileSize {
-                        statusPill(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))
-                    }
-
-                    if let csvInsight = insights.csv {
-                        statusPill("\(csvInsight.rowCount) rows")
-                        statusPill("\(csvInsight.columnCount) cols")
-                    }
-
-                    if let jsonInsight = insights.json {
-                        statusPill(jsonInsight.topLevelType.displayName)
-                        statusPill("\(jsonInsight.nodeCount) nodes")
-                    }
-
-                    if let logInsight = insights.log {
-                        statusPill("\(logInsight.entryCount) entries")
-
-                        if logInsight.warningCount > 0 {
-                            statusPill("\(logInsight.warningCount) warnings", tone: .warning)
-                        }
-
-                        if logInsight.errorCount > 0 {
-                            statusPill("\(logInsight.errorCount) errors", tone: .danger)
-                        }
-                    }
-
-                    if let httpInsight = insights.http {
-                        statusPill("\(httpInsight.requestCount) requests")
-                    }
-
-                    ForEach(pluginStatusItems) { item in
-                        statusPill(item.text, tone: item.tone)
+                    if document.isLargeFileMode || appState.effectivePerformanceMode == .performance {
+                        statusPill("Performance", tone: .warning)
                     }
                 }
             }
@@ -103,6 +54,35 @@ struct StatusBarView: View {
             }
 
             HStack(spacing: 6) {
+                Menu {
+                    Text("\(metrics.lineCount) lines, \(metrics.wordCount) words, \(metrics.characterCount) characters")
+                    Text("\(document.encoding.displayName) • \(document.lineEnding.label) • \(settings.wrapLines ? "Wrap on" : "Wrap off")")
+                    if let fileSize = document.fileSize {
+                        Text(ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file))
+                    }
+                    if let csvInsight = insights.csv {
+                        Text("CSV: \(csvInsight.rowCount) rows, \(csvInsight.columnCount) columns")
+                    }
+                    if let jsonInsight = insights.json {
+                        Text("JSON: \(jsonInsight.topLevelType.displayName), \(jsonInsight.nodeCount) nodes")
+                    }
+                    if let logInsight = insights.log {
+                        Text("Logs: \(logInsight.entryCount) entries, \(logInsight.warningCount) warnings, \(logInsight.errorCount) errors")
+                    }
+                    if let httpInsight = insights.http {
+                        Text("HTTP: \(httpInsight.requestCount) requests")
+                    }
+                    if !pluginStatusItems.isEmpty {
+                        Divider()
+                        ForEach(pluginStatusItems) { item in
+                            Text(item.text)
+                        }
+                    }
+                } label: {
+                    statusPill("Details")
+                }
+                .menuStyle(.borderlessButton)
+
                 Button {
                     appState.showWorkspacePlatformPanel()
                 } label: {
@@ -116,20 +96,18 @@ struct StatusBarView: View {
                 }
 
                 Button {
-                    appState.toggleSidebar()
+                    appState.toggleBottomPanel()
                 } label: {
-                    statusPill(appState.isSidebarVisible ? "Sidebar On" : "Sidebar Off")
+                    statusPill(appState.isBottomPanelVisible ? appState.activeBottomPanel.title : "Panel", tone: .accent)
                 }
                 .buttonStyle(.plain)
 
                 Button {
-                    appState.toggleBottomPanel()
+                    appState.showEngineeringWorkbench()
                 } label: {
-                    statusPill(appState.isBottomPanelVisible ? "Panel \(appState.activeBottomPanel.title)" : "Panel Off", tone: .accent)
+                    statusPill("Workbench", tone: .accent)
                 }
                 .buttonStyle(.plain)
-
-                statusPill(appState.activeWorkbenchPresetLabel, tone: .neutral)
             }
         }
         .padding(.horizontal, 10)

@@ -30,4 +30,38 @@ final class LogExplorerServiceTests: XCTestCase {
 
         XCTAssertNil(LogExplorerService.parse(text, requireLogSignals: true))
     }
+
+    func testTimelineClusteringSeparatesEntriesAcrossLargeGaps() throws {
+        let document = try XCTUnwrap(LogExplorerService.parse(
+            """
+            2026-04-06T10:00:00Z INFO [api] Started
+            2026-04-06T10:00:15Z WARN [api] Retrying
+            2026-04-06T10:04:00Z ERROR [worker] Failed
+            """,
+            requireLogSignals: true
+        ))
+        let clusters = LogExplorerService.timelineClusters(entries: document.entries, maximumGap: 60)
+
+        XCTAssertEqual(clusters.count, 2)
+        XCTAssertEqual(clusters.map { $0.entries.count }, [2, 1])
+    }
+
+    func testMultiFileSessionAttributesSourcesAndOrdersTimestamps() throws {
+        let first = try XCTUnwrap(LogExplorerService.parse(
+            "2026-04-06T10:00:02Z INFO [api] Second\n",
+            requireLogSignals: false
+        ))
+        let second = try XCTUnwrap(LogExplorerService.parse(
+            "2026-04-06T10:00:01Z ERROR First\n",
+            requireLogSignals: false
+        ))
+        let session = try XCTUnwrap(LogExplorerService.mergedSession([
+            (name: "api.log", document: first),
+            (name: "worker.log", document: second),
+        ]))
+
+        XCTAssertEqual(session.entries.map(\.message), ["First", "Second"])
+        XCTAssertEqual(session.entries.map(\.source), ["worker.log", "api.log · api"])
+        XCTAssertEqual(session.errorCount, 1)
+    }
 }

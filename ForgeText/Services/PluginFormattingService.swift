@@ -5,6 +5,7 @@ enum PluginFormattingService {
         case unsupportedLanguage(DocumentLanguage)
         case invalidUTF8
         case formatterUnavailable(DocumentLanguage)
+        case externalToolsRestricted(DocumentLanguage)
 
         var errorDescription: String? {
             switch self {
@@ -14,13 +15,20 @@ enum PluginFormattingService {
                 return "ForgeText couldn’t convert the formatted result back into UTF-8 text."
             case let .formatterUnavailable(language):
                 return "ForgeText couldn’t find a local formatter for \(language.displayName)."
+            case let .externalToolsRestricted(language):
+                return "Formatting \(language.displayName) requires an external tool, which is disabled in restricted workspaces or by managed policy."
             }
         }
     }
 
-    static func format(_ document: EditorDocument) throws -> String {
-        if let externallyFormatted = try formatUsingExternalTool(document) {
+    static func format(_ document: EditorDocument, allowsExternalTools: Bool = false) throws -> String {
+        if allowsExternalTools, let externallyFormatted = try formatUsingExternalTool(document) {
             return externallyFormatted
+        }
+
+        if !allowsExternalTools,
+           [.markdown, .swift, .shell, .javascript, .css, .config].contains(document.language) {
+            throw FormattingError.externalToolsRestricted(document.language)
         }
 
         switch document.language {
@@ -90,23 +98,29 @@ enum PluginFormattingService {
     }
 
     private static func runPrettier(on data: Data, sourceURL: URL?) throws -> String? {
-        guard ToolchainService.isAvailable("prettier") else {
+        guard ToolchainService.trustedExecutablePath(named: "prettier") != nil else {
             return nil
         }
 
         let sourcePath = sourceURL?.path ?? "stdin.txt"
-        return try runFormatter(named: "prettier", arguments: ["--stdin-filepath", sourcePath], input: data)
+        return try runFormatter(
+            named: "prettier",
+            arguments: ["--no-config", "--no-editorconfig", "--stdin-filepath", sourcePath],
+            input: data
+        )
     }
 
     private static func runFormatter(named executable: String, arguments: [String], input: Data) throws -> String? {
-        guard ToolchainService.isAvailable(executable) else {
+        guard let executablePath = ToolchainService.trustedExecutablePath(named: executable) else {
             return nil
         }
 
         let output = try CommandExecutionService.run(
-            "/usr/bin/env",
-            arguments: [executable] + arguments,
-            input: input
+            executablePath,
+            arguments: arguments,
+            input: input,
+            environment: ["NO_COLOR": "1"],
+            limits: .formatter
         )
 
         guard let text = String(data: output, encoding: .utf8) else {

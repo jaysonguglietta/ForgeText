@@ -30,6 +30,7 @@ final class SensitiveDataStoreTests: XCTestCase {
         let plaintext = try JSONEncoder().encode(fixture)
         try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try plaintext.write(to: fileURL, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
 
         XCTAssertEqual(SensitiveDataStore.load(Fixture.self, from: fileURL), fixture)
 

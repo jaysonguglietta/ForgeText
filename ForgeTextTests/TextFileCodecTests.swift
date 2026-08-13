@@ -1,4 +1,5 @@
 import XCTest
+import Darwin
 @testable import ForgeText
 
 final class TextFileCodecTests: XCTestCase {
@@ -57,6 +58,27 @@ final class TextFileCodecTests: XCTestCase {
         XCTAssertEqual(metrics.lineCount, 2)
         XCTAssertEqual(metrics.cursorLine, 2)
         XCTAssertEqual(metrics.cursorColumn, 2)
+    }
+
+    func testOpenRejectsNamedPipes() throws {
+        let url = temporaryFileURL(named: "events.fifo")
+        XCTAssertEqual(mkfifo(url.path, 0o644), 0)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        XCTAssertThrowsError(try TextFileCodec.open(from: url)) { error in
+            guard case TextFileCodec.CodecError.unsupportedFileType = error else {
+                return XCTFail("Expected unsupportedFileType, got \(error)")
+            }
+        }
+    }
+
+    func testLargeEditableDocumentUsesAdaptiveEditorMode() {
+        var document = EditorDocument.untitled(named: "large.log")
+        document.fileSize = TextFileCodec.largeFileModeThreshold
+
+        XCTAssertTrue(document.isLargeFileMode)
+        XCTAssertEqual(TextFileCodec.maximumEditableFileSize, 32_000_000)
+        XCTAssertLessThan(TextFileCodec.largeFileModeThreshold, TextFileCodec.maximumEditableFileSize)
     }
 
     private func temporaryFileURL(named filename: String) -> URL {

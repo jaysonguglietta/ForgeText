@@ -26,12 +26,12 @@ final class AppState: ObservableObject {
     }
 
     private struct CompletionActivation {
-        let textHash: Int
+        let documentRevision: Int
         let selectionLocation: Int
         let selectionLength: Int
 
-        func matches(text: String, selectedRange: NSRange) -> Bool {
-            textHash == text.hashValue
+        func matches(documentRevision: Int, selectedRange: NSRange) -> Bool {
+            self.documentRevision == documentRevision
                 && selectionLocation == selectedRange.location
                 && selectionLength == selectedRange.length
         }
@@ -155,6 +155,7 @@ final class AppState: ObservableObject {
     @Published var workspaceSessions: [WorkspaceSessionRecord] = []
     @Published var settings: AppSettings
     @Published var alertContext: AlertContext?
+    @Published var pendingPluginInstall: PluginRegistryEntry?
     @Published var aiPromptReviewState: AIPromptReviewState?
     @Published var showingDiscardChanges = false
     @Published var showingCommandPalette = false
@@ -182,6 +183,7 @@ final class AppState: ObservableObject {
     @Published var showingTaskRunner = false
     @Published var showingPluginDiagnostics = false
     @Published var showingTerminalConsole = false
+    @Published var showingEngineeringWorkbench = false
     @Published var editorFocusToken = UUID()
     @Published var projectSearchState = ProjectSearchState()
     @Published var comparisonState: DocumentComparisonState?
@@ -209,6 +211,7 @@ final class AppState: ObservableObject {
     @Published var aiContextState = AIContextState()
     @Published var githubWorkflowState = GitHubWorkflowState()
     @Published var managedPolicyState = ManagedPolicyState()
+    @Published var engineeringWorkbenchState = EngineeringWorkbenchState()
     @Published private var pluginCatalog: [EditorPlugin] = PluginHostService.builtInPlugins
     @Published private var documentDiagnosticsByID: [UUID: [PluginDiagnostic]] = [:]
     @Published private var documentWorkbenchInsightsByID: [UUID: DocumentWorkbenchInsights] = [:]
@@ -221,6 +224,7 @@ final class AppState: ObservableObject {
     private var aiProviderSaveTask: Task<Void, Never>?
     private var documentDiagnosticsTasksByID: [UUID: Task<Void, Never>] = [:]
     private var documentWorkbenchInsightTasksByID: [UUID: Task<Void, Never>] = [:]
+    private var languageDocumentSyncTasksByID: [UUID: Task<Void, Never>] = [:]
     private var projectSearchTask: Task<Void, Never>?
     private var gitRefreshTask: Task<Void, Never>?
     private var workspaceIndexTask: Task<Void, Never>?
@@ -231,7 +235,10 @@ final class AppState: ObservableObject {
     private var pendingCompletionActivationDocumentIDs = Set<UUID>()
     private var completionActivationsByDocumentID: [UUID: CompletionActivation] = [:]
     private var pendingAIProviderKeychainPersist = false
-    private var textStatisticsByDocumentID: [UUID: CachedTextStatistics] = [:]
+    @Published private var textStatisticsByDocumentID: [UUID: CachedTextStatistics] = [:]
+    private var textStatisticsTasksByDocumentID: [UUID: Task<Void, Never>] = [:]
+    private var documentContentRevisions: [UUID: Int] = [:]
+    private var textStatisticsRevisions: [UUID: Int] = [:]
     private var fileMonitorTimer: Timer?
     private var untitledCounter = 1
     private let hadUncleanShutdown: Bool
@@ -241,6 +248,12 @@ final class AppState: ObservableObject {
 
     init() {
         var loadedSettings = AppSettingsStore.load()
+        if ForgeTextRuntime.isRunningUITests {
+            loadedSettings.hasCompletedFirstRunExperience = true
+            loadedSettings.focusModeEnabled = false
+            loadedSettings.showsSidebar = true
+            loadedSettings.advanced.fileHandling.restorePreviousSessionOnLaunch = false
+        }
         if loadedSettings.enabledPluginIDs.isEmpty {
             loadedSettings.enabledPluginIDs = PluginHostService.defaultEnabledPluginIDs
         }
@@ -252,21 +265,31 @@ final class AppState: ObservableObject {
         }
 
         let loadedAISessions = AIConversationStore.load()
+        let loadedEngineeringWorkbench = EngineeringWorkbenchStore.load()
         shouldShowFirstRunSetupOnLaunch = !loadedSettings.hasCompletedFirstRunExperience
         hadUncleanShutdown = CrashRecoveryMonitor.markLaunch()
         settings = loadedSettings
         managedPolicyState = EnterprisePolicyService.loadState()
         applyManagedPolicyConstraints()
+        activityRecords = EnterpriseAuditService.events().prefix(120).map {
+            ActivityRecord(id: $0.id, title: $0.title, detail: $0.detail, status: $0.status, createdAt: $0.createdAt)
+        }
         workspaceSessions = WorkspaceSessionStore.load()
         aiWorkbenchState = AIWorkbenchState(
             sessions: loadedAISessions,
             selectedSessionID: loadedAISessions.first?.id
         )
+        engineeringWorkbenchState.remoteSessions = loadedEngineeringWorkbench.remoteSessions
+        engineeringWorkbenchState.investigations = loadedEngineeringWorkbench.investigations
+        engineeringWorkbenchState.aiChangeSets = loadedEngineeringWorkbench.aiChangeSets
+        engineeringWorkbenchState.testResults = loadedEngineeringWorkbench.testResults
         restoreWorkspace()
-        startFileMonitoring()
-        refreshPluginWorkspaceState()
-        refreshWorkspacePlatformState()
-        refreshPluginRegistry()
+        if !ForgeTextRuntime.isRunningUITests {
+            startFileMonitoring()
+            refreshPluginWorkspaceState()
+            refreshWorkspacePlatformState()
+            refreshPluginRegistry()
+        }
 
         if hadUncleanShutdown, documents.contains(where: \.hasRecoveredDraft) {
             alertContext = AlertContext(
@@ -597,6 +620,29 @@ final class AppState: ObservableObject {
         }
     }
 
+    func setKeyboardShortcut(_ binding: ShortcutBinding, for action: ShortcutAction) {
+        let normalized = binding.normalized
+        guard normalized.isValid else {
+            present(
+                error: ShortcutBinding.ValidationError(),
+                title: "Invalid Shortcut"
+            )
+            return
+        }
+        settings.keyboardShortcuts[action] = normalized
+        AppSettingsStore.save(settings)
+    }
+
+    func resetKeyboardShortcut(_ action: ShortcutAction) {
+        settings.keyboardShortcuts[action] = ShortcutAction.defaultBindings[action]
+        AppSettingsStore.save(settings)
+    }
+
+    func resetKeyboardShortcuts() {
+        settings.keyboardShortcuts = ShortcutAction.defaultBindings
+        AppSettingsStore.save(settings)
+    }
+
     func pluginPolicyRestrictionReason(_ plugin: EditorPlugin) -> String? {
         EnterprisePolicyService.pluginRestrictionReason(
             plugin,
@@ -627,6 +673,25 @@ final class AppState: ObservableObject {
         EnterprisePolicyService.effectiveAIWorkspaceRulesEnabled(settings.aiIncludeWorkspaceRules, policy: activeManagedPolicy)
     }
 
+    var aiGlobalRestrictionReason: String? {
+        localAIRestrictionReason(for: nil)
+            ?? (activeManagedPolicy?.ai.isEnabled == false ? "Managed policy disabled AI features for this ForgeText installation." : nil)
+    }
+
+    var terminalRestrictionReason: String? {
+        EnterprisePolicyService.embeddedTerminalRestrictionReason(policy: activeManagedPolicy)
+            ?? (isSafeModeActive ? "Safe Mode blocks embedded terminal commands for this session." : nil)
+    }
+
+    var taskExecutionRestrictionReason: String? {
+        EnterprisePolicyService.taskExecutionRestrictionReason(policy: activeManagedPolicy)
+            ?? localTaskExecutionRestrictionReason()
+    }
+
+    var remoteFileAccessRestrictionReason: String? {
+        remoteRestrictionReason(for: .fileAccess)
+    }
+
     func showAdvancedSettings() {
         showingAppearancePreferences = true
     }
@@ -652,8 +717,20 @@ final class AppState: ObservableObject {
     }
 
     func metrics(for document: EditorDocument) -> EditorMetrics {
-        let statistics = cachedTextStatistics(for: document)
-        return EditorMetrics(statistics: statistics, selectedRange: document.selectedRange)
+        let revision = documentContentRevision(for: document.id)
+        if let statistics = textStatisticsByDocumentID[document.id], textStatisticsRevisions[document.id] == revision {
+            return EditorMetrics(statistics: statistics, selectedRange: document.selectedRange)
+        }
+
+        scheduleTextStatisticsRefresh(for: document)
+        if let staleStatistics = textStatisticsByDocumentID[document.id] {
+            return EditorMetrics(statistics: staleStatistics, selectedRange: document.selectedRange, isApproximate: true)
+        }
+
+        return EditorMetrics(
+            pendingUTF16Length: (document.text as NSString).length,
+            selectedRange: document.selectedRange
+        )
     }
 
     func inlineDiagnostics(for document: EditorDocument, lineNumber: Int) -> [PluginDiagnostic] {
@@ -692,7 +769,9 @@ final class AppState: ObservableObject {
     }
 
     func gitBlame(for document: EditorDocument, lineNumber: Int) -> GitBlameInfo? {
-        guard !document.isDirty, document.fileURL != nil else {
+        guard workspaceTrustMode == .trusted,
+              !document.isDirty,
+              document.fileURL != nil else {
             return nil
         }
 
@@ -701,7 +780,7 @@ final class AppState: ObservableObject {
     }
 
     func prefetchLineDecorations(for document: EditorDocument) {
-        guard effectiveGitLineDecorationsEnabled else {
+        guard workspaceTrustMode == .trusted, effectiveGitLineDecorationsEnabled else {
             cancelGitLineDecorationRefresh(for: document.id, clearCache: true)
             return
         }
@@ -740,7 +819,7 @@ final class AppState: ObservableObject {
     }
 
     func prefetchGitBlame(for document: EditorDocument, lineNumber: Int) {
-        guard effectiveGitBlameEnabled else {
+        guard workspaceTrustMode == .trusted, effectiveGitBlameEnabled else {
             gitBlamePrefetchTasksByDocumentID[document.id]?.cancel()
             gitBlamePrefetchTasksByDocumentID[document.id] = nil
             return
@@ -994,6 +1073,53 @@ final class AppState: ObservableObject {
         }
     }
 
+    func browseRemoteDirectory() {
+        guard ensureManagedPolicyAllows(
+            remoteRestrictionReason(for: .fileAccess),
+            title: "Remote Access Is Managed"
+        ) else { return }
+        let connection = selectedDocument?.remoteReference?.connection
+            ?? RemoteFileReference.parse(remoteLocationDraft)?.connection
+            ?? recentRemoteLocations.first?.connection
+        guard let connection else {
+            alertContext = AlertContext(title: "Remote Connection Needed", message: "Enter a user@host remote location first.")
+            return
+        }
+        let path = remoteWorkspaceState.searchRootPath.isEmpty ? "/" : remoteWorkspaceState.searchRootPath
+        remoteWorkspaceState.isBrowsingDirectory = true
+        remoteWorkspaceState.statusMessage = "Loading \(path)..."
+        Task.detached(priority: .userInitiated) {
+            do {
+                let entries = try SFTPDirectoryService.list(connection: connection, path: path)
+                await MainActor.run {
+                    self.remoteWorkspaceState.directoryEntries = entries
+                    self.remoteWorkspaceState.isBrowsingDirectory = false
+                    self.remoteWorkspaceState.statusMessage = "\(entries.count) SFTP entries"
+                }
+            } catch {
+                await MainActor.run {
+                    self.remoteWorkspaceState.isBrowsingDirectory = false
+                    self.remoteWorkspaceState.statusMessage = error.localizedDescription
+                    self.present(error: error, title: "Couldn’t Browse Remote Folder")
+                }
+            }
+        }
+    }
+
+    func openRemoteDirectoryEntry(_ entry: RemoteDirectoryEntry) {
+        if entry.kind == .directory {
+            remoteWorkspaceState.searchRootPath = entry.path
+            browseRemoteDirectory()
+            return
+        }
+        guard entry.kind == .file,
+              let connection = selectedDocument?.remoteReference?.connection
+                ?? RemoteFileReference.parse(remoteLocationDraft)?.connection
+                ?? recentRemoteLocations.first?.connection
+        else { return }
+        openRemoteDocument(spec: "\(connection):\(entry.path)")
+    }
+
     func openDocuments(at urls: [URL]) {
         discardSingleCleanDocumentIfNeeded(beforeOpening: urls)
 
@@ -1023,6 +1149,7 @@ final class AppState: ObservableObject {
                 selectedID = document.id
                 scheduleDocumentWorkbenchInsightRefresh(for: document.id)
                 refreshDocumentDiagnostics(for: document.id)
+                scheduleLanguageDocumentSync(for: document.id)
             } catch {
                 present(error: error, title: "Couldn’t Open File")
             }
@@ -1338,6 +1465,13 @@ final class AppState: ObservableObject {
         if activityRecords.count > 120 {
             activityRecords = Array(activityRecords.prefix(120))
         }
+        EnterpriseAuditService.append(
+            title: title,
+            detail: detail,
+            status: status,
+            trustMode: workspaceTrustMode,
+            policyState: managedPolicyState
+        )
     }
 
     func refreshWorkspaceIndex() {
@@ -1399,6 +1533,822 @@ final class AppState: ObservableObject {
         recordActivity("Jump to Symbol", detail: "\(fileURL.lastPathComponent):\(lineNumber)", status: .success)
     }
 
+    func showEngineeringWorkbench(_ section: EngineeringWorkbenchSection = .overview) {
+        engineeringWorkbenchState.selectedSection = section
+        showingEngineeringWorkbench = true
+        refreshEngineeringWorkbench()
+    }
+
+    func refreshEngineeringWorkbench() {
+        guard !engineeringWorkbenchState.isRefreshing else { return }
+        engineeringWorkbenchState.isRefreshing = true
+        engineeringWorkbenchState.statusMessage = "Refreshing workspace signals..."
+
+        let index = workspaceIndexSummary
+        let roots = workspaceRootURLs
+        let allowsLanguageServers = workspaceTrustMode == .trusted
+            && !isSafeModeActive
+            && EnterprisePolicyService.languageServerRestrictionReason(policy: activeManagedPolicy) == nil
+        let allowsDebugAdapters = workspaceTrustMode == .trusted
+            && !isSafeModeActive
+            && EnterprisePolicyService.debugAdapterRestrictionReason(policy: activeManagedPolicy) == nil
+        let enabledPluginCount = enabledPlugins.count
+        let externalPlugins = installedPlugins.filter { !$0.manifest.isBuiltIn }
+        let signedPluginCount = externalPlugins.filter { $0.manifest.verifiedSigningKey != nil }.count
+        let policyState = managedPolicyState
+        let trustMode = workspaceTrustMode
+        let safeMode = isSafeModeActive
+        let advancedSettings = settings.advanced
+        let allPlugins = installedPlugins
+
+        Task.detached(priority: .utility) {
+            let languageServers = LanguageIntelligenceService.serverStatuses(isEnabled: allowsLanguageServers)
+            let debugAdapters = DebugAdapterDiscoveryService.statuses(isEnabled: allowsDebugAdapters)
+            let tests = TestDiscoveryService.discover(in: index)
+            let coverage = CoverageReportService.loadLCOV(from: roots)
+            let devContainer = DevContainerService.inspect(workspaceRoot: roots.first)
+            let policyDecisions = EffectivePolicyReportService.decisions(
+                state: policyState,
+                trustMode: trustMode,
+                safeMode: safeMode,
+                advancedSettings: advancedSettings
+            )
+            let pluginFindings = PluginGovernanceService.findings(plugins: allPlugins, policy: policyState.policy)
+
+            await MainActor.run {
+                self.engineeringWorkbenchState.languageServers = languageServers
+                self.engineeringWorkbenchState.debugAdapters = debugAdapters
+                self.engineeringWorkbenchState.discoveredTests = tests
+                self.engineeringWorkbenchState.coverageFiles = coverage
+                self.engineeringWorkbenchState.devContainerConfiguration = devContainer
+                if devContainer != nil, self.engineeringWorkbenchState.devContainerRunState.phase == .notConfigured {
+                    self.engineeringWorkbenchState.devContainerRunState = DevContainerRunState(
+                        phase: .ready,
+                        message: "Development-container configuration detected.",
+                        startedAt: nil
+                    )
+                }
+                self.engineeringWorkbenchState.effectivePolicyDecisions = policyDecisions
+                self.engineeringWorkbenchState.pluginGovernanceFindings = pluginFindings
+                self.engineeringWorkbenchState.enterpriseChecks = EnterpriseFleetService.checks(
+                    policyState: self.managedPolicyState,
+                    releaseState: self.releaseReadinessState,
+                    portableMode: self.isPortableModeEnabled,
+                    signedPluginCount: signedPluginCount,
+                    totalExternalPluginCount: externalPlugins.count
+                )
+                self.engineeringWorkbenchState.health = WorkspaceHealthService.snapshot(
+                    trustMode: self.workspaceTrustMode,
+                    policyState: self.managedPolicyState,
+                    index: self.workspaceIndexSummary,
+                    gitSummary: self.gitRepositorySummary,
+                    problems: self.problemsPanelState,
+                    tests: tests,
+                    testResults: self.engineeringWorkbenchState.testResults,
+                    languageServers: languageServers,
+                    enabledPluginCount: enabledPluginCount,
+                    workspaceRootCount: roots.count
+                )
+                self.engineeringWorkbenchState.isRefreshing = false
+                self.engineeringWorkbenchState.statusMessage = "Workspace health refreshed"
+            }
+        }
+    }
+
+    func startLanguageServer(_ server: LanguageServerStatus) {
+        guard ensureManagedPolicyAllows(
+            EnterprisePolicyService.languageServerRestrictionReason(policy: activeManagedPolicy),
+            title: "Language Servers Are Managed"
+        ) else { return }
+        guard ensureTrustedWorkspace(for: "language-server execution") else { return }
+
+        engineeringWorkbenchState.languageSessions.removeAll { $0.serverID == server.id }
+        engineeringWorkbenchState.languageSessions.append(
+            LanguageProtocolSessionStatus(
+                serverID: server.id,
+                state: .starting,
+                startedAt: nil,
+                negotiatedCapabilities: [],
+                lastError: nil
+            )
+        )
+        engineeringWorkbenchState.statusMessage = "Starting \(server.displayName)..."
+        let workspaceRoot = activeWorkspaceURL
+        Task.detached(priority: .userInitiated) {
+            do {
+                let status = try LanguageProtocolRuntimeService.start(
+                    server: server,
+                    workspaceRoot: workspaceRoot,
+                    notificationHandler: { serverID, notification in
+                        guard let diagnostics = LanguageProtocolRuntimeService.diagnostics(
+                            serverID: serverID,
+                            notification: notification
+                        ),
+                        let params = notification["params"] as? [String: Any],
+                        let uri = params["uri"] as? String
+                        else { return }
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            self.engineeringWorkbenchState.languageDiagnostics.removeAll {
+                                $0.serverID == serverID && $0.documentURI == uri
+                            }
+                            self.engineeringWorkbenchState.languageDiagnostics.append(contentsOf: diagnostics)
+                        }
+                    }
+                )
+                let documentsToOpen = await MainActor.run {
+                    self.documents.filter { server.languages.contains($0.language) && $0.fileURL != nil }
+                }
+                for document in documentsToOpen {
+                    guard let url = document.fileURL else { continue }
+                    try LanguageProtocolRuntimeService.openDocument(
+                        serverID: server.id,
+                        uri: url.absoluteString,
+                        languageID: Self.languageServerIdentifier(for: document),
+                        text: document.text
+                    )
+                }
+                await MainActor.run {
+                    self.engineeringWorkbenchState.languageSessions.removeAll { $0.serverID == server.id }
+                    self.engineeringWorkbenchState.languageSessions.append(status)
+                    self.engineeringWorkbenchState.statusMessage = "\(server.displayName) initialized"
+                    self.recordActivity("Language Server", detail: "Started \(server.displayName).", status: .success)
+                }
+            } catch {
+                await MainActor.run {
+                    self.engineeringWorkbenchState.languageSessions.removeAll { $0.serverID == server.id }
+                    self.engineeringWorkbenchState.languageSessions.append(
+                        LanguageProtocolSessionStatus(
+                            serverID: server.id,
+                            state: .failed,
+                            startedAt: nil,
+                            negotiatedCapabilities: [],
+                            lastError: error.localizedDescription
+                        )
+                    )
+                    self.engineeringWorkbenchState.statusMessage = "\(server.displayName) failed to start"
+                }
+            }
+        }
+    }
+
+    func stopLanguageServer(_ server: LanguageServerStatus) {
+        engineeringWorkbenchState.statusMessage = "Stopping \(server.displayName)..."
+        Task.detached(priority: .utility) {
+            LanguageProtocolRuntimeService.stop(serverID: server.id)
+            await MainActor.run {
+                self.engineeringWorkbenchState.languageSessions.removeAll { $0.serverID == server.id }
+                self.engineeringWorkbenchState.languageDiagnostics.removeAll { $0.serverID == server.id }
+                self.engineeringWorkbenchState.statusMessage = "\(server.displayName) stopped"
+            }
+        }
+    }
+
+    func requestLanguageCompletions() {
+        guard let context = selectedLanguageProtocolContext() else { return }
+        engineeringWorkbenchState.statusMessage = "Requesting semantic completions..."
+        Task.detached(priority: .userInitiated) {
+            do {
+                let values = try LanguageProtocolRuntimeService.completions(
+                    serverID: context.server.id,
+                    uri: context.uri,
+                    position: context.position
+                )
+                await MainActor.run {
+                    self.engineeringWorkbenchState.languageCompletions = values
+                    self.engineeringWorkbenchState.statusMessage = "Received \(values.count) semantic completions"
+                }
+            } catch {
+                await MainActor.run { self.present(error: error, title: "Completion Request Failed") }
+            }
+        }
+    }
+
+    func requestLanguageLocations(references: Bool) {
+        guard let context = selectedLanguageProtocolContext() else { return }
+        let method = references ? "textDocument/references" : "textDocument/definition"
+        engineeringWorkbenchState.statusMessage = references ? "Finding semantic references..." : "Finding semantic definition..."
+        Task.detached(priority: .userInitiated) {
+            do {
+                let values = try LanguageProtocolRuntimeService.locations(
+                    serverID: context.server.id,
+                    method: method,
+                    uri: context.uri,
+                    position: context.position
+                )
+                await MainActor.run {
+                    self.engineeringWorkbenchState.languageLocations = values
+                    self.engineeringWorkbenchState.statusMessage = "Found \(values.count) semantic location\(values.count == 1 ? "" : "s")"
+                }
+            } catch {
+                await MainActor.run { self.present(error: error, title: "Language Navigation Failed") }
+            }
+        }
+    }
+
+    func requestLanguageCodeActions() {
+        guard let context = selectedLanguageProtocolContext(), let document = selectedDocument else { return }
+        let range = Self.languageRange(for: document.selectedRange, in: document.text)
+        let diagnostics = engineeringWorkbenchState.languageDiagnostics.filter { $0.documentURI == context.uri }
+        Task.detached(priority: .userInitiated) {
+            do {
+                let values = try LanguageProtocolRuntimeService.codeActions(
+                    serverID: context.server.id,
+                    uri: context.uri,
+                    range: range,
+                    diagnostics: diagnostics
+                )
+                await MainActor.run {
+                    self.engineeringWorkbenchState.languageCodeActions = values
+                    self.engineeringWorkbenchState.statusMessage = "Received \(values.count) code action\(values.count == 1 ? "" : "s")"
+                }
+            } catch {
+                await MainActor.run { self.present(error: error, title: "Code Action Request Failed") }
+            }
+        }
+    }
+
+    func previewLanguageRename() {
+        guard let context = selectedLanguageProtocolContext() else { return }
+        let name = engineeringWorkbenchState.languageRenameDraft
+        Task.detached(priority: .userInitiated) {
+            do {
+                let edits = try LanguageProtocolRuntimeService.rename(
+                    serverID: context.server.id,
+                    uri: context.uri,
+                    position: context.position,
+                    newName: name
+                )
+                await MainActor.run {
+                    self.engineeringWorkbenchState.languageRenameEdits = edits
+                    self.engineeringWorkbenchState.statusMessage = edits.isEmpty
+                        ? "The server proposed no rename edits"
+                        : "Review \(edits.count) rename edits before applying"
+                }
+            } catch {
+                await MainActor.run { self.present(error: error, title: "Rename Request Failed") }
+            }
+        }
+    }
+
+    func applyLanguageRenamePreview() {
+        let edits = engineeringWorkbenchState.languageRenameEdits
+        guard !edits.isEmpty else { return }
+        let grouped = Dictionary(grouping: edits, by: \.documentURI)
+        for (uri, fileEdits) in grouped {
+            guard let url = URL(string: uri), url.isFileURL, isURLInsideWorkspace(url) else { continue }
+            openDocuments(at: [url])
+            guard let document = documents.first(where: { $0.fileURL?.standardizedFileURL == url.standardizedFileURL }),
+                  let updated = Self.applyingLanguageEdits(fileEdits, to: document.text)
+            else { continue }
+            updateDocumentText(updated, for: document.id)
+        }
+        engineeringWorkbenchState.languageRenameEdits = []
+        engineeringWorkbenchState.statusMessage = "Rename edits applied to open documents; review and save when ready"
+    }
+
+    func insertLanguageCompletion(_ completion: LanguageProtocolCompletion) {
+        guard let document = selectedDocument else { return }
+        let insertion = completion.insertText ?? completion.label
+        let nsText = document.text as NSString
+        let range = NSIntersectionRange(
+            document.selectedRange,
+            NSRange(location: 0, length: nsText.length)
+        )
+        let updated = nsText.replacingCharacters(in: range, with: insertion)
+        updateDocumentText(updated, for: document.id)
+        updateDocumentSelection(NSRange(location: range.location + (insertion as NSString).length, length: 0), for: document.id)
+        engineeringWorkbenchState.languageCompletions = []
+    }
+
+    func openLanguageLocation(_ location: LanguageProtocolLocation) {
+        guard let url = URL(string: location.documentURI), url.isFileURL, isURLInsideWorkspace(url) else {
+            alertContext = AlertContext(title: "Unsafe Language Location", message: "The language server returned a location outside the active workspace.")
+            return
+        }
+        openIndexedSymbol(fileURL: url, lineNumber: location.range.start.line + 1)
+    }
+
+    func previewLanguageCodeAction(_ action: LanguageProtocolCodeAction) {
+        guard !action.edits.isEmpty else {
+            alertContext = AlertContext(
+                title: "Command-Only Code Action",
+                message: "This server action would execute '\(action.command ?? "an unspecified command")'. ForgeText blocks command-only code actions until an explicit command allowlist is configured."
+            )
+            return
+        }
+        engineeringWorkbenchState.languageRenameEdits = action.edits
+        engineeringWorkbenchState.statusMessage = "Review \(action.edits.count) edits for \(action.title) before applying"
+    }
+
+    func probeDebugAdapter(_ adapter: DebugAdapterStatus) {
+        guard ensureManagedPolicyAllows(
+            EnterprisePolicyService.debugAdapterRestrictionReason(policy: activeManagedPolicy),
+            title: "Debug Adapters Are Managed"
+        ) else { return }
+        guard ensureTrustedWorkspace(for: "debug-adapter execution") else { return }
+        engineeringWorkbenchState.statusMessage = "Checking \(adapter.displayName)..."
+        let workspaceRoot = activeWorkspaceURL
+        Task.detached(priority: .userInitiated) {
+            do {
+                let result = try DebugAdapterDiscoveryService.probe(adapter, workspaceRoot: workspaceRoot)
+                await MainActor.run {
+                    self.engineeringWorkbenchState.debugAdapterProbes.removeAll { $0.adapterID == adapter.id }
+                    self.engineeringWorkbenchState.debugAdapterProbes.append(result)
+                    self.engineeringWorkbenchState.statusMessage = "\(adapter.displayName) completed a DAP handshake"
+                }
+            } catch {
+                await MainActor.run {
+                    self.present(error: error, title: "Debug Adapter Check Failed")
+                }
+            }
+        }
+    }
+
+    func startDevContainer() {
+        guard ensureManagedPolicyAllows(
+            EnterprisePolicyService.devContainerRestrictionReason(policy: activeManagedPolicy),
+            title: "Development Containers Are Managed"
+        ) else { return }
+        guard ensureTrustedWorkspace(for: "development-container startup") else { return }
+        guard let configuration = engineeringWorkbenchState.devContainerConfiguration else {
+            alertContext = AlertContext(title: "Configuration Needed", message: "Add .devcontainer/devcontainer.json to the active workspace first.")
+            return
+        }
+
+        engineeringWorkbenchState.devContainerRunState = DevContainerRunState(
+            phase: .starting,
+            message: "Starting the development container...",
+            startedAt: Date()
+        )
+        let workspaceRoot = activeWorkspaceURL
+        Task.detached(priority: .userInitiated) {
+            do {
+                let result = try DevContainerService.start(configuration, activeWorkspaceRoot: workspaceRoot)
+                let output = String(data: result.stdout, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                await MainActor.run {
+                    if result.terminationStatus == 0 {
+                        let message = output.map { value in
+                            value.isEmpty ? "Development container is ready." : String(value.prefix(1_000))
+                        } ?? "Development container is ready."
+                        self.engineeringWorkbenchState.devContainerRunState = DevContainerRunState(
+                            phase: .running,
+                            message: message,
+                            startedAt: Date()
+                        )
+                        self.recordActivity("Development Container", detail: "Environment started for \(configuration.name).", status: .success)
+                    } else {
+                        let errorText = String(data: result.stderr, encoding: .utf8) ?? "The Dev Container CLI exited with status \(result.terminationStatus)."
+                        self.engineeringWorkbenchState.devContainerRunState = DevContainerRunState(
+                            phase: .failed,
+                            message: String(errorText.prefix(2_000)),
+                            startedAt: nil
+                        )
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self.engineeringWorkbenchState.devContainerRunState = DevContainerRunState(
+                        phase: .failed,
+                        message: error.localizedDescription,
+                        startedAt: nil
+                    )
+                }
+            }
+        }
+    }
+
+    func applyOperationalMode(_ mode: EnterpriseOperationalMode) {
+        engineeringWorkbenchState.operationalMode = mode
+        switch mode {
+        case .editing:
+            engineeringWorkbenchState.selectedSection = .overview
+            secondaryPaneMode = .off
+        case .review:
+            engineeringWorkbenchState.selectedSection = .review
+        case .incident:
+            engineeringWorkbenchState.selectedSection = .investigations
+        case .data:
+            engineeringWorkbenchState.selectedSection = .data
+        }
+        engineeringWorkbenchState.statusMessage = "\(mode.title) workflow active"
+    }
+
+    func findLanguageSymbol() {
+        let requestedSymbol = engineeringWorkbenchState.navigationSymbol.trimmingCharacters(in: .whitespacesAndNewlines)
+        let symbol = requestedSymbol.isEmpty
+            ? selectedDocument.flatMap { LanguageIntelligenceService.symbol(at: $0.selectedRange, in: $0.text) }
+            : requestedSymbol
+        guard let symbol, !symbol.isEmpty else {
+            alertContext = AlertContext(title: "Symbol Needed", message: "Select a symbol in the editor or enter its name in Code Intelligence.")
+            return
+        }
+
+        engineeringWorkbenchState.navigationSymbol = symbol
+        engineeringWorkbenchState.statusMessage = "Searching for \(symbol)..."
+        let index = workspaceIndexSummary
+        Task.detached(priority: .userInitiated) {
+            let hits = LanguageIntelligenceService.navigationHits(for: symbol, index: index)
+            await MainActor.run {
+                self.engineeringWorkbenchState.navigationHits = hits
+                self.engineeringWorkbenchState.statusMessage = hits.isEmpty
+                    ? "No indexed definitions or references found"
+                    : "Found \(hits.count) definitions and references"
+            }
+        }
+    }
+
+    func openLanguageNavigationHit(_ hit: LanguageNavigationHit) {
+        openIndexedSymbol(fileURL: hit.fileURL, lineNumber: hit.lineNumber)
+        showingEngineeringWorkbench = false
+    }
+
+    func reviewGitFile(_ file: GitChangedFile) {
+        openDocuments(at: [file.absoluteURL])
+        guard let document = documents.first(where: { $0.fileURL?.standardizedFileURL == file.absoluteURL.standardizedFileURL }) else {
+            return
+        }
+        selectedDocumentID = document.id
+        compareSelectedDocumentWithGitHead()
+    }
+
+    func loadGitHunkReview(_ file: GitChangedFile) {
+        guard ensureTrustedWorkspace(for: "Git review") else { return }
+        engineeringWorkbenchState.selectedReviewFileID = file.id
+        engineeringWorkbenchState.statusMessage = "Loading review for \(file.displayName)..."
+        let workspaceURL = activeWorkspaceURL
+        Task.detached(priority: .userInitiated) {
+            do {
+                let patch = try GitService.workingTreePatch(for: file.absoluteURL, workspaceRoot: workspaceURL)
+                let changeSet = patch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? nil
+                    : try AIChangeSetService.parse(response: patch, title: "Review \(file.relativePath)")
+                let history = try GitService.fileHistory(for: file.absoluteURL, workspaceRoot: workspaceURL)
+                let worktrees = GitService.worktrees(for: workspaceURL)
+
+                await MainActor.run {
+                    guard self.engineeringWorkbenchState.selectedReviewFileID == file.id else { return }
+                    self.engineeringWorkbenchState.gitReviewChangeSet = changeSet
+                    self.engineeringWorkbenchState.gitFileHistory = history
+                    self.engineeringWorkbenchState.gitWorktrees = worktrees
+                    self.engineeringWorkbenchState.statusMessage = changeSet == nil
+                        ? "No unstaged text hunks are available for \(file.displayName)"
+                        : "Reviewing \(file.displayName)"
+                }
+            } catch {
+                let history = (try? GitService.fileHistory(for: file.absoluteURL, workspaceRoot: workspaceURL)) ?? []
+                let worktrees = GitService.worktrees(for: workspaceURL)
+                await MainActor.run {
+                    guard self.engineeringWorkbenchState.selectedReviewFileID == file.id else { return }
+                    self.engineeringWorkbenchState.gitReviewChangeSet = nil
+                    self.engineeringWorkbenchState.gitFileHistory = history
+                    self.engineeringWorkbenchState.gitWorktrees = worktrees
+                    self.present(error: error, title: "Couldn’t Build Hunk Review")
+                }
+            }
+        }
+    }
+
+    func setGitReviewHunkApproval(_ hunkID: UUID, approved: Bool) {
+        guard var changeSet = engineeringWorkbenchState.gitReviewChangeSet else { return }
+        for fileIndex in changeSet.files.indices {
+            guard let hunkIndex = changeSet.files[fileIndex].hunks.firstIndex(where: { $0.id == hunkID }) else { continue }
+            changeSet.files[fileIndex].hunks[hunkIndex].isApproved = approved
+            changeSet.status = changeSet.approvedHunkCount > 0 ? .approved : .proposed
+            engineeringWorkbenchState.gitReviewChangeSet = changeSet
+            return
+        }
+    }
+
+    func stageApprovedGitHunks() {
+        guard ensureTrustedWorkspace(for: "Git staging") else { return }
+        guard let changeSet = engineeringWorkbenchState.gitReviewChangeSet else { return }
+        do {
+            let patch = try AIChangeSetService.approvedPatch(for: changeSet)
+            let workspaceURL = activeWorkspaceURL
+            engineeringWorkbenchState.statusMessage = "Staging reviewed hunks..."
+            Task.detached(priority: .userInitiated) {
+                do {
+                    try GitService.stageReviewedPatch(patch, at: workspaceURL)
+                    await MainActor.run {
+                        self.engineeringWorkbenchState.statusMessage = "Staged \(changeSet.approvedHunkCount) reviewed hunk\(changeSet.approvedHunkCount == 1 ? "" : "s")"
+                        if let selectedID = self.engineeringWorkbenchState.selectedReviewFileID,
+                           let file = self.gitPanelState.changedFiles.first(where: { $0.id == selectedID }) {
+                            self.loadGitHunkReview(file)
+                        }
+                        self.refreshGitWorkbench()
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.present(error: error, title: "Couldn’t Stage Reviewed Hunks")
+                    }
+                }
+            }
+        } catch {
+            present(error: error, title: "Couldn’t Stage Reviewed Hunks")
+        }
+    }
+
+    func runDiscoveredTest(_ test: DiscoveredTestCase) {
+        guard ensureManagedPolicyAllows(taskExecutionRestrictionReason, title: "Tests Are Managed") else { return }
+        guard ensureTrustedWorkspace(for: "test execution") else { return }
+        guard let root = workspaceRootURLs.first(where: { test.filePath.hasPrefix($0.path + "/") }) ?? activeWorkspaceURL else {
+            alertContext = AlertContext(title: "Workspace Needed", message: "Open the folder containing this test before running it.")
+            return
+        }
+
+        engineeringWorkbenchState.statusMessage = "Running \(test.name)..."
+        Task {
+            let result = await WorkspaceTaskService.runDiscoveredTest(test, workspaceRoot: root)
+            engineeringWorkbenchState.testResults.removeAll { $0.testID == test.id }
+            engineeringWorkbenchState.testResults.insert(result, at: 0)
+            engineeringWorkbenchState.testResults = Array(engineeringWorkbenchState.testResults.prefix(500))
+            engineeringWorkbenchState.statusMessage = result.status == .passed ? "\(test.name) passed" : "\(test.name) failed"
+            persistEngineeringWorkbenchState()
+            refreshEngineeringWorkbenchHealth()
+            recordActivity(
+                "Targeted Test",
+                detail: "\(test.name) \(result.status.rawValue) in \(String(format: "%.2fs", result.duration)).",
+                status: result.status == .passed ? .success : .failure
+            )
+        }
+    }
+
+    func saveRemoteWorkspaceSession() {
+        let reference = RemoteFileReference.parse(remoteLocationDraft)
+        let connection = reference?.connection
+            ?? selectedDocument?.remoteReference?.connection
+            ?? recentRemoteLocations.first?.connection
+        guard let connection, RemoteFileReference.isValidConnection(connection) else {
+            alertContext = AlertContext(title: "Remote Connection Needed", message: "Enter a valid user@host remote location first.")
+            return
+        }
+
+        let rootPath = engineeringWorkbenchState.remoteSessions.first(where: { $0.connection == connection })?.rootPath
+            ?? remoteWorkspaceState.searchRootPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard rootPath.hasPrefix("/"), !rootPath.contains("\0") else {
+            alertContext = AlertContext(title: "Remote Root Needed", message: "Enter an absolute remote workspace path.")
+            return
+        }
+
+        let session = RemoteWorkspaceSession(
+            name: "\(connection) \(URL(fileURLWithPath: rootPath).lastPathComponent)",
+            connection: connection,
+            rootPath: rootPath,
+            executionMode: remoteWorkspaceState.executionMode,
+            isReadOnly: settings.advanced.remote.openFilesReadOnly
+        )
+        engineeringWorkbenchState.remoteSessions.removeAll { $0.connection == connection && $0.rootPath == rootPath }
+        engineeringWorkbenchState.remoteSessions.insert(session, at: 0)
+        persistEngineeringWorkbenchState()
+        engineeringWorkbenchState.statusMessage = "Remote workspace saved"
+    }
+
+    func connectRemoteWorkspaceSession(_ sessionID: UUID) {
+        guard ensureManagedPolicyAllows(remoteFileAccessRestrictionReason, title: "Remote Access Is Managed") else { return }
+        guard ensureTrustedWorkspace(for: "remote workspace sessions") else { return }
+        guard let index = engineeringWorkbenchState.remoteSessions.firstIndex(where: { $0.id == sessionID }) else { return }
+
+        let session = engineeringWorkbenchState.remoteSessions[index]
+        engineeringWorkbenchState.remoteSessions[index].state = .connecting
+        engineeringWorkbenchState.statusMessage = "Connecting to \(session.connection)..."
+
+        Task.detached(priority: .userInitiated) {
+            let agentStatus = session.executionMode == .remoteAgent ? RemoteAgentService.status(connection: session.connection) : nil
+            await MainActor.run {
+                guard let currentIndex = self.engineeringWorkbenchState.remoteSessions.firstIndex(where: { $0.id == sessionID }) else { return }
+                if let agentStatus, !agentStatus.isInstalled {
+                    self.engineeringWorkbenchState.remoteSessions[currentIndex].state = .interrupted
+                    self.engineeringWorkbenchState.remoteSessions[currentIndex].lastError = agentStatus.lastError ?? "Remote agent is not installed."
+                    self.engineeringWorkbenchState.statusMessage = "Remote agent unavailable"
+                } else {
+                    self.engineeringWorkbenchState.remoteSessions[currentIndex].state = .connected
+                    self.engineeringWorkbenchState.remoteSessions[currentIndex].lastConnectedAt = Date()
+                    self.engineeringWorkbenchState.remoteSessions[currentIndex].lastError = nil
+                    self.remoteWorkspaceState.executionMode = session.executionMode
+                    self.remoteWorkspaceState.searchRootPath = session.rootPath
+                    self.remoteLocationDraft = "\(session.connection):\(session.rootPath)"
+                    self.engineeringWorkbenchState.statusMessage = "Connected to \(session.connection)"
+                }
+                self.persistEngineeringWorkbenchState()
+            }
+        }
+    }
+
+    func removeRemoteWorkspaceSession(_ sessionID: UUID) {
+        engineeringWorkbenchState.remoteSessions.removeAll { $0.id == sessionID }
+        persistEngineeringWorkbenchState()
+    }
+
+    func captureInvestigationSession() {
+        let trimmedName = engineeringWorkbenchState.investigationDraftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = trimmedName.isEmpty ? "Investigation \(Date().formatted(date: .abbreviated, time: .shortened))" : trimmedName
+        let session = InvestigationSession(
+            name: name,
+            workspaceRootPaths: workspaceRootURLs.map(\.path),
+            openFilePaths: documents.compactMap { $0.fileURL?.path },
+            openRemoteSpecs: documents.compactMap { $0.remoteReference?.spec },
+            selectedFilePath: selectedDocument?.fileURL?.path,
+            projectSearchQuery: projectSearchState.query,
+            logFilterQuery: settings.savedLogFilters.first?.query ?? "",
+            gitBranch: gitRepositorySummary?.branchName
+        )
+        engineeringWorkbenchState.investigations.insert(session, at: 0)
+        engineeringWorkbenchState.investigationDraftName = ""
+        persistEngineeringWorkbenchState()
+        recordActivity("Investigation Captured", detail: name, status: .success)
+    }
+
+    func restoreInvestigationSession(_ sessionID: UUID) {
+        guard let session = engineeringWorkbenchState.investigations.first(where: { $0.id == sessionID }) else { return }
+        let roots = session.workspaceRootPaths.map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
+        setWorkspaceRoots(
+            roots,
+            activeRoot: roots.first,
+            workspaceFileURL: nil,
+            workspaceName: WorkspacePlatformService.preferredWorkspaceName(for: roots),
+            selectedProfileID: workspacePlatformState.selectedProfileID
+        )
+        openDocuments(at: session.openFilePaths.map(URL.init(fileURLWithPath:)))
+        for spec in session.openRemoteSpecs {
+            openRemoteDocument(spec: spec)
+        }
+        if let selectedPath = session.selectedFilePath,
+           let document = documents.first(where: { $0.fileURL?.path == selectedPath }) {
+            selectedDocumentID = document.id
+        }
+        projectSearchState.query = session.projectSearchQuery
+        showingEngineeringWorkbench = false
+        recordActivity("Investigation Restored", detail: session.name, status: .success)
+    }
+
+    func updateInvestigationNotes(_ sessionID: UUID, notes: String) {
+        guard let index = engineeringWorkbenchState.investigations.firstIndex(where: { $0.id == sessionID }) else { return }
+        engineeringWorkbenchState.investigations[index].notes = String(notes.prefix(100_000))
+        engineeringWorkbenchState.investigations[index].updatedAt = Date()
+        persistEngineeringWorkbenchState()
+    }
+
+    func deleteInvestigationSession(_ sessionID: UUID) {
+        engineeringWorkbenchState.investigations.removeAll { $0.id == sessionID }
+        persistEngineeringWorkbenchState()
+    }
+
+    func createAIChangeSetFromLatestResponse() {
+        guard ensureTrustedWorkspace(for: "AI change-set review") else { return }
+        guard let response = aiWorkbenchState.lastResponseText, !response.isEmpty else {
+            alertContext = AlertContext(title: "AI Response Needed", message: "Ask the AI workbench for a unified diff before creating a change set.")
+            return
+        }
+        do {
+            let changeSet = try AIChangeSetService.parse(response: response)
+            engineeringWorkbenchState.aiChangeSets.insert(changeSet, at: 0)
+            persistEngineeringWorkbenchState()
+            engineeringWorkbenchState.statusMessage = "Created a reviewable change set with \(changeSet.hunkCount) hunks"
+        } catch {
+            present(error: error, title: "Couldn’t Create Change Set")
+        }
+    }
+
+    func setAIChangeHunkApproval(changeSetID: UUID, hunkID: UUID, approved: Bool) {
+        guard let changeSetIndex = engineeringWorkbenchState.aiChangeSets.firstIndex(where: { $0.id == changeSetID }) else { return }
+        for fileIndex in engineeringWorkbenchState.aiChangeSets[changeSetIndex].files.indices {
+            guard let hunkIndex = engineeringWorkbenchState.aiChangeSets[changeSetIndex].files[fileIndex].hunks.firstIndex(where: { $0.id == hunkID }) else {
+                continue
+            }
+            engineeringWorkbenchState.aiChangeSets[changeSetIndex].files[fileIndex].hunks[hunkIndex].isApproved = approved
+            engineeringWorkbenchState.aiChangeSets[changeSetIndex].status = approved ? .approved : .proposed
+            persistEngineeringWorkbenchState()
+            return
+        }
+    }
+
+    func applyAIChangeSet(_ changeSetID: UUID) {
+        guard ensureTrustedWorkspace(for: "AI patch application") else { return }
+        guard let root = activeWorkspaceURL,
+              let index = engineeringWorkbenchState.aiChangeSets.firstIndex(where: { $0.id == changeSetID })
+        else {
+            alertContext = AlertContext(title: "Workspace Needed", message: "Open a trusted Git workspace before applying a change set.")
+            return
+        }
+
+        do {
+            let changeSet = engineeringWorkbenchState.aiChangeSets[index]
+            try AIChangeSetService.validateFiles(for: changeSet, workspaceRoot: root)
+            let patch = try AIChangeSetService.approvedPatch(for: changeSet)
+            try GitService.applyReviewedPatch(patch, at: root)
+            engineeringWorkbenchState.aiChangeSets[index].status = .applied
+            engineeringWorkbenchState.aiChangeSets[index].appliedAt = Date()
+            persistEngineeringWorkbenchState()
+            refreshGitWorkbench()
+            refreshWorkspaceIndex()
+            recordActivity("AI Change Set Applied", detail: changeSet.title, status: .success)
+        } catch {
+            present(error: error, title: "Couldn’t Apply Change Set")
+        }
+    }
+
+    func revertAIChangeSet(_ changeSetID: UUID) {
+        guard ensureTrustedWorkspace(for: "AI patch rollback") else { return }
+        guard let root = activeWorkspaceURL,
+              let index = engineeringWorkbenchState.aiChangeSets.firstIndex(where: { $0.id == changeSetID }),
+              engineeringWorkbenchState.aiChangeSets[index].status == .applied
+        else { return }
+
+        do {
+            let changeSet = engineeringWorkbenchState.aiChangeSets[index]
+            let patch = try AIChangeSetService.approvedPatch(for: changeSet)
+            try GitService.applyReviewedPatch(patch, at: root, reverse: true)
+            engineeringWorkbenchState.aiChangeSets[index].status = .reverted
+            persistEngineeringWorkbenchState()
+            refreshGitWorkbench()
+            refreshWorkspaceIndex()
+            recordActivity("AI Change Set Reverted", detail: changeSet.title, status: .success)
+        } catch {
+            present(error: error, title: "Couldn’t Revert Change Set")
+        }
+    }
+
+    func deleteAIChangeSet(_ changeSetID: UUID) {
+        engineeringWorkbenchState.aiChangeSets.removeAll { $0.id == changeSetID }
+        persistEngineeringWorkbenchState()
+    }
+
+    func exportProfilePack(_ profile: WorkspaceProfile) {
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = "\(profile.name.replacingOccurrences(of: " ", with: "-"))-forgetext-profile.json"
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in
+                do {
+                    let pack = WorkspaceProfilePack(name: profile.name, profile: profile)
+                    let encoder = JSONEncoder()
+                    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                    try encoder.encode(pack).write(to: url, options: .atomic)
+                    self.recordActivity("Profile Pack Exported", detail: profile.name, status: .success)
+                } catch {
+                    self.present(error: error, title: "Couldn’t Export Profile Pack")
+                }
+            }
+        }
+    }
+
+    func importProfilePack() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            Task { @MainActor in
+                do {
+                    let data = try BoundedFileReadService.read(url, maximumBytes: 2 * 1_024 * 1_024)
+                    let pack = try ForgeTextJSONDecoder.make(trustLevel: .externalImport).decode(WorkspaceProfilePack.self, from: data)
+                    guard pack.version == 1 else {
+                        throw CocoaError(.fileReadCorruptFile)
+                    }
+                    var profile = pack.profile
+                    profile.name = pack.name
+                    profile.updatedAt = Date()
+                    self.settings.profiles.removeAll { $0.id == profile.id }
+                    self.settings.profiles.append(profile)
+                    AppSettingsStore.save(self.settings)
+                    self.engineeringWorkbenchState.statusMessage = "Imported profile pack \(pack.name)"
+                    self.recordActivity("Profile Pack Imported", detail: pack.name, status: .success)
+                } catch {
+                    self.present(error: error, title: "Couldn’t Import Profile Pack")
+                }
+            }
+        }
+    }
+
+    private func refreshEngineeringWorkbenchHealth() {
+        engineeringWorkbenchState.health = WorkspaceHealthService.snapshot(
+            trustMode: workspaceTrustMode,
+            policyState: managedPolicyState,
+            index: workspaceIndexSummary,
+            gitSummary: gitRepositorySummary,
+            problems: problemsPanelState,
+            tests: engineeringWorkbenchState.discoveredTests,
+            testResults: engineeringWorkbenchState.testResults,
+            languageServers: engineeringWorkbenchState.languageServers,
+            enabledPluginCount: enabledPlugins.count,
+            workspaceRootCount: workspaceRootURLs.count
+        )
+    }
+
+    private func persistEngineeringWorkbenchState() {
+        EngineeringWorkbenchStore.save(
+            EngineeringWorkbenchStoredState(
+                remoteSessions: engineeringWorkbenchState.remoteSessions,
+                investigations: engineeringWorkbenchState.investigations,
+                aiChangeSets: engineeringWorkbenchState.aiChangeSets,
+                testResults: engineeringWorkbenchState.testResults
+            )
+        )
+    }
+
     func refreshReleaseReadiness() {
         releaseReadinessState = ReleaseReadinessService.state(workspaceRoots: workspaceRootURLs)
         recordActivity(
@@ -1427,7 +2377,165 @@ final class AppState: ObservableObject {
     }
 
     func refreshGitHubWorkflow() {
+        let pullRequests = githubWorkflowState.pullRequests
+        let issues = githubWorkflowState.issues
+        let checks = githubWorkflowState.checks
+        let reviewThreads = githubWorkflowState.reviewThreads
+        let collaborationError = githubWorkflowState.collaborationError
         githubWorkflowState = GitHubWorkflowService.state(for: activeWorkspaceURL)
+        githubWorkflowState.pullRequests = pullRequests
+        githubWorkflowState.issues = issues
+        githubWorkflowState.checks = checks
+        githubWorkflowState.reviewThreads = reviewThreads
+        githubWorkflowState.collaborationError = collaborationError
+    }
+
+    func refreshGitHubPullRequests() {
+        guard ensureManagedPolicyAllows(
+            EnterprisePolicyService.gitHubIntegrationRestrictionReason(policy: activeManagedPolicy),
+            title: "GitHub Integration Is Managed"
+        ) else { return }
+        guard ensureTrustedWorkspace(for: "authenticated GitHub access") else { return }
+        let workspaceRoot = activeWorkspaceURL
+        githubWorkflowState.isLoadingPullRequests = true
+        githubWorkflowState.collaborationError = nil
+        Task.detached(priority: .userInitiated) {
+            do {
+                let pullRequests = try GitHubWorkflowService.pullRequests(workspaceRoot: workspaceRoot)
+                await MainActor.run {
+                    self.githubWorkflowState.pullRequests = pullRequests
+                    self.githubWorkflowState.isLoadingPullRequests = false
+                    self.githubWorkflowState.statusMessage = pullRequests.isEmpty ? "No open pull requests." : "Loaded \(pullRequests.count) open pull requests."
+                }
+            } catch {
+                await MainActor.run {
+                    self.githubWorkflowState.isLoadingPullRequests = false
+                    self.githubWorkflowState.collaborationError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    func postGitHubPullRequestComment(_ body: String, pullRequest: GitHubPullRequestSummary) {
+        guard ensureManagedPolicyAllows(
+            EnterprisePolicyService.gitHubIntegrationRestrictionReason(policy: activeManagedPolicy),
+            title: "GitHub Integration Is Managed"
+        ) else { return }
+        guard ensureTrustedWorkspace(for: "GitHub review comments") else { return }
+        let workspaceRoot = activeWorkspaceURL
+        githubWorkflowState.statusMessage = "Posting comment to PR #\(pullRequest.number)..."
+        Task.detached(priority: .userInitiated) {
+            do {
+                try GitHubWorkflowService.postComment(body, pullRequestNumber: pullRequest.number, workspaceRoot: workspaceRoot)
+                await MainActor.run {
+                    self.githubWorkflowState.statusMessage = "Comment posted to PR #\(pullRequest.number)"
+                    self.recordActivity("GitHub Review", detail: "Commented on PR #\(pullRequest.number).", status: .success)
+                }
+            } catch {
+                await MainActor.run {
+                    self.present(error: error, title: "Couldn’t Post GitHub Comment")
+                }
+            }
+        }
+    }
+
+    func refreshGitHubIssues() {
+        guard ensureGitHubMutationAllowed(purpose: "GitHub issue context") else { return }
+        let workspaceRoot = activeWorkspaceURL
+        Task.detached(priority: .userInitiated) {
+            do {
+                let issues = try GitHubWorkflowService.issues(workspaceRoot: workspaceRoot)
+                await MainActor.run {
+                    self.githubWorkflowState.issues = issues
+                    self.githubWorkflowState.statusMessage = "Loaded \(issues.count) open issue\(issues.count == 1 ? "" : "s")"
+                }
+            } catch {
+                await MainActor.run { self.present(error: error, title: "Couldn’t Load GitHub Issues") }
+            }
+        }
+    }
+
+    func refreshGitHubReviewContext(for pullRequest: GitHubPullRequestSummary) {
+        guard ensureGitHubMutationAllowed(purpose: "GitHub review context") else { return }
+        let workspaceRoot = activeWorkspaceURL
+        Task.detached(priority: .userInitiated) {
+            do {
+                let checks = try GitHubWorkflowService.checks(pullRequestNumber: pullRequest.number, workspaceRoot: workspaceRoot)
+                let threads = try GitHubWorkflowService.reviewThreads(pullRequestNumber: pullRequest.number, workspaceRoot: workspaceRoot)
+                await MainActor.run {
+                    self.githubWorkflowState.checks = checks
+                    self.githubWorkflowState.reviewThreads = threads
+                    self.githubWorkflowState.statusMessage = "Loaded checks and review threads for PR #\(pullRequest.number)"
+                }
+            } catch {
+                await MainActor.run { self.present(error: error, title: "Couldn’t Load Review Context") }
+            }
+        }
+    }
+
+    func createGitHubPullRequest(
+        title: String,
+        body: String,
+        baseBranch: String,
+        headBranch: String?,
+        isDraft: Bool
+    ) {
+        guard ensureGitHubMutationAllowed(purpose: "GitHub pull-request creation") else { return }
+        let workspaceRoot = activeWorkspaceURL
+        githubWorkflowState.statusMessage = "Creating pull request..."
+        Task.detached(priority: .userInitiated) {
+            do {
+                let url = try GitHubWorkflowService.createPullRequest(
+                    title: title,
+                    body: body,
+                    baseBranch: baseBranch,
+                    headBranch: headBranch,
+                    isDraft: isDraft,
+                    workspaceRoot: workspaceRoot
+                )
+                let pullRequests = try GitHubWorkflowService.pullRequests(workspaceRoot: workspaceRoot)
+                await MainActor.run {
+                    self.githubWorkflowState.pullRequests = pullRequests
+                    self.githubWorkflowState.statusMessage = "Pull request created"
+                    self.recordActivity("GitHub Pull Request", detail: url?.absoluteString ?? title, status: .success)
+                }
+            } catch {
+                await MainActor.run { self.present(error: error, title: "Couldn’t Create Pull Request") }
+            }
+        }
+    }
+
+    func draftGitHubRelease(tag: String, title: String, notes: String, target: String?) {
+        guard ensureGitHubMutationAllowed(purpose: "GitHub draft release creation") else { return }
+        let workspaceRoot = activeWorkspaceURL
+        Task.detached(priority: .userInitiated) {
+            do {
+                try GitHubWorkflowService.draftRelease(
+                    tag: tag,
+                    title: title,
+                    notes: notes,
+                    target: target,
+                    workspaceRoot: workspaceRoot
+                )
+                await MainActor.run {
+                    self.githubWorkflowState.statusMessage = "Draft release \(tag) created"
+                    self.recordActivity("GitHub Release", detail: "Created draft \(tag).", status: .success)
+                }
+            } catch {
+                await MainActor.run { self.present(error: error, title: "Couldn’t Create Draft Release") }
+            }
+        }
+    }
+
+    private func ensureGitHubMutationAllowed(purpose: String) -> Bool {
+        ensureManagedPolicyAllows(
+            EnterprisePolicyService.gitHubIntegrationRestrictionReason(policy: activeManagedPolicy),
+            title: "GitHub Integration Is Managed"
+        ) && ensureTrustedWorkspace(for: purpose)
+    }
+
+    func openGitHubPullRequest(_ pullRequest: GitHubPullRequestSummary) {
+        NSWorkspace.shared.open(pullRequest.url)
     }
 
     private func persistWorkbenchCustomization() {
@@ -1493,6 +2601,43 @@ final class AppState: ObservableObject {
                     )
                 } catch {
                     self.present(error: error, title: "Couldn’t Export Diagnostic Bundle")
+                }
+            }
+        }
+    }
+
+    func exportEnterpriseAuditLog() {
+        guard ensureManagedPolicyAllows(
+            EnterprisePolicyService.auditExportRestrictionReason(policy: activeManagedPolicy),
+            title: "Audit Export Is Managed"
+        ) else { return }
+
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Export"
+        panel.message = "Choose a folder for the privacy-filtered ForgeText audit log."
+        panel.begin { [weak self] response in
+            guard response == .OK, let directoryURL = panel.url, let self else { return }
+            Task { @MainActor in
+                do {
+                    let summary = try EnterpriseAuditService.export(
+                        to: directoryURL,
+                        policy: self.activeManagedPolicy
+                    )
+                    self.recordActivity(
+                        "Audit Log Exported",
+                        detail: "\(summary.eventCount) events exported to \(summary.url.path)",
+                        status: .success
+                    )
+                    self.alertContext = AlertContext(
+                        title: "Audit Log Exported",
+                        message: "ForgeText exported \(summary.eventCount) privacy-filtered events to:\n\(summary.url.path)"
+                    )
+                } catch {
+                    self.present(error: error, title: "Couldn’t Export Audit Log")
                 }
             }
         }
@@ -1749,6 +2894,28 @@ final class AppState: ObservableObject {
             return
         }
 
+        if entry.capabilities.contains(.tasks) || !entry.tasks.isEmpty {
+            pendingPluginInstall = entry
+            return
+        }
+
+        performRegistryPluginInstall(entry)
+    }
+
+    func confirmPendingPluginInstall() {
+        guard let entry = pendingPluginInstall else {
+            return
+        }
+        pendingPluginInstall = nil
+        performRegistryPluginInstall(entry)
+    }
+
+    func cancelPendingPluginInstall() {
+        pendingPluginInstall = nil
+    }
+
+    private func performRegistryPluginInstall(_ entry: PluginRegistryEntry) {
+
         do {
             _ = try PluginRegistryService.install(entry)
             if !settings.enabledPluginIDs.contains(entry.id), entry.defaultEnabled {
@@ -1831,7 +2998,7 @@ final class AppState: ObservableObject {
                     AIConversationStore.save(self.aiWorkbenchState.sessions)
                     self.refreshPluginWorkspaceState()
                     self.refreshPluginRegistry()
-                    self.workspacePlatformState.lastStatusMessage = "Imported sync preferences. Trusted workspaces, plugin registries, sessions, and AI chats stayed local."
+                    self.workspacePlatformState.lastStatusMessage = "Imported sync preferences. Trusted workspaces, plugin registries, AI providers, sessions, and AI chats stayed local."
                 } catch {
                     self.present(error: error, title: "Couldn’t Import Sync Bundle")
                 }
@@ -2007,12 +3174,13 @@ final class AppState: ObservableObject {
                 return
             }
 
-            guard document.text != text else {
-                return
-            }
-
             document.text = text
-            document.refreshLanguageIfNeeded()
+            if document.fileURL == nil,
+               document.remoteReference == nil,
+               document.language == .plainText,
+               text.utf16.count <= 64_000 {
+                document.refreshLanguageIfNeeded()
+            }
             document.syncDirtyState()
             document.statusMessage = document.isDirty ? "Unsaved changes" : "Saved"
             recomputeFindState(for: &document)
@@ -2038,7 +3206,6 @@ final class AppState: ObservableObject {
 
     func updateDocumentSelection(_ selectedRange: NSRange, for id: UUID) {
         var didChangeSelection = false
-        var updatedText = ""
         var updatedSelection = selectedRange
 
         updateDocument(id: id) { document in
@@ -2047,7 +3214,6 @@ final class AppState: ObservableObject {
             }
 
             document.selectedRange = selectedRange
-            updatedText = document.text
             updatedSelection = document.selectedRange
             didChangeSelection = true
 
@@ -2062,7 +3228,7 @@ final class AppState: ObservableObject {
 
         if pendingCompletionActivationDocumentIDs.remove(id) != nil, updatedSelection.length == 0 {
             completionActivationsByDocumentID[id] = CompletionActivation(
-                textHash: updatedText.hashValue,
+                documentRevision: documentContentRevision(for: id),
                 selectionLocation: updatedSelection.location,
                 selectionLength: updatedSelection.length
             )
@@ -2087,7 +3253,10 @@ final class AppState: ObservableObject {
 
     func completionSession(for document: EditorDocument) -> EditorCompletionSession? {
         guard document.selectedRange.length == 0,
-              completionActivationsByDocumentID[document.id]?.matches(text: document.text, selectedRange: document.selectedRange) == true
+              completionActivationsByDocumentID[document.id]?.matches(
+                  documentRevision: documentContentRevision(for: document.id),
+                  selectedRange: document.selectedRange
+              ) == true
         else {
             return nil
         }
@@ -2267,7 +3436,7 @@ final class AppState: ObservableObject {
 
     func showTerminalConsolePanel() {
         guard ensureManagedPolicyAllows(
-            EnterprisePolicyService.embeddedTerminalRestrictionReason(policy: activeManagedPolicy),
+            terminalRestrictionReason,
             title: "Terminal Access Is Managed"
         ) else {
             return
@@ -2382,7 +3551,7 @@ final class AppState: ObservableObject {
 
     func runEmbeddedTerminalCommand(_ commandOverride: String? = nil) {
         guard ensureManagedPolicyAllows(
-            EnterprisePolicyService.embeddedTerminalRestrictionReason(policy: activeManagedPolicy),
+            terminalRestrictionReason,
             title: "Terminal Access Is Managed"
         ) else {
             return
@@ -2581,6 +3750,9 @@ final class AppState: ObservableObject {
     }
 
     func stageSelectedFileInGit() {
+        guard ensureTrustedWorkspace(for: "Git operations") else {
+            return
+        }
         guard let document = selectedDocument, let fileURL = document.fileURL else {
             return
         }
@@ -2597,6 +3769,9 @@ final class AppState: ObservableObject {
     }
 
     func switchGitBranch(_ branch: String) {
+        guard ensureTrustedWorkspace(for: "Git operations") else {
+            return
+        }
         do {
             try GitService.checkout(branch: branch, at: activeWorkspaceURL)
             refreshPluginWorkspaceState()
@@ -2703,7 +3878,12 @@ final class AppState: ObservableObject {
         }
 
         do {
-            let formattedText = try PluginFormattingService.format(document)
+            let allowsExternalTools = workspaceTrustMode == .trusted
+                && EnterprisePolicyService.externalFormatterRestrictionReason(policy: activeManagedPolicy) == nil
+            let formattedText = try PluginFormattingService.format(
+                document,
+                allowsExternalTools: allowsExternalTools
+            )
 
             updateDocument(id: selectedDocumentID) { updatedDocument in
                 updatedDocument.text = formattedText
@@ -2750,6 +3930,22 @@ final class AppState: ObservableObject {
         gitRefreshGeneration += 1
         let generation = gitRefreshGeneration
         let workspaceURL = activeWorkspaceURL
+
+        guard workspaceTrustMode == .trusted || workspaceRootURLs.isEmpty else {
+            gitRepositorySummary = nil
+            availableGitBranches = []
+            gitPanelState.changedFiles = []
+            gitPanelState.stashes = []
+            gitPanelState.graphEntries = []
+            gitPanelState.remotes = []
+            gitPanelState.conflictSections = []
+            gitPanelState.lastOperationMessage = "Git is disabled while this workspace is restricted."
+            invalidateAllGitInsightState()
+            if showNoRepositoryAlert {
+                _ = ensureTrustedWorkspace(for: "Git operations")
+            }
+            return
+        }
 
         guard workspaceURL != nil else {
             gitRepositorySummary = nil
@@ -2812,6 +4008,9 @@ final class AppState: ObservableObject {
     }
 
     func stageGitChangedFile(_ file: GitChangedFile) {
+        guard ensureTrustedWorkspace(for: "Git operations") else {
+            return
+        }
         do {
             try GitService.stage(fileURL: file.absoluteURL, workspaceRoot: activeWorkspaceURL)
             refreshGitWorkbench()
@@ -2821,6 +4020,9 @@ final class AppState: ObservableObject {
     }
 
     func unstageGitChangedFile(_ file: GitChangedFile) {
+        guard ensureTrustedWorkspace(for: "Git operations") else {
+            return
+        }
         do {
             try GitService.unstage(fileURL: file.absoluteURL, workspaceRoot: activeWorkspaceURL)
             refreshGitWorkbench()
@@ -2881,6 +4083,9 @@ final class AppState: ObservableObject {
     }
 
     func compareSelectedDocumentWithGitHead() {
+        guard ensureTrustedWorkspace(for: "Git comparisons") else {
+            return
+        }
         guard let document = selectedDocument, let fileURL = document.fileURL else {
             alertContext = AlertContext(
                 title: "Compare with Git HEAD",
@@ -3102,7 +4307,13 @@ final class AppState: ObservableObject {
         let includeCurrentDocument = aiCurrentDocumentContextAllowed
         let includeWorkspaceRules = aiWorkspaceRulesContextAllowed
         let selectedText = selectedDocument.flatMap(selectedText(in:))
-        let workspaceRules = includeWorkspaceRules ? AIRulesService.loadRules(for: activeWorkspaceURL) : nil
+        let workspaceRules = includeWorkspaceRules
+            ? AIRulesService.loadRules(
+                for: activeWorkspaceURL,
+                document: selectedDocument,
+                task: quickAction
+            )
+            : nil
         let effectivePrompt: String
         if quickAction == .draftCommitMessage {
             let diff = (try? GitService.diffForWorkingTree(at: activeWorkspaceURL)) ?? ""
@@ -3152,6 +4363,36 @@ final class AppState: ObservableObject {
             ),
             provider: provider
         )
+    }
+
+    func executeHTTPRequest(
+        _ request: ParsedHTTPRequest,
+        allowPrivateNetwork: Bool
+    ) async throws -> HTTPResponseRecord {
+        guard workspaceTrustMode == .trusted || workspaceRootURLs.isEmpty else {
+            throw HTTPRequestService.HTTPRequestError.executionRestricted(
+                "Trust this workspace before sending HTTP requests."
+            )
+        }
+        if let reason = EnterprisePolicyService.httpRequestRestrictionReason(policy: activeManagedPolicy) {
+            throw HTTPRequestService.HTTPRequestError.executionRestricted(reason)
+        }
+        if allowPrivateNetwork,
+           activeManagedPolicy != nil,
+           !EnterprisePolicyService.allowsPrivateNetworkRequests(policy: activeManagedPolicy) {
+            throw HTTPRequestService.HTTPRequestError.executionRestricted(
+                "Managed policy blocks HTTP requests to private and local network destinations."
+            )
+        }
+
+        let policy = SecureNetworkPolicy(
+            destinationScope: allowPrivateNetwork ? .any : .publicOnly,
+            allowedHosts: EnterprisePolicyService.allowedHTTPRequestHosts(policy: activeManagedPolicy),
+            allowedSchemes: allowPrivateNetwork ? ["http", "https"] : ["https"],
+            maximumResponseBytes: 8 * 1_024 * 1_024,
+            timeout: 60
+        )
+        return try await HTTPRequestService.execute(request, policy: policy)
     }
 
     func approveAIPromptReview() {
@@ -3745,7 +4986,7 @@ final class AppState: ObservableObject {
                     AppSettingsStore.save(self.settings)
                     self.refreshPluginWorkspaceState()
                     self.refreshPluginRegistry()
-                    self.workspacePlatformState.lastStatusMessage = "Imported settings. Trusted workspaces and plugin registries stayed local."
+                    self.workspacePlatformState.lastStatusMessage = "Imported settings. Trusted workspaces, plugin registries, AI providers, and safety preferences stayed local."
                 }
             } catch {
                 Task { @MainActor in
@@ -4305,6 +5546,8 @@ final class AppState: ObservableObject {
             refreshPluginWorkspaceState()
             scheduleDocumentWorkbenchInsightRefresh(for: id)
             refreshDocumentDiagnostics(for: id)
+            scheduleLanguageDocumentSync(for: id)
+            notifyLanguageDocumentSaved(documentID: id)
         } catch {
             if !initiatedByAutosave, PrivilegedFileService.isPermissionFailure(error), PrivilegedFileService.likelyNeedsPrivilege(for: url) {
                 alertContext = AlertContext(
@@ -4350,15 +5593,24 @@ final class AppState: ObservableObject {
     }
 
     private func finalizeClose(id: UUID) {
+        if let document = document(withID: id) {
+            notifyLanguageDocumentClosed(document)
+        }
         RecoveryService.deleteSnapshot(for: id)
         documents.removeAll { $0.id == id }
         textStatisticsByDocumentID[id] = nil
+        textStatisticsRevisions[id] = nil
+        documentContentRevisions[id] = nil
+        textStatisticsTasksByDocumentID[id]?.cancel()
+        textStatisticsTasksByDocumentID[id] = nil
         documentDiagnosticsByID[id] = nil
         documentWorkbenchInsightsByID[id] = nil
         documentDiagnosticsTasksByID[id]?.cancel()
         documentDiagnosticsTasksByID[id] = nil
         documentWorkbenchInsightTasksByID[id]?.cancel()
         documentWorkbenchInsightTasksByID[id] = nil
+        languageDocumentSyncTasksByID[id]?.cancel()
+        languageDocumentSyncTasksByID[id] = nil
         invalidateGitInsightState(for: id, clearLineDecorations: true)
 
         if selectedDocumentID == id {
@@ -4419,6 +5671,10 @@ final class AppState: ObservableObject {
         RecoveryService.deleteSnapshot(for: id)
         documents.removeAll { $0.id == id }
         textStatisticsByDocumentID[id] = nil
+        textStatisticsRevisions[id] = nil
+        documentContentRevisions[id] = nil
+        textStatisticsTasksByDocumentID[id]?.cancel()
+        textStatisticsTasksByDocumentID[id] = nil
         documentDiagnosticsByID[id] = nil
         documentWorkbenchInsightsByID[id] = nil
         documentDiagnosticsTasksByID[id]?.cancel()
@@ -4612,6 +5868,10 @@ final class AppState: ObservableObject {
 
             RecoveryService.deleteSnapshot(for: id)
             textStatisticsByDocumentID[id] = nil
+            textStatisticsRevisions[id] = nil
+            documentContentRevisions[id, default: 0] += 1
+            textStatisticsTasksByDocumentID[id]?.cancel()
+            textStatisticsTasksByDocumentID[id] = nil
             scheduleDocumentWorkbenchInsightRefresh(for: id)
             refreshDocumentDiagnostics(for: id)
         } catch {
@@ -4620,6 +5880,13 @@ final class AppState: ObservableObject {
     }
 
     private func recomputeFindState(for document: inout EditorDocument) {
+        guard !document.findState.query.isEmpty else {
+            document.findState.matchRanges = []
+            document.findState.currentMatchIndex = nil
+            document.findState.errorMessage = nil
+            return
+        }
+
         let result = TextSearchService.search(
             in: document.text,
             query: document.findState.query,
@@ -4671,12 +5938,13 @@ final class AppState: ObservableObject {
         let dirtyDocuments = documents.filter { $0.isDirty && !$0.isReadOnly }
 
         for document in dirtyDocuments {
+            // Keep a recoverable copy until the destination write completes successfully.
+            RecoveryService.saveSnapshot(for: document)
             if settings.autosaveToDisk, let fileURL = document.fileURL {
                 saveDocument(id: document.id, to: fileURL, initiatedByAutosave: true)
             } else if settings.autosaveToDisk, document.isRemote {
                 saveRemoteDocument(id: document.id)
             } else {
-                RecoveryService.saveSnapshot(for: document)
                 updateDocument(id: document.id) { updatedDocument in
                     updatedDocument.statusMessage = "Recovery snapshot updated"
                     updatedDocument.hasRecoveredDraft = true
@@ -4909,7 +6177,7 @@ final class AppState: ObservableObject {
         }
 
         do {
-            let text = try String(contentsOf: file.absoluteURL)
+            let text = try GitConflictService.text(from: file.absoluteURL)
             let resolvedText = GitConflictService.resolveAllConflicts(in: text, strategy: strategy)
             try resolvedText.write(to: file.absoluteURL, atomically: true, encoding: .utf8)
             gitPanelState.lastOperationMessage = "Resolved conflicts using \(strategy.displayName.lowercased()) blocks"
@@ -4953,7 +6221,12 @@ final class AppState: ObservableObject {
     }
 
     private func localTaskExecutionRestrictionReason() -> String? {
-        settings.advanced.plugins.allowTaskCapablePlugins ? nil : "Advanced Settings disabled task-capable plugins and workspace task execution."
+        if isSafeModeActive {
+            return "Safe Mode blocks workspace task execution for this session."
+        }
+        return settings.advanced.plugins.allowTaskCapablePlugins
+            ? nil
+            : "Advanced Settings disabled task-capable plugins and workspace task execution."
     }
 
     private func localAIRestrictionReason(for provider: AIProviderConfiguration?) -> String? {
@@ -4993,6 +6266,16 @@ final class AppState: ObservableObject {
     }
 
     private func configureOpenedDocument(_ document: inout EditorDocument) {
+        if let fileURL = document.fileURL,
+           let pluginLanguage = PluginHostService.language(
+               for: fileURL,
+               using: settings,
+               workspaceRoots: workspaceRootURLs,
+               trustMode: workspaceTrustMode
+           ) {
+            document.language = pluginLanguage
+        }
+
         if settings.advanced.fileHandling.alwaysOpenInRawView,
            document.presentationMode.isStructured,
            document.presentationMode != .archiveBrowser {
@@ -5030,6 +6313,15 @@ final class AppState: ObservableObject {
         }
 
         var didChange = false
+
+        let managedProviders = EnterprisePolicyService.managedAIProviders(
+            policy: policy,
+            existing: settings.aiProviders
+        )
+        if managedProviders != settings.aiProviders {
+            settings.aiProviders = managedProviders
+            didChange = true
+        }
 
         if !policy.ai.allowsSelectionContext, settings.aiIncludeSelection {
             settings.aiIncludeSelection = false
@@ -5170,24 +6462,208 @@ final class AppState: ObservableObject {
         documents.first { $0.id == id }
     }
 
-    private func cachedTextStatistics(for document: EditorDocument) -> CachedTextStatistics {
-        if let cachedStatistics = textStatisticsByDocumentID[document.id], cachedStatistics.matches(text: document.text) {
-            return cachedStatistics
+    private func scheduleTextStatisticsRefresh(for document: EditorDocument) {
+        if textStatisticsTasksByDocumentID[document.id] != nil {
+            return
         }
 
-        let computedStatistics = CachedTextStatistics(text: document.text)
-        textStatisticsByDocumentID[document.id] = computedStatistics
-        return computedStatistics
+        let snapshot = document.text
+        let documentID = document.id
+        let revision = documentContentRevision(for: documentID)
+        textStatisticsTasksByDocumentID[documentID] = Task.detached(priority: .utility) { [weak self] in
+            try? await Task.sleep(for: .milliseconds(220))
+            guard !Task.isCancelled else { return }
+            let statistics = CachedTextStatistics(text: snapshot)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self else { return }
+                self.textStatisticsTasksByDocumentID[documentID] = nil
+                guard self.documentContentRevision(for: documentID) == revision else {
+                    if let latest = self.document(withID: documentID) {
+                        self.scheduleTextStatisticsRefresh(for: latest)
+                    }
+                    return
+                }
+                self.textStatisticsByDocumentID[documentID] = statistics
+                self.textStatisticsRevisions[documentID] = revision
+            }
+        }
     }
 
     private func didMutateDocumentContent(for documentID: UUID, invalidateGitInsights: Bool = true) {
-        textStatisticsByDocumentID[documentID] = nil
+        documentContentRevisions[documentID, default: 0] += 1
+        textStatisticsTasksByDocumentID[documentID]?.cancel()
+        textStatisticsTasksByDocumentID[documentID] = nil
+        if let document = document(withID: documentID) {
+            scheduleTextStatisticsRefresh(for: document)
+        }
         if invalidateGitInsights {
             invalidateGitInsightState(for: documentID, clearLineDecorations: true)
         }
         scheduleAutosave()
+        scheduleLanguageDocumentSync(for: documentID)
         scheduleDocumentWorkbenchInsightRefresh(for: documentID)
         refreshDocumentDiagnostics(for: documentID)
+    }
+
+    private func scheduleLanguageDocumentSync(for documentID: UUID) {
+        languageDocumentSyncTasksByID[documentID]?.cancel()
+        guard let document = document(withID: documentID),
+              let url = document.fileURL,
+              !document.isReadOnly
+        else { return }
+        let servers = runningLanguageServers(for: document)
+        guard !servers.isEmpty else { return }
+        let text = document.text
+        let languageID = Self.languageServerIdentifier(for: document)
+        let uri = url.absoluteString
+        languageDocumentSyncTasksByID[documentID] = Task.detached(priority: .utility) { [weak self] in
+            try? await Task.sleep(for: .milliseconds(180))
+            guard !Task.isCancelled else { return }
+            for server in servers {
+                try? LanguageProtocolRuntimeService.synchronizeDocument(
+                    serverID: server.id,
+                    uri: uri,
+                    languageID: languageID,
+                    text: text
+                )
+            }
+            await MainActor.run { self?.languageDocumentSyncTasksByID[documentID] = nil }
+        }
+    }
+
+    private func notifyLanguageDocumentSaved(documentID: UUID) {
+        guard let document = document(withID: documentID), let uri = document.fileURL?.absoluteString else { return }
+        let serverIDs = runningLanguageServers(for: document).map(\.id)
+        let text = document.text
+        Task.detached(priority: .utility) {
+            for serverID in serverIDs {
+                try? LanguageProtocolRuntimeService.saveDocument(serverID: serverID, uri: uri, text: text)
+            }
+        }
+    }
+
+    private func notifyLanguageDocumentClosed(_ document: EditorDocument) {
+        guard let uri = document.fileURL?.absoluteString else { return }
+        let serverIDs = runningLanguageServers(for: document).map(\.id)
+        Task.detached(priority: .utility) {
+            for serverID in serverIDs {
+                try? LanguageProtocolRuntimeService.closeDocument(serverID: serverID, uri: uri)
+            }
+        }
+    }
+
+    private func runningLanguageServers(for document: EditorDocument) -> [LanguageServerStatus] {
+        let runningIDs = Set(engineeringWorkbenchState.languageSessions.filter { $0.state == .running }.map(\.serverID))
+        return engineeringWorkbenchState.languageServers.filter {
+            runningIDs.contains($0.id) && $0.languages.contains(document.language)
+        }
+    }
+
+    private func selectedLanguageProtocolContext() -> (server: LanguageServerStatus, uri: String, position: LanguageTextPosition)? {
+        guard let document = selectedDocument,
+              let uri = document.fileURL?.absoluteString,
+              let server = runningLanguageServers(for: document).first
+        else {
+            alertContext = AlertContext(
+                title: "Language Session Needed",
+                message: "Start a compatible language server for the selected local file first."
+            )
+            return nil
+        }
+        return (server, uri, Self.languagePosition(forUTF16Offset: document.selectedRange.location, in: document.text))
+    }
+
+    private func isURLInsideWorkspace(_ url: URL) -> Bool {
+        let candidate = url.resolvingSymlinksInPath().standardizedFileURL.path
+        return workspaceRootURLs.contains { root in
+            let rootPath = root.resolvingSymlinksInPath().standardizedFileURL.path
+            return candidate == rootPath || candidate.hasPrefix(rootPath + "/")
+        }
+    }
+
+    nonisolated private static func languageServerIdentifier(for document: EditorDocument) -> String {
+        switch document.language {
+        case .javascript:
+            return ["ts", "tsx"].contains(document.fileURL?.pathExtension.lowercased() ?? "") ? "typescript" : "javascript"
+        case .shell: return "shellscript"
+        case .json: return "json"
+        default: return document.language.rawValue
+        }
+    }
+
+    nonisolated private static func languagePosition(forUTF16Offset offset: Int, in text: String) -> LanguageTextPosition {
+        let nsText = text as NSString
+        let safeOffset = min(max(0, offset), nsText.length)
+        let prefix = nsText.substring(to: safeOffset) as NSString
+        var line = 0
+        var lineStart = 0
+        for index in 0..<prefix.length where prefix.character(at: index) == 10 {
+            line += 1
+            lineStart = index + 1
+        }
+        return LanguageTextPosition(line: line, character: safeOffset - lineStart)
+    }
+
+    nonisolated private static func languageRange(for range: NSRange, in text: String) -> LanguageTextRange {
+        let nsText = text as NSString
+        let location = min(max(0, range.location), nsText.length)
+        let end = min(nsText.length, location + max(0, range.length))
+        return LanguageTextRange(
+            start: languagePosition(forUTF16Offset: location, in: text),
+            end: languagePosition(forUTF16Offset: end, in: text)
+        )
+    }
+
+    nonisolated private static func applyingLanguageEdits(
+        _ edits: [LanguageProtocolTextEdit],
+        to text: String
+    ) -> String? {
+        let nsText = text as NSString
+        let rangesAndValues = edits.compactMap { edit -> (NSRange, String)? in
+            guard let range = utf16Range(for: edit.range, in: nsText) else { return nil }
+            return (range, edit.newText)
+        }.sorted { $0.0.location > $1.0.location }
+        guard rangesAndValues.count == edits.count else { return nil }
+        let result = NSMutableString(string: text)
+        var previousLocation = Int.max
+        for (range, value) in rangesAndValues {
+            guard NSMaxRange(range) <= previousLocation else { return nil }
+            result.replaceCharacters(in: range, with: value)
+            previousLocation = range.location
+        }
+        return result as String
+    }
+
+    nonisolated private static func utf16Range(for range: LanguageTextRange, in text: NSString) -> NSRange? {
+        guard let start = utf16Offset(for: range.start, in: text),
+              let end = utf16Offset(for: range.end, in: text),
+              end >= start
+        else { return nil }
+        return NSRange(location: start, length: end - start)
+    }
+
+    nonisolated private static func utf16Offset(for position: LanguageTextPosition, in text: NSString) -> Int? {
+        guard position.line >= 0, position.character >= 0 else { return nil }
+        var currentLine = 0
+        var lineStart = 0
+        if position.line > 0 {
+            for index in 0..<text.length where text.character(at: index) == 10 {
+                currentLine += 1
+                lineStart = index + 1
+                if currentLine == position.line { break }
+            }
+        }
+        guard currentLine == position.line else { return nil }
+        let lineRange = text.lineRange(for: NSRange(location: min(lineStart, text.length), length: 0))
+        let contentEnd = lineRange.location + lineRange.length - ((lineRange.length > 0 && text.character(at: lineRange.location + lineRange.length - 1) == 10) ? 1 : 0)
+        let offset = lineStart + position.character
+        guard offset <= contentEnd else { return nil }
+        return offset
+    }
+
+    private func documentContentRevision(for documentID: UUID) -> Int {
+        documentContentRevisions[documentID, default: 0]
     }
 
     private func gitBlameCacheKey(for documentID: UUID, lineNumber: Int) -> String {
@@ -5283,7 +6759,9 @@ final class AppState: ObservableObject {
 
     private func runWorkspaceTask(_ task: EditorPluginTask, enableCoverage: Bool = false) {
         guard ensureManagedPolicyAllows(
-            EnterprisePolicyService.taskExecutionRestrictionReason(policy: activeManagedPolicy) ?? localTaskExecutionRestrictionReason(),
+            EnterprisePolicyService.taskExecutionRestrictionReason(policy: activeManagedPolicy)
+                ?? EnterprisePolicyService.taskExecutableRestrictionReason(task.executable, policy: activeManagedPolicy)
+                ?? localTaskExecutionRestrictionReason(),
             title: "Tasks Are Managed"
         ) else {
             return
@@ -5362,6 +6840,9 @@ final class AppState: ObservableObject {
         operation: () throws -> Void,
         onSuccess: (() -> Void)? = nil
     ) {
+        guard ensureTrustedWorkspace(for: "Git operations") else {
+            return
+        }
         gitPanelState.isBusy = true
         do {
             try operation()
@@ -5486,11 +6967,16 @@ final class AppState: ObservableObject {
     private func sanitizedPreparedPrompt(_ prompt: AIProviderService.PreparedPrompt) -> AIProviderService.PreparedPrompt {
         var systemPrompt = prompt.systemPrompt
         var userPrompt = prompt.userPrompt
+        let originalSystemPrompt = systemPrompt
+        let originalUserPrompt = userPrompt
 
         if settings.advanced.ai.redactSensitiveContext {
             systemPrompt = redactSensitiveText(systemPrompt)
             userPrompt = redactSensitiveText(userPrompt)
         }
+
+        let redactedSystemPrompt = systemPrompt
+        let redactedUserPrompt = userPrompt
 
         let maxCharacters = settings.advanced.ai.maxContextCharacters
         let maxSystemCharacters = max(800, min(maxCharacters / 3, 6_000))
@@ -5498,7 +6984,12 @@ final class AppState: ObservableObject {
         let remainingBudget = max(1_000, maxCharacters - systemPrompt.count)
         userPrompt = truncatePromptSection(userPrompt, maxCharacters: remainingBudget, label: "User context")
 
-        return AIProviderService.PreparedPrompt(systemPrompt: systemPrompt, userPrompt: userPrompt)
+        var manifest = prompt.manifest
+        manifest.preparedCharacterCount = systemPrompt.count + userPrompt.count
+        manifest.redactionApplied = settings.advanced.ai.redactSensitiveContext
+            && (redactedSystemPrompt != originalSystemPrompt || redactedUserPrompt != originalUserPrompt)
+        manifest.truncationApplied = systemPrompt != redactedSystemPrompt || userPrompt != redactedUserPrompt
+        return AIProviderService.PreparedPrompt(systemPrompt: systemPrompt, userPrompt: userPrompt, manifest: manifest)
     }
 
     private func truncatePromptSection(_ text: String, maxCharacters: Int, label: String) -> String {
@@ -5621,6 +7112,7 @@ final class AppState: ObservableObject {
 
         documentDiagnosticsTasksByID[id]?.cancel()
         let documentSnapshot = document
+        let documentRevision = documentContentRevision(for: id)
         let debounceMS = effectivePerformanceMode == .performance ? 420 : 260
         documentDiagnosticsTasksByID[id] = Task.detached(priority: .utility) { [weak self] in
             try? await Task.sleep(for: .milliseconds(debounceMS))
@@ -5648,7 +7140,7 @@ final class AppState: ObservableObject {
 
                 self.documentDiagnosticsTasksByID[id] = nil
                 guard let latestDocument = self.document(withID: id),
-                      latestDocument.text == documentSnapshot.text,
+                      self.documentContentRevision(for: id) == documentRevision,
                       latestDocument.language == documentSnapshot.language
                 else {
                     return
@@ -5678,6 +7170,7 @@ final class AppState: ObservableObject {
 
         documentWorkbenchInsightTasksByID[id]?.cancel()
         let documentSnapshot = document
+        let documentRevision = documentContentRevision(for: id)
         let debounceMS = effectivePerformanceMode == .performance ? 320 : 180
         documentWorkbenchInsightTasksByID[id] = Task.detached(priority: .utility) { [weak self] in
             try? await Task.sleep(for: .milliseconds(debounceMS))
@@ -5705,7 +7198,7 @@ final class AppState: ObservableObject {
 
                 self.documentWorkbenchInsightTasksByID[id] = nil
                 guard let latestDocument = self.document(withID: id),
-                      latestDocument.text == documentSnapshot.text,
+                      self.documentContentRevision(for: id) == documentRevision,
                       latestDocument.language == documentSnapshot.language,
                       latestDocument.fileURL == documentSnapshot.fileURL
                 else {
@@ -5743,7 +7236,7 @@ final class AppState: ObservableObject {
             return "Browse archive contents without extracting them"
         case .httpRequest:
             return "Run and inspect HTTP requests from the current document"
-        case .editor, .readOnlyPreview, .binaryHex:
+        case .editor, .readOnlyPreview, .chunkedText, .binaryHex:
             return "Switch document presentation"
         }
     }

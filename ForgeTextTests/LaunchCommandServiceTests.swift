@@ -38,5 +38,7 @@ final class LaunchCommandServiceTests: XCTestCase {
         XCTAssertNil(RemoteFileReference.parse("-oProxyCommand=touch /tmp/pwn:/etc/passwd"))
         XCTAssertNil(RemoteFileReference.parse("deploy user@example.com:/etc/passwd"))
         XCTAssertNil(RemoteFileReference.parse("../example.com:/etc/passwd"))
+        XCTAssertNil(RemoteFileReference.parse("deploy@example.com:relative/path"))
+        XCTAssertNil(RemoteFileReference.parse("deploy@example.com:/etc/passwd\nmalicious"))
     }
 }

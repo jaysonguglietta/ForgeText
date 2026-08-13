@@ -43,6 +43,15 @@ final class ExternalPluginServiceTests: XCTestCase {
               "workingDirectory": "workspaceRoot",
               "role": "run"
             }
+          ],
+          "languagePacks": [
+            {
+              "id": "demo.http-aliases",
+              "displayName": "HTTP Aliases",
+              "baseLanguage": "http",
+              "fileExtensions": ["rest", "api"],
+              "fileNames": ["requests.dev"]
+            }
           ]
         }
         """.write(to: manifestURL, atomically: true, encoding: .utf8)
@@ -55,6 +64,8 @@ final class ExternalPluginServiceTests: XCTestCase {
         XCTAssertTrue(plugins.first?.manifest.capabilities.contains(.languagePacks) == true)
         XCTAssertEqual(plugins.first?.snippets.first?.languages, [.http])
         XCTAssertEqual(plugins.first?.tasks.first?.role, .run)
+        XCTAssertEqual(plugins.first?.languagePacks.first?.baseLanguage, .http)
+        XCTAssertTrue(plugins.first?.languagePacks.first?.matches(URL(fileURLWithPath: "/tmp/check.rest")) == true)
     }
 
     func testDiscoverPluginsDefaultsWorkspacePluginsToDisabled() throws {

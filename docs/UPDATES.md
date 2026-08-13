@@ -1,6 +1,8 @@
 # ForgeText Updates
 
-ForgeText uses Sparkle for direct-download macOS updates and GitHub Releases for public DMG downloads.
+ForgeText uses Sparkle `2.9.4` for direct-download macOS updates and GitHub Releases for public DMG downloads. Sparkle is exact-version pinned in `project.yml` and `Package.resolved`.
+
+Managed fleets can disable in-app checks or select a stable, beta, or internal ring through verified policy and distribute the same signed/notarized app with MDM. A custom feed must use HTTPS and an exact allowed host; unsigned local policy cannot redirect the updater. See [Enterprise Deployment](./ENTERPRISE_DEPLOYMENT.md) for managed and air-gapped channel guidance.
 
 ## In-App Release Readiness
 
@@ -15,6 +17,8 @@ Use that panel before publishing a public build. It checks:
 - `docs/appcast.xml`
 - `docs/UPDATES.md`
 - DMG files in `dist/`
+- hardened runtime plus Developer ID, notarization, stapling, Gatekeeper, and checksum gates in the project and release script
+- release provenance metadata generated beside the DMG/checksum
 
 Warnings are informational. Failures are blockers for a clean public update flow.
 
@@ -22,12 +26,14 @@ Warnings are informational. Failures are blockers for a clean public update flow
 
 The intended public update flow is:
 
-1. Build a signed `Release` app bundle.
-2. Package it as a `.dmg` for GitHub Releases.
-3. Upload that DMG to a GitHub Release.
-4. Generate a Sparkle appcast that points at the release asset URL.
-5. Host the appcast on GitHub Pages.
-6. Let ForgeText's built-in `Check for Updates...` command query that feed.
+1. Build a Developer ID signed `Release` app with hardened runtime.
+2. Package and sign the `.dmg`.
+3. Submit the DMG to Apple notarization, staple the ticket, validate it, and run Gatekeeper assessment.
+4. Generate and retain the SHA-256 checksum.
+5. Generate release provenance and upload the DMG, checksum, and provenance metadata to a GitHub Release.
+6. Generate a signed Sparkle appcast that points at the release asset URL.
+7. Host the appcast on GitHub Pages.
+8. Let ForgeText's built-in `Check for Updates...` command query that feed.
 
 ## Expected Public URLs
 
@@ -53,6 +59,14 @@ The intended public update flow is:
 
 4. Build release archives with a monotonically increasing `CFBundleVersion`.
 
+5. Create a Developer ID Application certificate and a `notarytool` Keychain profile:
+
+   ```bash
+   xcrun notarytool store-credentials forgetext-notary \
+     --apple-id "release@example.com" \
+     --team-id "TEAMID"
+   ```
+
 ## Local Install Flow
 
 For your own Mac, use:
@@ -71,15 +85,17 @@ Local installs do not require a DMG, GitHub Release, appcast update, notarizatio
 
 ## Publishing A Public Release
 
-1. Build the GitHub Release archive:
+1. Build, sign, notarize, staple, and validate the GitHub Release archive:
 
    ```bash
+   DEVELOPER_ID_APPLICATION="Developer ID Application: Example Corp (TEAMID)" \
+   NOTARYTOOL_PROFILE="forgetext-notary" \
    ./Scripts/build_release_dmg.sh
    ```
 
-2. Confirm `Tools > Release Readiness` has no blockers.
+2. Confirm the script produced `.dmg`, `.dmg.sha256`, and release-provenance output, and `Tools > Release Readiness` has no blockers.
 3. Create a GitHub Release such as `V1.2.1`.
-4. Upload `dist/ForgeText-<version>-<build>.dmg` as a release asset.
+4. Upload `dist/ForgeText-<version>-<build>.dmg`, its `.sha256`, and generated provenance metadata as release assets.
 5. Put the DMG, and any historical release archives you want Sparkle to know about, in a local staging folder.
 6. Run Sparkle's `generate_appcast` against that folder.
 7. Replace `docs/appcast.xml` with the generated appcast.
@@ -96,14 +112,15 @@ Local installs do not require a DMG, GitHub Release, appcast update, notarizatio
 ## Appcast Notes
 
 - The app-side updater is intentionally conservative.
+- ForgeText uses Sparkle 2.9.4 or newer. Do not downgrade to 2.9.1 or earlier because those versions are affected by the 2026 binary-delta symlink traversal and installer-connection advisories.
 - If `SUFeedURL` exists but `SUPublicEDKey` is missing, ForgeText shows setup guidance instead of starting Sparkle in a half-configured state.
 - If the appcast URL returns HTTP 404, enable GitHub Pages or push `docs/appcast.xml`.
-- For real public distribution, use Developer ID signing, hardened runtime, and notarization.
+- `Scripts/build_release_dmg.sh` refuses to publish without Developer ID signing, hardened runtime, notarization, stapling, Gatekeeper validation, a SHA-256 checksum, and release provenance generation.
 
 ## Diagnostic Support
 
 ForgeText includes `Tools > Export Diagnostic Bundle...`.
 
-Use this when troubleshooting release or updater issues. The bundle includes release-readiness state, app version, workspace paths, recent activity, and index summaries. It intentionally excludes document contents and AI API keys.
+Use this when troubleshooting release or updater issues. The bundle includes release-readiness state, app version, redacted workspace labels, recent activity, and index summaries. It intentionally excludes raw filesystem paths, document contents, and AI API keys.
 
 On managed installs, the diagnostic bundle can also include a policy summary so support teams can tell whether update checks or related flows were blocked by local admin policy.

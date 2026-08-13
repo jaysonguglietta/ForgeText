@@ -1,5 +1,15 @@
 import Foundation
 
+enum DocumentLifecyclePhase: String, Codable, Hashable {
+    case untitled
+    case clean
+    case modified
+    case externallyModified
+    case missing
+    case recovered
+    case readOnlyPreview
+}
+
 struct EditorDocument: Identifiable {
     let id: UUID
     var untitledName: String
@@ -67,6 +77,10 @@ struct EditorDocument: Identifiable {
 
             if file.presentationMode == .archiveBrowser {
                 return .archiveBrowser
+            }
+
+            if file.presentationMode == .chunkedText {
+                return .chunkedText
             }
 
             return .editor
@@ -159,11 +173,33 @@ struct EditorDocument: Identifiable {
     }
 
     var isLargeFileMode: Bool {
-        if let fileSize, fileSize >= TextFileCodec.largeFileThreshold {
+        if let fileSize, fileSize >= TextFileCodec.largeFileModeThreshold {
             return true
         }
 
         return text.utf16.count > 350_000
+    }
+
+    var lifecyclePhase: DocumentLifecyclePhase {
+        if isReadOnly || isPartialPreview {
+            return .readOnlyPreview
+        }
+        if fileMissingOnDisk {
+            return .missing
+        }
+        if hasExternalChanges {
+            return .externallyModified
+        }
+        if hasRecoveredDraft {
+            return .recovered
+        }
+        if isDirty {
+            return .modified
+        }
+        if fileURL == nil, remoteReference == nil {
+            return .untitled
+        }
+        return .clean
     }
 
     var statusSummary: String? {
@@ -334,12 +370,13 @@ struct EditorMetrics {
     let selectionLength: Int
     let cursorLine: Int
     let cursorColumn: Int
+    let isApproximate: Bool
 
     init(text: String, selectedRange: NSRange) {
         self.init(statistics: CachedTextStatistics(text: text), selectedRange: selectedRange)
     }
 
-    init(statistics: CachedTextStatistics, selectedRange: NSRange) {
+    init(statistics: CachedTextStatistics, selectedRange: NSRange, isApproximate: Bool = false) {
         lineCount = statistics.lineCount
         wordCount = statistics.wordCount
         characterCount = statistics.characterCount
@@ -348,11 +385,21 @@ struct EditorMetrics {
         let position = statistics.cursorPosition(for: selectedRange.location)
         cursorLine = position.line
         cursorColumn = position.column
+        self.isApproximate = isApproximate
+    }
+
+    init(pendingUTF16Length: Int, selectedRange: NSRange) {
+        lineCount = 1
+        wordCount = 0
+        characterCount = pendingUTF16Length
+        selectionLength = selectedRange.length
+        cursorLine = 1
+        cursorColumn = min(max(selectedRange.location, 0), pendingUTF16Length) + 1
+        isApproximate = true
     }
 }
 
 struct CachedTextStatistics: Equatable {
-    let textHash: Int
     let utf16Length: Int
     let lineCount: Int
     let wordCount: Int
@@ -361,7 +408,6 @@ struct CachedTextStatistics: Equatable {
 
     init(text: String) {
         let utf16View = Array(text.utf16)
-        textHash = text.hashValue
         utf16Length = utf16View.count
         wordCount = text.split { $0.isWhitespace || $0.isNewline }.count
         characterCount = text.count
@@ -389,10 +435,6 @@ struct CachedTextStatistics: Equatable {
 
         lineStartOffsets = offsets
         lineCount = offsets.count
-    }
-
-    func matches(text: String) -> Bool {
-        textHash == text.hashValue && utf16Length == (text as NSString).length
     }
 
     func cursorPosition(for location: Int) -> (line: Int, column: Int) {

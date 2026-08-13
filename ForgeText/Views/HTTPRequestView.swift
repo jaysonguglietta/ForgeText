@@ -4,22 +4,26 @@ struct HTTPRequestView: View {
     let document: EditorDocument
     let theme: EditorTheme
     let onShowRawText: () -> Void
+    let onExecuteRequest: (ParsedHTTPRequest, Bool) async throws -> HTTPResponseRecord
 
     @State private var selectedRequestID: String?
     @State private var responseRecord: HTTPResponseRecord?
     @State private var errorMessage: String?
     @State private var isRunning = false
+    @State private var privateNetworkRequest: ParsedHTTPRequest?
 
     private let requestDocument: HTTPRequestDocument?
 
     init(
         document: EditorDocument,
         theme: EditorTheme,
-        onShowRawText: @escaping () -> Void
+        onShowRawText: @escaping () -> Void,
+        onExecuteRequest: @escaping (ParsedHTTPRequest, Bool) async throws -> HTTPResponseRecord
     ) {
         self.document = document
         self.theme = theme
         self.onShowRawText = onShowRawText
+        self.onExecuteRequest = onExecuteRequest
         requestDocument = HTTPRequestService.parse(document.text)
     }
 
@@ -82,6 +86,25 @@ struct HTTPRequestView: View {
                     .padding(.bottom, 28)
                 }
             }
+        }
+        .confirmationDialog(
+            "Allow Private-Network Request?",
+            isPresented: Binding(
+                get: { privateNetworkRequest != nil },
+                set: { if !$0 { privateNetworkRequest = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Send Once to Private Network") {
+                guard let request = privateNetworkRequest else { return }
+                privateNetworkRequest = nil
+                run(request, allowPrivateNetwork: true)
+            }
+            Button("Cancel", role: .cancel) {
+                privateNetworkRequest = nil
+            }
+        } message: {
+            Text("Private-network requests can reach local services and cloud metadata endpoints. Only continue when you trust this file and destination.")
         }
     }
 
@@ -148,7 +171,7 @@ struct HTTPRequestView: View {
                     Spacer(minLength: 0)
 
                     Button(isRunning ? "Sending..." : "Send Request") {
-                        run(request)
+                        run(request, allowPrivateNetwork: false)
                     }
                     .buttonStyle(RetroActionButtonStyle(tone: .primary))
                     .disabled(isRunning)
@@ -220,21 +243,26 @@ struct HTTPRequestView: View {
             )
     }
 
-    private func run(_ request: ParsedHTTPRequest) {
+    private func run(_ request: ParsedHTTPRequest, allowPrivateNetwork: Bool) {
         isRunning = true
         errorMessage = nil
 
         Task {
             do {
-                let response = try await HTTPRequestService.execute(request)
+                let response = try await onExecuteRequest(request, allowPrivateNetwork)
                 await MainActor.run {
                     responseRecord = response
                     isRunning = false
                 }
             } catch {
                 await MainActor.run {
-                    errorMessage = error.localizedDescription
-                    responseRecord = nil
+                    if case SecureNetworkService.NetworkError.privateNetworkRequiresConfirmation = error {
+                        privateNetworkRequest = request
+                        errorMessage = nil
+                    } else {
+                        errorMessage = error.localizedDescription
+                        responseRecord = nil
+                    }
                     isRunning = false
                 }
             }

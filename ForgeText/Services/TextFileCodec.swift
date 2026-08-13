@@ -1,8 +1,9 @@
 import Foundation
 
 struct TextFileCodec {
-    static let largeFileThreshold: Int64 = 8_000_000
-    static let previewByteLimit = 1_000_000
+    static let largeFileModeThreshold: Int64 = 2_000_000
+    static let maximumEditableFileSize: Int64 = 32_000_000
+    static let previewByteLimit = 2_000_000
 
     struct DecodedFile {
         let text: String
@@ -22,6 +23,7 @@ struct TextFileCodec {
         case unableToEncode(String.Encoding)
         case cannotSaveReadOnlyPreview
         case symbolicLinkSaveRequiresSaveAs
+        case unsupportedFileType
 
         var errorDescription: String? {
             switch self {
@@ -33,68 +35,21 @@ struct TextFileCodec {
                 return "This document is a read-only preview, so ForgeText won’t overwrite the original file from it."
             case .symbolicLinkSaveRequiresSaveAs:
                 return "This path is a symbolic link. Use Save As to avoid overwriting the wrong target."
+            case .unsupportedFileType:
+                return "ForgeText can only open regular files here. Named pipes, devices, and other special files are blocked."
             }
         }
     }
 
     static func load(from url: URL) throws -> DecodedFile {
-        let rawData = try Data(contentsOf: url)
-        let data: Data
-        let preferredLanguage: DocumentLanguage?
-        let statusMessage: String?
-
-        if CompressedFileService.isGzipFile(url: url, data: rawData) {
-            let likelyLanguage = DocumentLanguage.detect(from: CompressedFileService.underlyingURL(forGzipURL: url))
-            preferredLanguage = likelyLanguage
-
-            do {
-                data = try CompressedFileService.decompressGzip(at: url, maximumSize: Int(largeFileThreshold))
-                statusMessage = "Opened gzip-compressed file"
-            } catch CompressedFileService.CompressionError.outputTooLarge {
-                let preview = try CompressedFileService.decompressGzipPreview(at: url, maxBytes: previewByteLimit)
-                return try gzipPreview(from: preview.data, likelyLanguage: likelyLanguage, statusMessage: "Large gzip preview loaded read-only")
-            }
-        } else {
-            data = rawData
-            preferredLanguage = nil
-            statusMessage = nil
-        }
-
-        let fileSize = Int64(data.count)
-
-        if data.isEmpty {
-            return DecodedFile(
-                text: "",
-                encoding: .utf8,
-                includesByteOrderMark: false,
-                lineEnding: .lf,
-                isReadOnly: false,
-                isPartialPreview: false,
-                fileSize: fileSize,
-                presentationMode: .editor,
-                preferredLanguage: preferredLanguage,
-                statusMessage: statusMessage
-            )
-        }
-
-        let decoded = try decode(data: data)
-        return DecodedFile(
-            text: decoded.text,
-            encoding: decoded.encoding,
-            includesByteOrderMark: decoded.includesByteOrderMark,
-            lineEnding: LineEnding.detect(in: decoded.text),
-            isReadOnly: false,
-            isPartialPreview: false,
-            fileSize: fileSize,
-            presentationMode: .editor,
-            preferredLanguage: preferredLanguage,
-            statusMessage: statusMessage
-        )
+        try open(from: url)
     }
 
     static func open(from url: URL) throws -> DecodedFile {
+        let readableURL = try validatedReadableFileURL(for: url)
+
         if ArchiveBrowserService.canBrowse(url) {
-            let archive = try ArchiveBrowserService.loadArchive(at: url)
+            let archive = try ArchiveBrowserService.loadArchive(at: readableURL)
             return DecodedFile(
                 text: archive.entries.map(\.path).joined(separator: "\n"),
                 encoding: .utf8,
@@ -112,7 +67,7 @@ struct TextFileCodec {
         if CompressedFileService.isGzipFile(url: url) {
             let likelyLanguage = DocumentLanguage.detect(from: CompressedFileService.underlyingURL(forGzipURL: url))
             do {
-                let decompressedData = try CompressedFileService.decompressGzip(at: url, maximumSize: Int(largeFileThreshold))
+                let decompressedData = try CompressedFileService.decompressGzip(at: readableURL, maximumSize: Int(maximumEditableFileSize))
                 let fileSize = Int64(decompressedData.count)
 
                 if isLikelyBinary(decompressedData) {
@@ -133,44 +88,45 @@ struct TextFileCodec {
                     statusMessage: "Opened gzip-compressed file"
                 )
             } catch CompressedFileService.CompressionError.outputTooLarge {
-                let preview = try CompressedFileService.decompressGzipPreview(at: url, maxBytes: previewByteLimit)
+                let preview = try CompressedFileService.decompressGzipPreview(at: readableURL, maxBytes: previewByteLimit)
                 return try gzipPreview(from: preview.data, likelyLanguage: likelyLanguage, statusMessage: "Large gzip preview loaded read-only")
             }
         }
 
-        let values = try? url.resourceValues(forKeys: [.fileSizeKey, .isSymbolicLinkKey])
+        let values = try? readableURL.resourceValues(forKeys: [.fileSizeKey, .isSymbolicLinkKey])
         let fileSize = values?.fileSize.map(Int64.init) ?? 0
         let likelyLanguage = DocumentLanguage.detect(from: url)
-        let shouldPreview = fileSize > largeFileThreshold
+        let shouldPreview = fileSize > maximumEditableFileSize
 
         if shouldPreview {
             let previewFromEnd = likelyLanguage == .log
-            let previewData = try readPreviewData(from: url, maxBytes: previewByteLimit, fromEnd: previewFromEnd)
+            let previewData = try readPreviewData(from: readableURL, maxBytes: previewByteLimit, fromEnd: previewFromEnd)
 
             if isLikelyBinary(previewData) {
                 return binaryPreview(from: previewData, fileSize: fileSize, isPartialPreview: true)
             }
 
             if let decoded = try? decode(data: previewData) {
-                let previewLabel = previewFromEnd ? "Large file tail preview" : "Large file preview"
+                let initialOffset = previewFromEnd ? max(0, fileSize - Int64(ChunkedTextFileService.defaultWindowBytes)) : 0
+                let window = try ChunkedTextFileService.readWindow(from: readableURL, offset: initialOffset)
                 return DecodedFile(
-                    text: decoded.text,
+                    text: window.text,
                     encoding: decoded.encoding,
                     includesByteOrderMark: decoded.includesByteOrderMark,
-                    lineEnding: LineEnding.detect(in: decoded.text),
+                    lineEnding: LineEnding.detect(in: window.text),
                     isReadOnly: true,
                     isPartialPreview: true,
                     fileSize: fileSize,
-                    presentationMode: .readOnlyPreview,
+                    presentationMode: .chunkedText,
                     preferredLanguage: likelyLanguage,
-                    statusMessage: "\(previewLabel) loaded read-only"
+                    statusMessage: "Large file opened in chunked read-only mode"
                 )
             }
 
             return binaryPreview(from: previewData, fileSize: fileSize, isPartialPreview: true)
         }
 
-        let fullData = try Data(contentsOf: url, options: [.mappedIfSafe])
+        let fullData = try BoundedFileReadService.read(readableURL, maximumBytes: Int(maximumEditableFileSize))
 
         if isLikelyBinary(fullData) {
             let previewData = Data(fullData.prefix(previewByteLimit))
@@ -192,7 +148,7 @@ struct TextFileCodec {
                 statusMessage: nil
             )
         } catch CodecError.unableToDecode {
-            let previewData = try readPreviewData(from: url, maxBytes: previewByteLimit, fromEnd: false)
+            let previewData = try readPreviewData(from: readableURL, maxBytes: previewByteLimit, fromEnd: false)
             return binaryPreview(from: previewData, fileSize: fileSize, isPartialPreview: fileSize > Int64(previewData.count))
         }
     }
@@ -258,11 +214,13 @@ struct TextFileCodec {
     }
 
     static func searchableText(from url: URL, maxBytes: Int) -> String? {
-        guard let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize), fileSize <= maxBytes else {
+        guard let readableURL = readableFileURLIfSupported(for: url),
+              let fileSize = (try? readableURL.resourceValues(forKeys: [.fileSizeKey]).fileSize),
+              fileSize <= maxBytes else {
             return nil
         }
 
-        guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]) else {
+        guard let data = try? BoundedFileReadService.read(readableURL, maximumBytes: maxBytes) else {
             return nil
         }
 
@@ -271,6 +229,24 @@ struct TextFileCodec {
         }
 
         return (try? decode(data: data).text)
+    }
+
+    private static func validatedReadableFileURL(for url: URL) throws -> URL {
+        let resolvedURL = url.resolvingSymlinksInPath().standardizedFileURL
+        if let isRegularFile = try? resolvedURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile,
+           isRegularFile == false {
+            throw CodecError.unsupportedFileType
+        }
+        return resolvedURL
+    }
+
+    private static func readableFileURLIfSupported(for url: URL) -> URL? {
+        let resolvedURL = url.resolvingSymlinksInPath().standardizedFileURL
+        if let isRegularFile = try? resolvedURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile,
+           isRegularFile == false {
+            return nil
+        }
+        return resolvedURL
     }
 
     private static func decode(data: Data) throws -> (text: String, encoding: String.Encoding, includesByteOrderMark: Bool) {

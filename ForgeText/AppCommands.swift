@@ -9,14 +9,14 @@ struct FileEditorCommands: Commands {
             Button("New") {
                 appState.newDocument()
             }
-            .keyboardShortcut("n")
+            .forgeShortcut(appState.settings.keyboardShortcuts[.newDocument])
         }
 
         CommandGroup(after: .newItem) {
             Button("Open...") {
                 appState.openDocument()
             }
-            .keyboardShortcut("o")
+            .forgeShortcut(appState.settings.keyboardShortcuts[.openDocument])
 
             Button("Open Workspace...") {
                 appState.openWorkspaceFilePanel()
@@ -45,7 +45,7 @@ struct FileEditorCommands: Commands {
             Button("Search in Folder...") {
                 appState.showProjectSearch()
             }
-            .keyboardShortcut("f", modifiers: [.command, .shift])
+            .forgeShortcut(appState.settings.keyboardShortcuts[.searchWorkspace])
 
             Button("Close") {
                 appState.closeSelectedDocument()
@@ -58,13 +58,13 @@ struct FileEditorCommands: Commands {
             Button("Save") {
                 appState.saveDocument()
             }
-            .keyboardShortcut("s")
+            .forgeShortcut(appState.settings.keyboardShortcuts[.save])
             .disabled(!appState.canSave)
 
             Button("Save As...") {
                 appState.saveDocumentAs()
             }
-            .keyboardShortcut("S", modifiers: [.command, .shift])
+            .forgeShortcut(appState.settings.keyboardShortcuts[.saveAs])
             .disabled(!appState.canSave)
 
             Divider()
@@ -89,62 +89,62 @@ struct FileEditorCommands: Commands {
             Button("Go to Line...") {
                 appState.showGoToLine()
             }
-            .keyboardShortcut("l")
+            .forgeShortcut(appState.settings.keyboardShortcuts[.goToLine])
 
             Divider()
 
             Button("Next Document") {
                 appState.selectNextDocument()
             }
-            .keyboardShortcut("]", modifiers: [.command, .shift])
+            .forgeShortcut(appState.settings.keyboardShortcuts[.nextDocument])
 
             Button("Previous Document") {
                 appState.selectPreviousDocument()
             }
-            .keyboardShortcut("[", modifiers: [.command, .shift])
+            .forgeShortcut(appState.settings.keyboardShortcuts[.previousDocument])
         }
 
         CommandMenu("Search") {
             Button("Find and Replace") {
                 appState.showFindReplace()
             }
-            .keyboardShortcut("f")
+            .forgeShortcut(appState.settings.keyboardShortcuts[.find])
 
             Button("Find Next") {
                 appState.findNextMatch()
             }
-            .keyboardShortcut("g")
+            .forgeShortcut(appState.settings.keyboardShortcuts[.findNext])
 
             Button("Find Previous") {
                 appState.findPreviousMatch()
             }
-            .keyboardShortcut("G", modifiers: [.command, .shift])
+            .forgeShortcut(appState.settings.keyboardShortcuts[.findPrevious])
 
             Divider()
 
             Button("Search in Folder...") {
                 appState.showProjectSearch()
             }
-            .keyboardShortcut("F", modifiers: [.command, .shift])
+            .forgeShortcut(appState.settings.keyboardShortcuts[.searchWorkspace])
 
             Divider()
 
             Button("Quick Open...") {
                 appState.showQuickOpenPanel()
             }
-            .keyboardShortcut("p")
+            .forgeShortcut(appState.settings.keyboardShortcuts[.quickOpen])
 
             Button("Command Palette...") {
                 appState.showingCommandPalette = true
             }
-            .keyboardShortcut("p", modifiers: [.command, .shift])
+            .forgeShortcut(appState.settings.keyboardShortcuts[.commandPalette])
         }
 
         CommandMenu("Code") {
             Button("Toggle Comment") {
                 NSApp.sendAction(#selector(EditorTextView.toggleCommentSelection(_:)), to: nil, from: nil)
             }
-            .keyboardShortcut("/")
+            .forgeShortcut(appState.settings.keyboardShortcuts[.toggleComment])
 
             Divider()
 
@@ -372,6 +372,13 @@ struct FileEditorCommands: Commands {
         }
 
         CommandMenu("Tools") {
+            Button("Engineering Workbench") {
+                appState.showEngineeringWorkbench()
+            }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+
+            Divider()
+
             Button("Workspace Center") {
                 appState.showWorkspacePlatformPanel()
             }
@@ -589,6 +596,30 @@ struct UpdateCommands: Commands {
             Button("Check for Updates...") {
                 updateController.checkForUpdates()
             }
+        }
+    }
+}
+
+private extension ShortcutBinding {
+    var eventModifiers: EventModifiers {
+        var modifiers: EventModifiers = []
+        if usesCommand { modifiers.insert(.command) }
+        if usesShift { modifiers.insert(.shift) }
+        if usesOption { modifiers.insert(.option) }
+        if usesControl { modifiers.insert(.control) }
+        return modifiers
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func forgeShortcut(_ binding: ShortcutBinding?) -> some View {
+        if let binding = binding?.normalized,
+           binding.isValid,
+           let character = binding.key.first {
+            keyboardShortcut(KeyEquivalent(character), modifiers: binding.eventModifiers)
+        } else {
+            self
         }
     }
 }

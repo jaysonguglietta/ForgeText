@@ -2,7 +2,7 @@ import Foundation
 
 enum RemoteAgentService {
     static let installPath = "~/.forgetext/bin/forgetext-agent"
-    private static let version = "1.0.0"
+    private static let version = "1.1.0"
 
     static func status(connection: String) -> RemoteAgentStatus {
         let originalConnection = connection
@@ -15,7 +15,7 @@ enum RemoteAgentService {
         """
 
         do {
-            let result = try CommandExecutionService.runString("/usr/bin/ssh", arguments: [connection, command])
+            let result = try SSHCommandService.runString(connection: connection, command: command, retryCount: 1)
             let trimmed = result.trimmingCharacters(in: .whitespacesAndNewlines)
             return RemoteAgentStatus(
                 connection: connection,
@@ -46,7 +46,7 @@ enum RemoteAgentService {
         mkdir -p ~/.forgetext/bin && printf "%s" "\(escapedScript)" > ~/.forgetext/bin/forgetext-agent && chmod +x ~/.forgetext/bin/forgetext-agent && ~/.forgetext/bin/forgetext-agent --version
         """
 
-        let output = try CommandExecutionService.runString("/usr/bin/ssh", arguments: [connection, command])
+        let output = try SSHCommandService.runString(connection: connection, command: command)
         return RemoteAgentStatus(
             connection: connection,
             isInstalled: true,
@@ -62,9 +62,10 @@ enum RemoteAgentService {
             throw RemoteFileService.RemoteError.invalidConnection
         }
 
-        let output = try CommandExecutionService.runString(
-            "/usr/bin/ssh",
-            arguments: [connection, "\(installPath) search \(CommandExecutionService.shellQuote(rootPath)) \(CommandExecutionService.shellQuote(query))"]
+        let output = try SSHCommandService.runString(
+            connection: connection,
+            command: "\(installPath) search \(CommandExecutionService.shellQuote(rootPath)) \(CommandExecutionService.shellQuote(query))",
+            retryCount: 1
         )
 
         guard let data = output.data(using: .utf8),
@@ -83,9 +84,10 @@ enum RemoteAgentService {
             throw RemoteFileService.RemoteError.invalidConnection
         }
 
-        let output = try CommandExecutionService.runString(
-            "/usr/bin/ssh",
-            arguments: [connection, "\(installPath) run \(CommandExecutionService.shellQuote(command))"]
+        let output = try SSHCommandService.runString(
+            connection: connection,
+            command: "\(installPath) run \(CommandExecutionService.shellQuote(command))",
+            limits: .interactiveTask
         )
 
         guard let data = output.data(using: .utf8),
@@ -106,9 +108,11 @@ enum RemoteAgentService {
             throw RemoteFileService.RemoteError.invalidConnection
         }
 
-        return try CommandExecutionService.runString(
-            "/usr/bin/ssh",
-            arguments: [connection, "\(installPath) read \(CommandExecutionService.shellQuote(path))"]
+        return try SSHCommandService.runString(
+            connection: connection,
+            command: "\(installPath) read \(CommandExecutionService.shellQuote(path))",
+            retryCount: 1,
+            limits: .interactiveTask
         )
     }
 
@@ -140,7 +144,10 @@ enum RemoteAgentService {
             if command == "read":
                 if len(sys.argv) < 3:
                     return 1
-                sys.stdout.write(Path(sys.argv[2]).read_text())
+                path = Path(sys.argv[2])
+                if not path.is_file() or path.stat().st_size > 32_000_000:
+                    return 13
+                sys.stdout.write(path.read_text())
                 return 0
 
             if command == "search":
@@ -169,11 +176,15 @@ enum RemoteAgentService {
             if command == "run":
                 if len(sys.argv) < 3:
                     return 1
-                process = subprocess.run(sys.argv[2], shell=True, capture_output=True, text=True)
+                try:
+                    process = subprocess.run(sys.argv[2], shell=True, capture_output=True, text=True, timeout=120)
+                except subprocess.TimeoutExpired:
+                    print(json.dumps({"status": 124, "stdout": "", "stderr": "Remote command timed out."}))
+                    return 0
                 print(json.dumps({
                     "status": process.returncode,
-                    "stdout": process.stdout,
-                    "stderr": process.stderr,
+                    "stdout": process.stdout[:8_000_000],
+                    "stderr": process.stderr[:2_000_000],
                 }))
                 return 0
 

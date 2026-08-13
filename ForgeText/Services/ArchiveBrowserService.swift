@@ -42,6 +42,7 @@ enum ArchiveBrowserService {
 
         let entries = entriesText
             .split(whereSeparator: \.isNewline)
+            .prefix(10_000)
             .map(String.init)
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .map { ArchiveEntry(id: $0, path: $0) }

@@ -42,7 +42,7 @@ enum WorkspacePlatformService {
     }
 
     static func loadWorkspace(from url: URL) throws -> WorkspaceDescriptor {
-        let data = try Data(contentsOf: url)
+        let data = try BoundedFileReadService.read(url, maximumBytes: 2 * 1_024 * 1_024)
         let record = try JSONDecoder().decode(WorkspaceFileRecord.self, from: data)
         let rootURLs = normalizedRootURLs(from: record.rootPaths.map { URL(fileURLWithPath: $0, isDirectory: true) })
 
@@ -121,8 +121,8 @@ enum WorkspacePlatformService {
     }
 
     static func importSyncBundle(from url: URL) throws -> SyncBundle {
-        let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode(SyncBundle.self, from: data)
+        let data = try BoundedFileReadService.read(url, maximumBytes: 32 * 1_024 * 1_024)
+        return try ForgeTextJSONDecoder.make(trustLevel: .externalImport).decode(SyncBundle.self, from: data)
     }
 
     static func sanitizedSettingsForTransfer(_ settings: AppSettings) -> AppSettings {
@@ -132,6 +132,8 @@ enum WorkspacePlatformService {
         sanitized.trustedWorkspaces = []
         sanitized.pluginRegistries = []
         sanitized.enabledPluginIDs = PluginHostService.defaultEnabledPluginIDs
+        sanitized.aiProviders = AIProviderDefaults.profiles
+        sanitized.preferredAIProviderID = nil
         sanitized.profiles = settings.profiles.map(sanitizedProfileForTransfer)
         return sanitized
     }
@@ -143,6 +145,15 @@ enum WorkspacePlatformService {
         merged.trustedWorkspacePaths = current.trustedWorkspacePaths
         merged.trustedWorkspaces = current.trustedWorkspaces
         merged.workspaceFavoritePaths = current.workspaceFavoritePaths
+        merged.aiProviders = current.aiProviders
+        merged.preferredAIProviderID = current.preferredAIProviderID
+        merged.aiIncludeSelection = current.aiIncludeSelection
+        merged.aiIncludeCurrentDocument = current.aiIncludeCurrentDocument
+        merged.aiIncludeWorkspaceRules = current.aiIncludeWorkspaceRules
+        merged.advanced.ai = current.advanced.ai
+        merged.advanced.plugins = current.advanced.plugins
+        merged.advanced.remote = current.advanced.remote
+        merged.advanced.safeMode = current.advanced.safeMode
         return merged
     }
 

@@ -62,12 +62,20 @@ echo "Generating project..."
 DEVELOPER_DIR="$DEVELOPER_DIR" xcodegen generate --spec "$PROJECT_SPEC" > /dev/null
 
 echo "Building ForgeText ($CONFIGURATION)..."
+BUILD_SETTINGS=()
+if [[ -n "${CODE_SIGN_IDENTITY:-}" ]]; then
+  BUILD_SETTINGS+=("CODE_SIGN_IDENTITY=$CODE_SIGN_IDENTITY")
+fi
+if [[ -n "${DEVELOPMENT_TEAM:-}" ]]; then
+  BUILD_SETTINGS+=("DEVELOPMENT_TEAM=$DEVELOPMENT_TEAM")
+fi
 DEVELOPER_DIR="$DEVELOPER_DIR" \
   xcodebuild \
   -project "$PROJECT_PATH" \
   -scheme "$SCHEME" \
   -configuration "$CONFIGURATION" \
   -derivedDataPath "$DERIVED_DATA_PATH" \
+  "${BUILD_SETTINGS[@]}" \
   build > /dev/null
 
 if [[ ! -d "$APP_PATH" ]]; then

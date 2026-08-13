@@ -26,7 +26,7 @@ enum WorkspaceSearchService {
     ) -> ProjectSearchSummary {
         let startedAt = Date()
         let manager = FileManager.default
-        let resourceKeys: Set<URLResourceKey> = [.isDirectoryKey, .isHiddenKey, .fileSizeKey]
+        let resourceKeys: Set<URLResourceKey> = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .isHiddenKey, .fileSizeKey]
         let directorySkips = Set([".git", ".svn", ".hg", "node_modules", "DerivedData", ".build"])
 
         var hits: [ProjectSearchHit] = []
@@ -48,10 +48,21 @@ enum WorkspaceSearchService {
                     continue
                 }
 
+                if values.isSymbolicLink == true {
+                    skippedFileCount += 1
+                    enumerator.skipDescendants()
+                    continue
+                }
+
                 if values.isDirectory == true {
                     if directorySkips.contains(fileURL.lastPathComponent) {
                         enumerator.skipDescendants()
                     }
+                    continue
+                }
+
+                guard values.isRegularFile != false else {
+                    skippedFileCount += 1
                     continue
                 }
 

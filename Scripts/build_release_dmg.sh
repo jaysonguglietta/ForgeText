@@ -16,6 +16,10 @@ Usage: $(basename "$0") [--skip-build] [--output-dir PATH] [--open]
 
 Builds ForgeText in Release mode and packages it as a DMG suitable for GitHub Releases.
 
+Required environment:
+  DEVELOPER_ID_APPLICATION  Full Developer ID Application signing identity
+  NOTARYTOOL_PROFILE       Keychain profile created with xcrun notarytool store-credentials
+
 Options:
   --skip-build        Package the existing Release app without rebuilding
   --output-dir PATH   Write the DMG into a custom folder
@@ -54,13 +58,33 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -z "${DEVELOPER_ID_APPLICATION:-}" ]]; then
+  echo "DEVELOPER_ID_APPLICATION is required for public releases." >&2
+  exit 1
+fi
+if [[ -z "${NOTARYTOOL_PROFILE:-}" ]]; then
+  echo "NOTARYTOOL_PROFILE is required for public releases." >&2
+  exit 1
+fi
+
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
-  "$BUILD_SCRIPT"
+  CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" "$BUILD_SCRIPT"
 fi
 
 if [[ ! -d "$APP_PATH" ]]; then
   echo "Expected Release app was not found:" >&2
   echo "  $APP_PATH" >&2
+  exit 1
+fi
+
+codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+SIGNING_DETAILS=$(codesign --display --verbose=4 "$APP_PATH" 2>&1)
+if ! grep -Fq "Authority=Developer ID Application" <<< "$SIGNING_DETAILS"; then
+  echo "Release app is not signed with a Developer ID Application certificate." >&2
+  exit 1
+fi
+if ! grep -Eq "flags=.*runtime" <<< "$SIGNING_DETAILS"; then
+  echo "Release app is missing the hardened runtime flag." >&2
   exit 1
 fi
 
@@ -103,8 +127,19 @@ hdiutil create \
   -format UDZO \
   "$DMG_PATH" > /dev/null
 
+codesign --force --timestamp --sign "$DEVELOPER_ID_APPLICATION" "$DMG_PATH"
+codesign --verify --strict --verbose=2 "$DMG_PATH"
+xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARYTOOL_PROFILE" --wait
+xcrun stapler staple "$DMG_PATH"
+xcrun stapler validate "$DMG_PATH"
+spctl --assess --type open --context context:primary-signature --verbose=2 "$DMG_PATH"
+shasum -a 256 "$DMG_PATH" > "$DMG_PATH.sha256"
+"$ROOT_DIR/Scripts/generate_release_provenance.sh" "$DMG_PATH" "$APP_PATH"
+
 echo "Built DMG:"
 echo "  $DMG_PATH"
+echo "  $DMG_PATH.sha256"
+echo "  $DMG_PATH.provenance.json"
 echo
 echo "Suggested next step:"
 echo "  Upload this DMG to a GitHub Release instead of committing it into the repo."

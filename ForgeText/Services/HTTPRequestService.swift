@@ -34,6 +34,7 @@ enum HTTPRequestService {
         case invalidURL(String)
         case malformedRequest(String)
         case invalidResponse
+        case executionRestricted(String)
 
         var errorDescription: String? {
             switch self {
@@ -43,6 +44,8 @@ enum HTTPRequestService {
                 return message
             case .invalidResponse:
                 return "The remote server did not return a valid HTTP response."
+            case let .executionRestricted(reason):
+                return reason
             }
         }
     }
@@ -53,7 +56,10 @@ enum HTTPRequestService {
         return requests.isEmpty ? nil : HTTPRequestDocument(requests: requests)
     }
 
-    static func execute(_ requestDefinition: ParsedHTTPRequest) async throws -> HTTPResponseRecord {
+    static func execute(
+        _ requestDefinition: ParsedHTTPRequest,
+        policy: SecureNetworkPolicy = .publicInternet()
+    ) async throws -> HTTPResponseRecord {
         guard let url = URL(string: requestDefinition.urlString) else {
             throw HTTPRequestError.invalidURL(requestDefinition.urlString)
         }
@@ -70,7 +76,7 @@ enum HTTPRequestService {
         }
 
         let startedAt = Date()
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await SecureNetworkService.data(for: request, policy: policy)
         let elapsedTime = Date().timeIntervalSince(startedAt)
 
         guard let httpResponse = response as? HTTPURLResponse else {

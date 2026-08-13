@@ -33,9 +33,28 @@ Sections:
 - `File Handling`: raw-view-first opens, session restore, autosave behavior, default line endings, autosave delay, and external file polling interval.
 - `AI Privacy`: local-model-only mode, review-before-send, likely-secret redaction, and maximum context size.
 - `Plugin + Remote Safety`: workspace plugins, task-capable plugins, custom registries, remote read-only mode, remote commands, and remote agent install.
-- `Safe Mode`: session-level recovery controls that can suppress external plugins, AI, remote connections, and previous-session restore.
+- `Safe Mode`: session-level recovery controls that can suppress external plugins, AI, remote connections, terminal/task execution, and previous-session restore.
 
 Changes in this panel apply immediately.
+
+## Engineering Workbench
+
+Open `Tools > Engineering Workbench` or press `Command-Shift-E` when you need deeper workspace context. The main editor stays focused on the document; the workbench groups lower-frequency workflows into:
+
+- `Workspace Health`: trust, policy, index, diagnostics, Git, tests, language tools, and plugins
+- `Code Intelligence`: indexed definitions/references and trusted language-tool readiness
+- `Review Changes`: compare-with-HEAD, explicit hunk staging, file history, worktree context, and full Git tools
+- `Tests + Coverage`: bounded discovery, targeted runs, and existing LCOV reports
+- `Remote Workspaces`: saved, validated SSH workspace sessions
+- `Investigations`: protected snapshots of files, searches, roots, branch, and notes
+- `Data Tools`: raw-first access to delimited, JSON, log, config, HTTP, and archive tools
+- `AI Change Sets`: per-hunk review before an AI diff can change existing files
+- `Enterprise`: effective policy and local fleet-readiness checks
+- `Profile Packs`: exportable role/workbench settings without keys or trust decisions
+
+See [Engineering Workbench](./ENGINEERING_WORKBENCH.md) for limits and security behavior.
+
+Code Intelligence can explicitly start a trusted language server, synchronize the active document, and use advertised completion, definition, reference, diagnostic, code-action, and rename capabilities. Debug adapters currently support a handshake verification only. Remote Workspaces can browse validated SFTP directories and detect/start a development container after an explicit lifecycle-command warning. These actions require a trusted workspace and policy approval.
 
 ## Workspace Trust And Restricted Mode
 
@@ -44,7 +63,7 @@ Open `Workspace > Workspace Center` to review trust for the active roots.
 Trust modes:
 
 - `Trusted`: tasks, AI actions, remote commands, and approved plugins are available.
-- `Restricted`: editing still works, but external workspace plugins, executable workspace tasks, AI sends, and remote command flows stay gated until you explicitly trust the workspace.
+- `Restricted`: editing still works, but automatic Git inspection, external workspace plugins and formatters, executable workspace tasks, AI sends, HTTP execution, and remote command flows stay gated until you explicitly trust the workspace.
 
 ForgeText also treats sync bundles conservatively:
 
@@ -65,23 +84,40 @@ Open `Workspace > Workspace Center` to review the current policy state. The Mana
 - whether a policy is active
 - where it was loaded from
 - any load error
+- the canonical digest and verified-signature state
+- the effective update ring, approved AI profiles, managed plugin catalogs, audit retention, and export decision
 - the effective restrictions currently in force
 
 Policy discovery order:
 
-1. `FORGETEXT_MANAGED_POLICY_FILE`
+1. forced MDM `ManagedPolicyJSON`
 2. `/Library/Application Support/ForgeText/managed-policy.json`
-3. the local ForgeText app-data folder
+3. `FORGETEXT_MANAGED_POLICY_FILE`
+4. the local ForgeText app-data folder
 
 Use `Tools > Reload Managed Policy` after updating the file on disk.
 
+If a discovered policy is malformed, symlinked, oversized, insecurely writable, incorrectly owned, or uses an unsupported version, ForgeText shows the error and denies managed high-risk capabilities by default instead of silently falling back to unmanaged behavior.
+
 See [Managed Policy](./MANAGED_POLICY.md) for the full schema and a ready-to-edit example.
+
+## Portable Mode
+
+Portable mode is intentionally opt-in. For an app-adjacent portable store:
+
+1. Create `ForgeTextData` beside `ForgeText.app`.
+2. Create an empty `ForgeTextData/.forgetext-portable` marker.
+3. Make the directory private with `chmod 700 ForgeTextData`.
+
+Alternatively, set `FORGETEXT_PORTABLE_DATA_DIR` to an existing private directory. The directory must be owned by the current user, must not be a symlink, and must have no group or other permissions. ForgeText will ignore an unsafe portable directory and use normal Application Support storage.
+
+Sensitive portable state remains encrypted, but its Keychain encryption key is device-bound. Plaintext legacy sensitive-state files are not auto-migrated from portable storage.
 
 ## Navigation
 
 ### Quick Open
 
-Open Quick Open from `Search > Quick Open...`, the sidebar Navigate pane, the toolbar, or `Command-P`.
+Open Quick Open from `Search > Quick Open...`, the toolbar, or `Command-P`.
 
 Quick Open uses the workspace index to jump to:
 
@@ -146,6 +182,8 @@ Activity Center shows:
 
 Use `Export Diagnostics` from this panel when you need a safe support bundle.
 
+Managed enterprise activity is also recorded through a serialized background writer in encrypted local storage. Policy controls 1-365 day retention, whether details are retained, and whether a permission-restricted JSONL export is allowed. This is a local support/audit trail, not centralized telemetry or a tamper-proof ledger.
+
 ## Diagnostic Bundle Export
 
 Open `Tools > Export Diagnostic Bundle...`.
@@ -153,8 +191,7 @@ Open `Tools > Export Diagnostic Bundle...`.
 The exported bundle includes:
 
 - app version and build
-- workspace root paths
-- open document names and paths
+- hashed workspace and open-document labels instead of raw local paths
 - settings names such as theme, chrome style, density, focus mode, and inspector state
 - workspace index summaries
 - release-readiness summary
@@ -167,6 +204,7 @@ The bundle intentionally excludes:
 - AI provider API keys
 - full AI chat contents
 - private Sparkle signing keys
+- raw local filesystem paths and URL credentials
 
 ## AI Context
 
@@ -189,7 +227,27 @@ ForgeText loads reusable prompts from:
 - `.forgetext/prompts/*.txt`
 - `.forgetext/prompts/*.prompt`
 
-Use these files to make AI behavior project-aware without hardcoding instructions into every chat.
+Use these files to make AI behavior project-aware without hardcoding instructions into every chat. ForgeText rejects symlinked rule/prompt files, limits rule files to 64 KB each, caps the combined rules prompt, and limits prompt discovery count so an opened repository cannot force unbounded AI context loading.
+
+Optional `.forgetext/ai-scopes.json` rules can add instructions only when the current file path, extension, and/or AI quick action matches. For example:
+
+```json
+{
+  "version": 1,
+  "scopes": [
+    {
+      "id": "production-kubernetes",
+      "name": "Production Kubernetes review",
+      "pathPrefixes": ["deploy/production"],
+      "fileExtensions": ["yaml", "yml"],
+      "tasks": ["explain", "improve"],
+      "instructions": "Call out availability, secret, and rollback risks before suggesting changes."
+    }
+  ]
+}
+```
+
+Scope files are bounded, containment checked, decoded as untrusted input, and capped at 100 rules/64 KB of matched instructions. Matching instructions appear as workspace-rules context in the pre-send manifest and remain subject to trust, policy, redaction, and context limits.
 
 ## AI Workbench
 
@@ -203,7 +261,7 @@ Supported provider profiles:
 - Ollama
 - OpenAI-compatible endpoints
 
-API keys stay local and are not included in settings transfer bundles.
+API keys stay local in macOS Keychain, use device-bound `WhenUnlocked` accessibility, and are not included in settings transfer bundles. ForgeText caches successful Keychain reads for the running process to avoid repeated authorization prompts.
 
 Setup modes:
 
@@ -216,6 +274,7 @@ When an admin policy is active, ForgeText can also limit:
 - allowed provider kinds
 - allowed model-name prefixes
 - whether selection, current-file, or workspace-rules context is allowed
+- exact allowed endpoint hosts
 
 Quick actions:
 
@@ -229,22 +288,30 @@ Workspace trust must allow AI actions before the workbench opens.
 
 If `Review before send` is enabled in `Workbench + Advanced`, ForgeText will show the final prepared system prompt and user prompt before any request leaves the app. If `Redact likely secrets before send` is also enabled, ForgeText masks likely keys, bearer tokens, private keys, and common secret assignments before you review or send the prompt.
 
+The review sheet also shows a context manifest with every included source, its character count, and whether redaction or truncation changed the outbound request.
+
 If `Local models only` is enabled, ForgeText limits AI usage to local-model endpoints such as Ollama or OpenAI-compatible local servers like LM Studio.
+
+Cloud-provider credentials are host pinned: OpenAI, Anthropic, and Gemini keys are only sent to their official API host. Use an `OpenAI Compatible` profile for a custom cloud gateway. Local-model profiles must resolve only to private or loopback addresses and do not require an API key.
 
 ## Git And GitHub
 
 Open `Source Control > Git Workbench` for local Git actions.
+
+Git features are unavailable while a workspace is restricted. In trusted workspaces, ForgeText disables repository-defined fsmonitor hooks, hooks paths, external diff/text-conversion drivers, pagers, editors, interactive credential prompts, and the `ext` transport for its Git subprocesses.
 
 Local Git features include:
 
 - clone repository
 - fetch, pull, push
 - stage and unstage files
+- stage explicitly selected text hunks
 - commit
 - create and switch branches
 - stash flows
 - changed-file lists
 - recent graph history
+- selected-file history and repository worktree context
 - remotes
 - compare current file with HEAD
 - diff-gutter markers
@@ -253,24 +320,32 @@ Local Git features include:
 
 Open `Source Control > GitHub Workflow...` or `Tools > GitHub Workflow`.
 
-GitHub Workflow detects GitHub remotes and can open:
+GitHub Workflow uses the trusted GitHub CLI and your existing `gh` authentication. It can:
 
-- the repository page
-- a compare page for the current branch
+- open the repository page
+- open a compare page for the current branch
+- list up to 50 open pull requests
+- create a pull request
+- load issue context and workflow/check results
+- load paginated pull-request review threads
+- open a selected pull request
+- post an explicitly confirmed pull-request comment through standard input
+- prepare a draft GitHub release
 
-This is a local-first PR preparation panel. It does not yet create PRs directly from ForgeText.
+ForgeText does not store a GitHub token. Run `gh auth login` outside ForgeText when authentication is needed. Authentication, SSO enforcement, and API authorization remain GitHub CLI responsibilities.
 
 ## Sidebar Workbench
 
-ForgeText now uses a more editor-like left workbench with an activity rail and focused panes.
+ForgeText now uses a quieter left workbench with four focused panes.
 
 Main panes:
 
-- `Explorer`: open documents, workspace tree, and recent files
+- `Files`: open documents and the workspace tree
+- `Search`: focused project search
 - `Source Control`: current branch, changed files, and stage/unstage actions
-- `Workspace`: roots, clone/open flows, sessions, and remote entry points
-- `Navigate`: Quick Open, Command Palette, search, go-to-line, keyboard shortcuts, and activity
-- `Tools` and `Extensions`: Git, AI, terminal, problems, tests, plugins, tasks, snippets, setup, and appearance
+- `Workbench`: a compact health summary and entry points into the Engineering Workbench
+
+Quick Open, Command Palette, tasks, terminal, AI, plugins, setup, and preferences remain available from menus and keyboard shortcuts instead of occupying permanent sidebar space.
 
 When a managed policy is active, blocked actions stay visible where useful, but they are disabled or intercepted with a clear explanation instead of silently failing.
 
@@ -287,10 +362,19 @@ Structured views:
 - `.http` and `.rest`: HTTP request runner
 - archives: archive browser
 - binary or undecodable files: hex preview
+- files above the editable limit: chunked read-only text
 
 Use the document header's format toggle to move between the structured view and raw text.
 
 Fresh file opens now begin in raw text view by default. Structured viewers stay available on demand, but ForgeText no longer forces CSV, JSON, log, or HTTP files into their alternate view immediately on open.
+
+Delimited tables support inferred and overridden schemas, stable multi-column sorting, filtering, aggregations, frozen-first-column mode, and visible-row copy/export. Rows render lazily so larger editable datasets do not create every row view up front.
+
+Log Explorer parses common timestamps and key/value fields, supports saved filters and timeline clusters, and can merge a bounded set of files into one multi-file session. Configuration diagnostics understand Kubernetes, GitHub Actions, Docker Compose, and Dev Container conventions without replacing the raw document.
+
+Regular files above the 32 MB editable limit use a secure chunked reader instead of a full-memory preview. Navigation reads bounded windows with `pread`, symlinks/non-regular files are rejected, and search is capped. Chunked mode is intentionally read-only; use a purpose-built streaming tool when a file exceeds its search boundary.
+
+The HTTP runner is available only in a trusted workspace. It accepts HTTP/HTTPS request files, rejects embedded URL credentials and redirects, caps response size, and blocks private or loopback destinations until you confirm the target. Managed policy can disable the runner, require an exact host allowlist, or prohibit private destinations entirely.
 
 ## Release Readiness
 
@@ -325,7 +409,7 @@ The HUD shows:
 
 This is a lightweight snapshot for debugging the local app. It is not telemetry.
 
-The HUD also shows the active runtime mode and whether the current session is in Safe Mode.
+The HUD also shows the active runtime mode, Safe Mode, rolling P95 operation time, and whether each measured editor operation remains within its responsiveness budget.
 
 ## Theme Lab
 
@@ -361,10 +445,13 @@ Typical `Safe Mode` changes:
 - optional blocking of external plugins
 - optional blocking of AI
 - optional blocking of remote connections
+- blocking of workspace tasks and embedded terminal commands
 
 ForgeText surfaces both states in the status bar when active.
 
 ## Keyboard Shortcuts
+
+Open `Tools > Keyboard Shortcuts` to rebind supported commands. ForgeText validates key/modifier combinations, reports conflicts before saving, persists custom bindings, and can reset individual actions or the full map to defaults.
 
 Core shortcuts:
 
@@ -381,7 +468,7 @@ Core shortcuts:
 - `Command-Shift-U`: Focus Mode
 - `Command-,`: Workbench + Advanced
 
-Open `Tools > Keyboard Shortcuts` for the full in-app reference.
+The same panel shows the complete in-app reference.
 
 ## Local Install
 
@@ -408,15 +495,18 @@ The installed app lives at:
 Build a DMG:
 
 ```bash
+DEVELOPER_ID_APPLICATION="Developer ID Application: Example Corp (TEAMID)" \
+NOTARYTOOL_PROFILE="forgetext-notary" \
 ./Scripts/build_release_dmg.sh
 ```
 
 Then:
 
-1. Create a GitHub Release.
-2. Upload the DMG.
-3. Generate or update the Sparkle appcast.
-4. Push `docs/appcast.xml`.
-5. Use `Check for Updates...` to verify the feed.
+1. Confirm signature, hardened runtime, notarization, stapling, Gatekeeper assessment, and the generated SHA-256 checksum all succeeded.
+2. Create a GitHub Release.
+3. Upload the DMG and checksum.
+4. Generate or update the Sparkle appcast.
+5. Push `docs/appcast.xml`.
+6. Use `Check for Updates...` to verify the feed.
 
 See [UPDATES.md](UPDATES.md) for the detailed release flow.

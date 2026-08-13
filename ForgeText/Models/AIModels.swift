@@ -1,5 +1,120 @@
 import Foundation
+
+enum AIContextSourceKind: String, Codable, Hashable {
+    case instruction
+    case userPrompt
+    case selection
+    case currentDocument
+    case workspaceRules
+}
+
+struct AIContextManifestEntry: Identifiable, Codable, Hashable {
+    var id: String { "\(kind.rawValue):\(label)" }
+    let kind: AIContextSourceKind
+    let label: String
+    let characterCount: Int
+}
+
+struct AIContextManifest: Codable, Hashable {
+    var entries: [AIContextManifestEntry]
+    var originalCharacterCount: Int
+    var preparedCharacterCount: Int
+    var redactionApplied: Bool
+    var truncationApplied: Bool
+
+    static let empty = AIContextManifest(
+        entries: [],
+        originalCharacterCount: 0,
+        preparedCharacterCount: 0,
+        redactionApplied: false,
+        truncationApplied: false
+    )
+}
+
+struct AIContextScopeConfiguration: Codable, Hashable {
+    var version = 1
+    var scopes: [AIContextScopeRule] = []
+
+    private enum CodingKeys: String, CodingKey { case version, scopes }
+
+    init(version: Int = 1, scopes: [AIContextScopeRule] = []) {
+        self.version = version
+        self.scopes = scopes
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
+        scopes = try container.decodeIfPresent([AIContextScopeRule].self, forKey: .scopes) ?? []
+    }
+}
+
+struct AIContextScopeRule: Identifiable, Codable, Hashable {
+    var id: String
+    var name: String
+    var isEnabled = true
+    var pathPrefixes: [String] = []
+    var fileExtensions: [String] = []
+    var tasks: [String] = []
+    var instructions: String
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, isEnabled, pathPrefixes, fileExtensions, tasks, instructions
+    }
+
+    init(
+        id: String,
+        name: String,
+        isEnabled: Bool = true,
+        pathPrefixes: [String] = [],
+        fileExtensions: [String] = [],
+        tasks: [String] = [],
+        instructions: String
+    ) {
+        self.id = id
+        self.name = name
+        self.isEnabled = isEnabled
+        self.pathPrefixes = pathPrefixes
+        self.fileExtensions = fileExtensions
+        self.tasks = tasks
+        self.instructions = instructions
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        pathPrefixes = try container.decodeIfPresent([String].self, forKey: .pathPrefixes) ?? []
+        fileExtensions = try container.decodeIfPresent([String].self, forKey: .fileExtensions) ?? []
+        tasks = try container.decodeIfPresent([String].self, forKey: .tasks) ?? []
+        instructions = try container.decode(String.self, forKey: .instructions)
+    }
+}
 import Security
+
+enum ForgeTextDecodingTrustLevel {
+    case trustedLocalStore
+    case externalImport
+
+    var allowsLegacyAIProviderKeyMigration: Bool {
+        self == .trustedLocalStore
+    }
+}
+
+extension CodingUserInfoKey {
+    static let forgeTextDecodingTrustLevel = CodingUserInfoKey(
+        rawValue: "com.jaysonguglietta.ForgeText.decodingTrustLevel"
+    )!
+}
+
+enum ForgeTextJSONDecoder {
+    static func make(trustLevel: ForgeTextDecodingTrustLevel) -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.userInfo[.forgeTextDecodingTrustLevel] = trustLevel
+        return decoder
+    }
+}
 
 enum AIProviderKind: String, CaseIterable, Codable, Identifiable {
     case openAI
@@ -118,6 +233,7 @@ struct AIProviderConfiguration: Identifiable, Codable, Hashable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let trustLevel = (decoder.userInfo[.forgeTextDecodingTrustLevel] as? ForgeTextDecodingTrustLevel) ?? .externalImport
         id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? "AI Provider"
         kind = try container.decodeIfPresent(AIProviderKind.self, forKey: .kind) ?? .openAICompatible
@@ -131,11 +247,17 @@ struct AIProviderConfiguration: Identifiable, Codable, Hashable {
         isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
 
         let legacyAPIKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? ""
-        let keychainAPIKey = AIProviderKeychainStore.apiKey(for: id) ?? ""
-        if keychainAPIKey.isEmpty, !legacyAPIKey.isEmpty {
+        let keychainAPIKey = trustLevel.allowsLegacyAIProviderKeyMigration
+            ? (AIProviderKeychainStore.apiKey(for: id) ?? "")
+            : ""
+        if trustLevel.allowsLegacyAIProviderKeyMigration, keychainAPIKey.isEmpty, !legacyAPIKey.isEmpty {
             AIProviderKeychainStore.saveAPIKey(legacyAPIKey, for: id)
         }
-        apiKey = keychainAPIKey.isEmpty ? legacyAPIKey : keychainAPIKey
+        if trustLevel.allowsLegacyAIProviderKeyMigration {
+            apiKey = keychainAPIKey.isEmpty ? legacyAPIKey : keychainAPIKey
+        } else {
+            apiKey = keychainAPIKey
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -185,8 +307,16 @@ struct AIProviderConfiguration: Identifiable, Codable, Hashable {
 
 enum AIProviderKeychainStore {
     private static let service = "com.jaysonguglietta.ForgeText.ai-provider-keys"
+    private static let testStoreLock = NSLock()
+    nonisolated(unsafe) private static var testStore: [UUID: String] = [:]
 
     static func apiKey(for providerID: UUID) -> String? {
+        if ForgeTextRuntime.isRunningUnitTests {
+            testStoreLock.lock()
+            defer { testStoreLock.unlock() }
+            return testStore[providerID]
+        }
+
         var query = baseQuery(for: providerID)
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         query[kSecReturnData as String] = true
@@ -205,6 +335,13 @@ enum AIProviderKeychainStore {
 
     @discardableResult
     static func saveAPIKey(_ apiKey: String, for providerID: UUID) -> Bool {
+        if ForgeTextRuntime.isRunningUnitTests {
+            testStoreLock.lock()
+            defer { testStoreLock.unlock() }
+            testStore[providerID] = apiKey.isEmpty ? nil : apiKey
+            return true
+        }
+
         if apiKey.isEmpty {
             return deleteAPIKey(for: providerID)
         }
@@ -224,11 +361,19 @@ enum AIProviderKeychainStore {
 
         var addQuery = query
         addQuery[kSecValueData as String] = data
+        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         return SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
     }
 
     @discardableResult
     static func deleteAPIKey(for providerID: UUID) -> Bool {
+        if ForgeTextRuntime.isRunningUnitTests {
+            testStoreLock.lock()
+            defer { testStoreLock.unlock() }
+            testStore[providerID] = nil
+            return true
+        }
+
         let status = SecItemDelete(baseQuery(for: providerID) as CFDictionary)
         return status == errSecSuccess || status == errSecItemNotFound
     }

@@ -1,8 +1,18 @@
 import Foundation
 
 enum GitConflictService {
+    private static let maximumConflictFileBytes = 16 * 1_024 * 1_024
+
+    static func text(from fileURL: URL) throws -> String {
+        let data = try BoundedFileReadService.read(fileURL, maximumBytes: maximumConflictFileBytes)
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw CocoaError(.fileReadInapplicableStringEncoding)
+        }
+        return text
+    }
+
     static func sections(from fileURL: URL) -> [GitConflictSection] {
-        guard let text = try? String(contentsOf: fileURL) else {
+        guard let text = try? text(from: fileURL) else {
             return []
         }
 

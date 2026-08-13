@@ -409,49 +409,78 @@ struct AIPromptReviewView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ZStack {
-            RetroBackdropView()
-
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 12) {
-                    Label("Review AI Request", systemImage: "checklist")
-                        .font(.system(size: 22, weight: .black, design: .monospaced))
-                        .foregroundStyle(RetroPalette.ink)
-
-                    Spacer(minLength: 0)
-
-                    Button("Cancel") {
-                        appState.cancelAIPromptReview()
-                        dismiss()
-                    }
-                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
-
-                    Button("Send") {
-                        appState.approveAIPromptReview()
-                        dismiss()
-                    }
-                    .buttonStyle(RetroActionButtonStyle(tone: .primary))
-                }
-                .padding(16)
-                .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
-
-                VStack(alignment: .leading, spacing: 8) {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: "checklist")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.tint)
+                    .frame(width: 38, height: 38)
+                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Review AI Request")
+                        .font(.system(size: 19, weight: .semibold))
                     Text("\(reviewState.providerName) · \(reviewState.model)")
-                        .font(.system(size: 12, weight: .bold, design: .monospaced))
-                        .foregroundStyle(RetroPalette.link)
-                    Text(reviewState.quickAction?.displayName ?? reviewState.effectivePromptTitle)
-                        .font(.system(size: 13, weight: .black, design: .monospaced))
-                        .foregroundStyle(RetroPalette.ink)
-                    Text("ForgeText already applied any active privacy filters, context limits, and local-only restrictions before this review.")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(RetroPalette.link)
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(.secondary)
                 }
-                .padding(14)
-                .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
+                Spacer()
+                Button("Cancel") {
+                    appState.cancelAIPromptReview()
+                    dismiss()
+                }
+                .buttonStyle(.bordered)
+                Button("Send Request") {
+                    appState.approveAIPromptReview()
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding(16)
+            .background(.bar)
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(reviewState.quickAction?.displayName ?? reviewState.effectivePromptTitle)
+                            .font(.system(size: 14, weight: .semibold))
+                            .lineLimit(2)
+                        Text("Only the prepared content shown below will be sent. API credentials are never part of this manifest.")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    manifestBadge("\(reviewState.preparedPrompt.manifest.preparedCharacterCount) chars", systemImage: "textformat.123")
+                    if reviewState.preparedPrompt.manifest.redactionApplied {
+                        manifestBadge("Redacted", systemImage: "eye.slash")
+                    }
+                    if reviewState.preparedPrompt.manifest.truncationApplied {
+                        manifestBadge("Truncated", systemImage: "scissors")
+                    }
+                }
+
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        ForEach(reviewState.preparedPrompt.manifest.entries) { entry in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(entry.label)
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .lineLimit(1)
+                                Text("\(entry.characterCount) characters")
+                                    .font(.system(size: 9, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+                        }
+                    }
+                }
 
                 HSplitView {
-                    reviewPane(title: "System Prompt", text: reviewState.preparedPrompt.systemPrompt, accent: RetroPalette.chromeBlue)
-                    reviewPane(title: "User Prompt", text: reviewState.preparedPrompt.userPrompt, accent: RetroPalette.chromeTeal)
+                    reviewPane(title: "System Prompt", text: reviewState.preparedPrompt.systemPrompt)
+                    reviewPane(title: "User Prompt", text: reviewState.preparedPrompt.userPrompt)
                 }
             }
             .padding(16)
@@ -459,23 +488,29 @@ struct AIPromptReviewView: View {
         .frame(minWidth: 980, minHeight: 640)
     }
 
-    private func reviewPane(title: String, text: String, accent: Color) -> some View {
+    private func reviewPane(title: String, text: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
-                .font(.system(size: 14, weight: .black, design: .monospaced))
-                .foregroundStyle(RetroPalette.ink)
+                .font(.system(size: 12, weight: .semibold))
 
             ScrollView {
                 Text(text)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundStyle(RetroPalette.ink)
+                    .font(.system(size: 12, design: .monospaced))
                     .textSelection(.enabled)
                     .padding(12)
             }
-            .retroInsetPanel(fill: RetroPalette.fieldFill, accent: accent)
+            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 7))
+            .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.secondary.opacity(0.25)))
         }
-        .padding(14)
-        .retroPanel(fill: RetroPalette.panelFillMuted, accent: accent)
+        .padding(12)
+    }
+
+    private func manifestBadge(_ title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(.system(size: 10, weight: .medium))
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(Color.accentColor.opacity(0.1), in: Capsule())
     }
 }

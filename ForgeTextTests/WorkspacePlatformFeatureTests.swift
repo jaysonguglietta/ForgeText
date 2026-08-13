@@ -54,7 +54,9 @@ final class WorkspacePlatformFeatureTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).log.gz")
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let largeText = String(repeating: "forge-log-line\n", count: 700_000)
+        let line = "forge-log-line\n"
+        let lineCount = (Int(TextFileCodec.maximumEditableFileSize) / line.utf8.count) + 10_000
+        let largeText = String(repeating: line, count: lineCount)
         let compressed = try CompressedFileService.compressGzip(Data(largeText.utf8))
         try compressed.write(to: url)
 
@@ -80,5 +82,21 @@ final class WorkspacePlatformFeatureTests: XCTestCase {
         XCTAssertTrue(ArchiveBrowserService.canBrowse(URL(fileURLWithPath: "/tmp/logs.tar.gz")))
         XCTAssertTrue(ArchiveBrowserService.canBrowse(URL(fileURLWithPath: "/tmp/logs.tgz")))
         XCTAssertFalse(ArchiveBrowserService.canBrowse(URL(fileURLWithPath: "/tmp/logs.txt")))
+    }
+
+    func testInfrastructureSchemasReportMissingRequiredFields() throws {
+        let workflow = try XCTUnwrap(StructuredConfigService.parse(
+            "name: Build\non: push\n",
+            url: URL(fileURLWithPath: "/tmp/.github/workflows/build.yml")
+        ))
+        let kubernetes = try XCTUnwrap(StructuredConfigService.parse(
+            "apiVersion: v1\nkind: ConfigMap\n",
+            url: URL(fileURLWithPath: "/tmp/config-map.yaml")
+        ))
+
+        XCTAssertEqual(workflow.schema, .githubActions)
+        XCTAssertTrue(workflow.diagnostics.contains { $0.message.contains("jobs") && $0.severity == .error })
+        XCTAssertEqual(kubernetes.schema, .kubernetes)
+        XCTAssertTrue(kubernetes.diagnostics.contains { $0.message.contains("metadata") && $0.severity == .warning })
     }
 }

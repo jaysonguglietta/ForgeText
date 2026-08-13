@@ -50,10 +50,15 @@ enum WorkspaceTaskService {
             guard isUserSuppliedExecutableAllowed(execution.executable) else {
                 throw TaskValidationError.unsafeExecutable(execution.executable)
             }
+            guard let executablePath = ToolchainService.trustedExecutablePath(named: execution.executable) else {
+                throw TaskValidationError.unsafeExecutable(execution.executable)
+            }
             let result = try CommandExecutionService.execute(
-                "/usr/bin/env",
-                arguments: [execution.executable] + execution.arguments,
-                currentDirectoryURL: workingDirectory
+                executablePath,
+                arguments: execution.arguments,
+                currentDirectoryURL: workingDirectory,
+                environment: ["NO_COLOR": "1"],
+                limits: .interactiveTask
             )
 
             let output = mergedOutput(from: result)
@@ -77,6 +82,74 @@ enum WorkspaceTaskService {
                 output: error.localizedDescription,
                 status: .failed,
                 exitCode: nil
+            )
+        }
+    }
+
+    static func runDiscoveredTest(
+        _ test: DiscoveredTestCase,
+        workspaceRoot: URL
+    ) async -> DiscoveredTestResult {
+        let startedAt = Date()
+        let root = workspaceRoot.resolvingSymlinksInPath().standardizedFileURL
+        let fileURL = URL(fileURLWithPath: test.filePath).resolvingSymlinksInPath().standardizedFileURL
+        guard fileURL.path.hasPrefix(root.path + "/") else {
+            return DiscoveredTestResult(
+                id: UUID().uuidString,
+                testID: test.id,
+                status: .failed,
+                duration: Date().timeIntervalSince(startedAt),
+                output: "ForgeText blocked a test file outside the selected workspace root.",
+                runAt: Date()
+            )
+        }
+
+        let relativePath = String(fileURL.path.dropFirst(root.path.count + 1))
+        let execution: (executable: String, arguments: [String])
+        switch test.framework {
+        case .xctest:
+            execution = ("swift", ["test", "--filter", test.name])
+        case .pytest:
+            execution = ("python3", ["-m", "pytest", "\(relativePath)::\(test.name)"])
+        case .javascript:
+            execution = ("npm", ["test", "--", "--runTestsByPath", relativePath, "--runInBand"])
+        }
+
+        guard let executablePath = ToolchainService.trustedExecutablePath(named: execution.executable) else {
+            return DiscoveredTestResult(
+                id: UUID().uuidString,
+                testID: test.id,
+                status: .failed,
+                duration: Date().timeIntervalSince(startedAt),
+                output: "The required \(execution.executable) tool is unavailable or outside trusted toolchain paths.",
+                runAt: Date()
+            )
+        }
+
+        do {
+            let result = try CommandExecutionService.execute(
+                executablePath,
+                arguments: execution.arguments,
+                currentDirectoryURL: root,
+                environment: ["NO_COLOR": "1"],
+                limits: .interactiveTask
+            )
+            return DiscoveredTestResult(
+                id: UUID().uuidString,
+                testID: test.id,
+                status: result.terminationStatus == 0 ? .passed : .failed,
+                duration: Date().timeIntervalSince(startedAt),
+                output: mergedOutput(from: result),
+                runAt: Date()
+            )
+        } catch {
+            return DiscoveredTestResult(
+                id: UUID().uuidString,
+                testID: test.id,
+                status: .failed,
+                duration: Date().timeIntervalSince(startedAt),
+                output: error.localizedDescription,
+                runAt: Date()
             )
         }
     }
@@ -142,7 +215,7 @@ enum WorkspaceTaskService {
         let packageURL = rootURL.appendingPathComponent("package.json")
         guard
             FileManager.default.fileExists(atPath: packageURL.path),
-            let data = try? Data(contentsOf: packageURL),
+            let data = try? BoundedFileReadService.read(packageURL, maximumBytes: 2 * 1_024 * 1_024),
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let scripts = object["scripts"] as? [String: String]
         else {
@@ -250,7 +323,9 @@ enum WorkspaceTaskService {
     }
 
     private static func parseMakeTargets(from url: URL) -> [String] {
-        guard let content = try? String(contentsOf: url) else {
+        guard let data = try? BoundedFileReadService.read(url, maximumBytes: 2 * 1_024 * 1_024),
+              let content = String(data: data, encoding: .utf8)
+        else {
             return []
         }
 
@@ -320,6 +395,9 @@ enum WorkspaceTaskService {
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .joined(separator: stdout.isEmpty || stderr.isEmpty ? "" : "\n\n")
 
+        if result.stdoutWasTruncated || result.stderrWasTruncated {
+            return combined + "\n\n[ForgeText stopped capturing output after the configured safety limit.]"
+        }
         return combined
     }
 

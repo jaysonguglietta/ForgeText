@@ -1,360 +1,551 @@
 import SwiftUI
 
+private enum AdvancedPreferenceSection: String, CaseIterable, Identifiable {
+    case experience
+    case performance
+    case files
+    case ai
+    case security
+    case recovery
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .experience:
+            return "Experience"
+        case .performance:
+            return "Performance"
+        case .files:
+            return "Files"
+        case .ai:
+            return "AI"
+        case .security:
+            return "Security"
+        case .recovery:
+            return "Recovery"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .experience:
+            return "Workbench layout, style, density, and daily-driver presets."
+        case .performance:
+            return "Latency, indexing, diagnostics, and large-workspace controls."
+        case .files:
+            return "Open behavior, autosave, session restore, and file defaults."
+        case .ai:
+            return "Provider privacy, review-before-send, and local-model safeguards."
+        case .security:
+            return "Plugins, registries, remote access, and enterprise-aware limits."
+        case .recovery:
+            return "Safe Mode, support workflows, and onboarding readiness."
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .experience:
+            return "rectangle.3.group"
+        case .performance:
+            return "speedometer"
+        case .files:
+            return "doc.text"
+        case .ai:
+            return "brain.head.profile"
+        case .security:
+            return "shield.lefthalf.filled"
+        case .recovery:
+            return "cross.case"
+        }
+    }
+}
+
 struct AppearancePreferencesView: View {
     @ObservedObject var appState: AppState
     @Environment(\.dismiss) private var dismiss
+    @State private var selectedSection: AdvancedPreferenceSection = .experience
 
     var body: some View {
         ZStack {
             RetroBackdropView()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    header
-
-                    preferenceSection("Appearance", systemImage: "paintbrush.pointed") {
-                        Picker("Workbench style", selection: chromeStyleBinding) {
-                            ForEach(AppChromeStyle.allCases) { style in
-                                Text(style.displayName).tag(style)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-
-                        Text(appState.settings.chromeStyle.summary)
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundStyle(RetroPalette.link)
-
-                        Picker("Density", selection: densityBinding) {
-                            ForEach(InterfaceDensity.allCases) { density in
-                                Text(density.displayName).tag(density)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-
-                        Picker("Editor theme", selection: themeBinding) {
-                            ForEach(EditorTheme.allCases) { theme in
-                                Text(theme.displayName).tag(theme)
-                            }
-                        }
-                        .pickerStyle(.segmented)
+            VStack(spacing: 12) {
+                WorkbenchPageHeader(
+                    title: "Workbench + Advanced",
+                    subtitle: "Tune ForgeText for long editing sessions, heavier repositories, safer AI, and more controlled workspace behavior.",
+                    badgeText: appState.managedPolicyState.isManaged ? "Managed" : nil,
+                    accent: RetroPalette.chromeBlue
+                ) {
+                    Button("Done") {
+                        dismiss()
                     }
-
-                    preferenceSection("Focus + Layout", systemImage: "viewfinder") {
-                        HStack(spacing: 10) {
-                            ForEach(WorkbenchPreset.allCases) { preset in
-                                Button(preset.displayName) {
-                                    appState.applyWorkbenchPreset(preset)
-                                }
-                                .buttonStyle(RetroActionButtonStyle(
-                                    tone: appState.selectedWorkbenchPreset == preset ? .accent : .secondary
-                                ))
-                            }
-                        }
-
-                        if appState.canRestoreCustomWorkbenchAppearance {
-                            Button("Restore Custom Layout") {
-                                appState.restoreCustomWorkbenchAppearance()
-                            }
-                            .buttonStyle(RetroActionButtonStyle(tone: .secondary))
-                        }
-
-                        Text(appState.activeWorkbenchPresetSummary)
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundStyle(RetroPalette.link)
-
-                        settingToggle(
-                            title: "Focus mode",
-                            subtitle: "Hide the sidebar, tab strip, header, inspector, and status bar for quiet editing.",
-                            isOn: focusModeBinding
-                        )
-
-                        settingToggle(
-                            title: "Right inspector drawer",
-                            subtitle: "Show outline, current-line issues, Git blame, and document metadata in one side panel.",
-                            isOn: inspectorBinding
-                        )
-
-                        settingToggle(
-                            title: "Breadcrumbs",
-                            subtitle: "Show the current section path above the editor.",
-                            isOn: breadcrumbsBinding
-                        )
-
-                        settingToggle(
-                            title: "Primary sidebar",
-                            subtitle: "Keep the explorer and workbench navigation visible on the left.",
-                            isOn: sidebarBinding
-                        )
-
-                        settingToggle(
-                            title: "Bottom panel",
-                            subtitle: "Dock search, terminal, problems, tests, source control, and AI in a VS Code-style panel.",
-                            isOn: bottomPanelBinding
-                        )
-
-                        settingToggle(
-                            title: "Outline in inspector",
-                            subtitle: "Include document headings and symbols in the inspector drawer.",
-                            isOn: outlineBinding
-                        )
-                    }
-
-                    preferenceSection("Advanced Runtime", systemImage: "speedometer") {
-                        Picker("Runtime mode", selection: performanceModeBinding) {
-                            ForEach(RuntimePerformanceMode.allCases) { mode in
-                                Text(mode.displayName).tag(mode)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-
-                        Text(appState.performanceModeSummary)
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundStyle(RetroPalette.link)
-
-                        settingToggle(
-                            title: "Auto-enter Performance Mode for heavy files",
-                            subtitle: "Shift into a lighter runtime automatically for large files and heavier workspaces.",
-                            isOn: autoPerformanceBinding
-                        )
-
-                        settingToggle(
-                            title: "Live diagnostics",
-                            subtitle: "Keep parser and secret-warning diagnostics fresh while editing.",
-                            isOn: liveDiagnosticsBinding
-                        )
-
-                        settingToggle(
-                            title: "Document insights",
-                            subtitle: "Keep outline, breadcrumb, JSON, CSV, and log insight summaries updated in the background.",
-                            isOn: documentInsightsBinding
-                        )
-
-                        settingToggle(
-                            title: "Workspace symbol indexing",
-                            subtitle: "Include symbols in Quick Open and command palette indexing.",
-                            isOn: workspaceSymbolsBinding
-                        )
-
-                        settingToggle(
-                            title: "Large repository mode",
-                            subtitle: "Keep Git refresh more manual and avoid expensive live repository hints in big projects.",
-                            isOn: largeRepositoryModeBinding
-                        )
-                    }
-
-                    preferenceSection("File Handling", systemImage: "doc.text") {
-                        settingToggle(
-                            title: "Always start in raw view",
-                            subtitle: "Open structured formats in the editor first and let table, JSON, log, or HTTP views stay opt-in.",
-                            isOn: rawViewBinding
-                        )
-
-                        settingToggle(
-                            title: "Restore previous session on launch",
-                            subtitle: "Reopen the last workspace, tabs, and remote files when ForgeText starts.",
-                            isOn: restoreSessionBinding
-                        )
-
-                        settingToggle(
-                            title: "Autosave to disk",
-                            subtitle: "Write changes back to disk automatically for local and remote files when possible.",
-                            isOn: autosaveToDiskBinding
-                        )
-
-                        Picker("Default line ending for new files", selection: defaultLineEndingBinding) {
-                            ForEach(LineEnding.allCases, id: \.rawValue) { lineEnding in
-                                Text(lineEnding.label).tag(lineEnding)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-
-                        Stepper(
-                            "Autosave delay: \(autosaveDelayText)",
-                            value: autosaveDelayMillisecondsBinding,
-                            in: 250...10_000,
-                            step: 250
-                        )
-
-                        Stepper(
-                            "External change polling: \(externalPollingText)",
-                            value: externalPollingSecondsBinding,
-                            in: 1.0...30.0,
-                            step: 0.5
-                        )
-                    }
-
-                    preferenceSection("AI Privacy", systemImage: "brain.head.profile") {
-                        settingToggle(
-                            title: "Local models only",
-                            subtitle: "Only allow Ollama or OpenAI-compatible local endpoints such as LM Studio.",
-                            isOn: localModelsOnlyBinding
-                        )
-
-                        settingToggle(
-                            title: "Review before send",
-                            subtitle: "Show the final prepared system and user prompt before any AI request leaves the editor.",
-                            isOn: requireAIReviewBinding
-                        )
-
-                        settingToggle(
-                            title: "Redact likely secrets before send",
-                            subtitle: "Mask tokens, private keys, bearer headers, and common secret assignments in AI context.",
-                            isOn: redactAIContextBinding
-                        )
-
-                        Stepper(
-                            "Max AI context size: \(maxAIContextText)",
-                            value: maxAIContextBinding,
-                            in: 1_500...120_000,
-                            step: 500
-                        )
-                    }
-
-                    preferenceSection("Plugin + Remote Safety", systemImage: "shield.lefthalf.filled") {
-                        settingToggle(
-                            title: "Allow workspace plugins",
-                            subtitle: "Let projects contribute local plugins from .forgetext/plugins.",
-                            isOn: allowWorkspacePluginsBinding
-                        )
-
-                        settingToggle(
-                            title: "Allow task-capable plugins",
-                            subtitle: "Permit plugins and workspace automation that expose executable tasks.",
-                            isOn: allowTaskPluginsBinding
-                        )
-
-                        settingToggle(
-                            title: "Allow custom registries",
-                            subtitle: "Let this Mac add and use non-default plugin registry sources.",
-                            isOn: allowCustomRegistriesBinding
-                        )
-
-                        settingToggle(
-                            title: "Open remote files read-only by default",
-                            subtitle: "Useful for production hosts where inspection is safer than immediate mutation.",
-                            isOn: remoteReadOnlyBinding
-                        )
-
-                        settingToggle(
-                            title: "Allow remote commands",
-                            subtitle: "Permit running shell commands on connected remote hosts.",
-                            isOn: allowRemoteCommandsBinding
-                        )
-
-                        settingToggle(
-                            title: "Allow remote agent install",
-                            subtitle: "Permit deploying the ForgeText helper agent to remote hosts.",
-                            isOn: allowRemoteAgentInstallBinding
-                        )
-                    }
-
-                    preferenceSection("Safe Mode", systemImage: "lock.shield") {
-                        settingToggle(
-                            title: "Safe Mode",
-                            subtitle: "Start and run ForgeText with a much smaller trust surface for support and recovery work.",
-                            isOn: safeModeEnabledBinding
-                        )
-
-                        settingToggle(
-                            title: "Restore previous session in Safe Mode",
-                            subtitle: "Let Safe Mode reopen the last workspace and tabs instead of starting clean.",
-                            isOn: safeModeRestoreSessionBinding
-                        )
-
-                        settingToggle(
-                            title: "Allow external plugins in Safe Mode",
-                            subtitle: "Keep workspace or user-installed plugins available even while Safe Mode is active.",
-                            isOn: safeModeExternalPluginsBinding
-                        )
-
-                        settingToggle(
-                            title: "Allow AI in Safe Mode",
-                            subtitle: "Permit AI workbench and prompt sends even while the app is in Safe Mode.",
-                            isOn: safeModeAIBinding
-                        )
-
-                        settingToggle(
-                            title: "Allow remote connections in Safe Mode",
-                            subtitle: "Permit remote file open, search, and SSH-backed workflows while Safe Mode is active.",
-                            isOn: safeModeRemoteBinding
-                        )
-                    }
-
-                    preferenceSection("Onboarding Checklist", systemImage: "checklist") {
-                        checklistRow("Choose a daily-driver appearance", isDone: appState.settings.chromeStyle == .studio || appState.settings.chromeStyle == .retroPro || appState.settings.chromeStyle == .minimalPro)
-                        checklistRow("Pick an editor theme", isDone: true)
-                        checklistRow("Open or clone a workspace", isDone: !appState.workspaceRootURLs.isEmpty)
-                        checklistRow("Configure AI providers", isDone: appState.settings.aiProviders.contains(where: \.isEnabled))
-                        checklistRow("Enable trusted plugins", isDone: !appState.enabledPlugins.isEmpty)
-                        checklistRow("Updater feed configured", isDone: true)
-                    }
-
-                    preferenceSection("Shortcut Browser", systemImage: "keyboard") {
-                        Text("Use Command Palette for most actions. A full rebinding engine can sit behind this browser later without changing the workflow.")
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundStyle(RetroPalette.link)
-
-                        Button("Open Keyboard Shortcuts") {
-                            appState.showingKeyboardShortcuts = true
-                        }
-                        .buttonStyle(RetroActionButtonStyle(tone: .secondary))
-                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
                 }
-                .padding(18)
+
+                HStack(spacing: 14) {
+                    settingsRail
+                    settingsContent
+                }
             }
-            .frame(minWidth: 620, idealWidth: 720, minHeight: 560)
             .padding(18)
         }
+        .frame(minWidth: 980, idealWidth: 1060, minHeight: 700)
     }
 
-    private var header: some View {
-        HStack(alignment: .top, spacing: 12) {
-            BrandMarkView(size: 34)
+    private var settingsRail: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Sections")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(RetroPalette.mutedInk)
 
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Workbench + Advanced")
-                    .font(.system(size: 22, weight: .black, design: .monospaced))
-                    .foregroundStyle(RetroPalette.ink)
+            ForEach(AdvancedPreferenceSection.allCases) { section in
+                Button {
+                    selectedSection = section
+                } label: {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: section.symbolName)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(selectedSection == section ? RetroPalette.studioAccent : RetroPalette.mutedInk)
+                            .frame(width: 16, height: 18)
 
-                Text("Tune ForgeText for long editing sessions, heavier repositories, safer AI, and more controlled workspace behavior.")
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .foregroundStyle(RetroPalette.link)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(section.title)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(RetroPalette.ink)
+
+                            Text(section.subtitle)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(RetroPalette.mutedInk)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(10)
+                    .retroPanel(
+                        fill: selectedSection == section ? RetroPalette.studioPanel : RetroPalette.studioPanelMuted,
+                        accent: selectedSection == section ? RetroPalette.studioAccent : RetroPalette.studioBorder
+                    )
+                }
+                .buttonStyle(.plain)
             }
 
             Spacer(minLength: 0)
 
-            Button("Done") {
-                dismiss()
-            }
-            .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+            WorkbenchInfoCallout(
+                title: "Managed installs",
+                message: appState.managedPolicyState.isManaged
+                    ? "Some local controls may be narrowed by the current managed policy. ForgeText keeps those reasons visible instead of silently ignoring your settings."
+                    : "Local controls apply directly unless a managed policy file is later installed on this Mac.",
+                accent: appState.managedPolicyState.isManaged ? RetroPalette.chromePink : RetroPalette.chromeBlue
+            )
         }
-        .padding(14)
-        .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromeBlue)
+        .frame(width: 260, alignment: .topLeading)
     }
 
-    private func preferenceSection<Content: View>(
-        _ title: String,
-        systemImage: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            RetroSectionHeader(title: title, systemImage: systemImage, accent: RetroPalette.chromeBlue)
-            content()
+    private var settingsContent: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 14) {
+                switch selectedSection {
+                case .experience:
+                    experienceContent
+                case .performance:
+                    performanceContent
+                case .files:
+                    fileHandlingContent
+                case .ai:
+                    aiPrivacyContent
+                case .security:
+                    securityContent
+                case .recovery:
+                    recoveryContent
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(12)
-        .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
+    }
+
+    private var experienceContent: some View {
+        Group {
+            WorkbenchSectionCard(
+                title: "Appearance",
+                subtitle: "Choose the daily-driver shell, density, and editor theme. Studio should stay the calmest default for enterprise use.",
+                systemImage: "paintbrush.pointed",
+                accent: RetroPalette.chromeBlue
+            ) {
+                Picker("Workbench style", selection: chromeStyleBinding) {
+                    ForEach(AppChromeStyle.allCases) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Text(appState.settings.chromeStyle.summary)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(RetroPalette.mutedInk)
+
+                Picker("Density", selection: densityBinding) {
+                    ForEach(InterfaceDensity.allCases) { density in
+                        Text(density.displayName).tag(density)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Picker("Editor theme", selection: themeBinding) {
+                    ForEach(EditorTheme.allCases) { theme in
+                        Text(theme.displayName).tag(theme)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            WorkbenchSectionCard(
+                title: "Layout And Presets",
+                subtitle: "Presets should feel like reliable workbench profiles, not throwaway view toggles.",
+                systemImage: "viewfinder",
+                accent: RetroPalette.chromeCyan
+            ) {
+                HStack(spacing: 10) {
+                    ForEach(WorkbenchPreset.allCases) { preset in
+                        Button(preset.displayName) {
+                            appState.applyWorkbenchPreset(preset)
+                        }
+                        .buttonStyle(RetroActionButtonStyle(
+                            tone: appState.selectedWorkbenchPreset == preset ? .accent : .secondary
+                        ))
+                    }
+                }
+
+                if appState.canRestoreCustomWorkbenchAppearance {
+                    Button("Restore Custom Layout") {
+                        appState.restoreCustomWorkbenchAppearance()
+                    }
+                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+                }
+
+                Text(appState.activeWorkbenchPresetSummary)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(RetroPalette.mutedInk)
+
+                settingToggle(
+                    title: "Focus mode",
+                    subtitle: "Hide the sidebar, tab strip, header, inspector, and status bar for quiet editing.",
+                    isOn: focusModeBinding
+                )
+
+                settingToggle(
+                    title: "Right inspector drawer",
+                    subtitle: "Show outline, current-line issues, Git blame, and document metadata in one side panel.",
+                    isOn: inspectorBinding
+                )
+
+                settingToggle(
+                    title: "Breadcrumbs",
+                    subtitle: "Show the current section path above the editor.",
+                    isOn: breadcrumbsBinding
+                )
+
+                settingToggle(
+                    title: "Primary sidebar",
+                    subtitle: "Keep the explorer and workbench navigation visible on the left.",
+                    isOn: sidebarBinding
+                )
+
+                settingToggle(
+                    title: "Bottom panel",
+                    subtitle: "Dock search, terminal, problems, tests, source control, and AI in a VS Code-style panel.",
+                    isOn: bottomPanelBinding
+                )
+
+                settingToggle(
+                    title: "Outline in inspector",
+                    subtitle: "Include document headings and symbols in the inspector drawer.",
+                    isOn: outlineBinding
+                )
+            }
+        }
+    }
+
+    private var performanceContent: some View {
+        WorkbenchSectionCard(
+            title: "Runtime Performance",
+            subtitle: "Keep the hot editing path light. This is where large-workspace behavior, indexing, and live insight refresh should be made explicit.",
+            systemImage: "speedometer",
+            accent: RetroPalette.chromeTeal
+        ) {
+            Picker("Runtime mode", selection: performanceModeBinding) {
+                ForEach(RuntimePerformanceMode.allCases) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Text(appState.performanceModeSummary)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(RetroPalette.mutedInk)
+
+            settingToggle(
+                title: "Auto-enter Performance Mode for heavy files",
+                subtitle: "Shift into a lighter runtime automatically for large files and heavier workspaces.",
+                isOn: autoPerformanceBinding
+            )
+
+            settingToggle(
+                title: "Live diagnostics",
+                subtitle: "Keep parser and secret-warning diagnostics fresh while editing.",
+                isOn: liveDiagnosticsBinding
+            )
+
+            settingToggle(
+                title: "Document insights",
+                subtitle: "Keep outline, breadcrumb, JSON, CSV, and log insight summaries updated in the background.",
+                isOn: documentInsightsBinding
+            )
+
+            settingToggle(
+                title: "Workspace symbol indexing",
+                subtitle: "Include symbols in Quick Open and command palette indexing.",
+                isOn: workspaceSymbolsBinding
+            )
+
+            settingToggle(
+                title: "Large repository mode",
+                subtitle: "Keep Git refresh more manual and avoid expensive live repository hints in big projects.",
+                isOn: largeRepositoryModeBinding
+            )
+        }
+    }
+
+    private var fileHandlingContent: some View {
+        WorkbenchSectionCard(
+            title: "File Handling",
+            subtitle: "Default to predictable file-open behavior, raw-first editing, and tunable autosave/session recovery instead of hidden heuristics.",
+            systemImage: "doc.text",
+            accent: RetroPalette.chromeBlue
+        ) {
+            settingToggle(
+                title: "Always start in raw view",
+                subtitle: "Open structured formats in the editor first and let table, JSON, log, or HTTP views stay opt-in.",
+                isOn: rawViewBinding
+            )
+
+            settingToggle(
+                title: "Restore previous session on launch",
+                subtitle: "Reopen the last workspace, tabs, and remote files when ForgeText starts.",
+                isOn: restoreSessionBinding
+            )
+
+            settingToggle(
+                title: "Autosave to disk",
+                subtitle: "Write changes back to disk automatically for local and remote files when possible.",
+                isOn: autosaveToDiskBinding
+            )
+
+            Picker("Default line ending for new files", selection: defaultLineEndingBinding) {
+                ForEach(LineEnding.allCases, id: \.rawValue) { lineEnding in
+                    Text(lineEnding.label).tag(lineEnding)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            Stepper(
+                "Autosave delay: \(autosaveDelayText)",
+                value: autosaveDelayMillisecondsBinding,
+                in: 250...10_000,
+                step: 250
+            )
+
+            Stepper(
+                "External change polling: \(externalPollingText)",
+                value: externalPollingSecondsBinding,
+                in: 1.0...30.0,
+                step: 0.5
+            )
+        }
+    }
+
+    private var aiPrivacyContent: some View {
+        WorkbenchSectionCard(
+            title: "AI Privacy Controls",
+            subtitle: "Treat AI as a governed egress path. The local defaults should make it easy to stay on-device or review exactly what leaves the editor.",
+            systemImage: "brain.head.profile",
+            accent: RetroPalette.chromeGold
+        ) {
+            if let restriction = appState.aiGlobalRestrictionReason {
+                WorkbenchInfoCallout(
+                    title: "AI is currently narrowed",
+                    message: restriction,
+                    accent: RetroPalette.warning
+                )
+            }
+
+            settingToggle(
+                title: "Local models only",
+                subtitle: "Only allow Ollama or OpenAI-compatible local endpoints such as LM Studio.",
+                isOn: localModelsOnlyBinding
+            )
+
+            settingToggle(
+                title: "Review before send",
+                subtitle: "Show the final prepared system and user prompt before any AI request leaves the editor.",
+                isOn: requireAIReviewBinding
+            )
+
+            settingToggle(
+                title: "Redact likely secrets before send",
+                subtitle: "Mask tokens, private keys, bearer headers, and common secret assignments in AI context.",
+                isOn: redactAIContextBinding
+            )
+
+            Stepper(
+                "Max AI context size: \(maxAIContextText)",
+                value: maxAIContextBinding,
+                in: 1_500...120_000,
+                step: 500
+            )
+        }
+    }
+
+    private var securityContent: some View {
+        Group {
+            WorkbenchSectionCard(
+                title: "Plugin And Registry Safety",
+                subtitle: "Keep external execution paths explicit. These local controls are especially useful when a team is not yet using a full managed policy.",
+                systemImage: "puzzlepiece.extension",
+                accent: RetroPalette.chromePink
+            ) {
+                settingToggle(
+                    title: "Allow workspace plugins",
+                    subtitle: "Let projects contribute local plugins from .forgetext/plugins.",
+                    isOn: allowWorkspacePluginsBinding
+                )
+
+                settingToggle(
+                    title: "Allow task-capable plugins",
+                    subtitle: "Permit plugins and workspace automation that expose executable tasks.",
+                    isOn: allowTaskPluginsBinding
+                )
+
+                settingToggle(
+                    title: "Allow custom registries",
+                    subtitle: "Let this Mac add and use non-default plugin registry sources.",
+                    isOn: allowCustomRegistriesBinding
+                )
+            }
+
+            WorkbenchSectionCard(
+                title: "Remote Access Safety",
+                subtitle: "Separate remote inspection from remote mutation. These defaults keep production-host workflows calmer and safer.",
+                systemImage: "network",
+                accent: RetroPalette.chromeTeal
+            ) {
+                if let restriction = appState.remoteFileAccessRestrictionReason {
+                    WorkbenchInfoCallout(
+                        title: "Remote access is currently narrowed",
+                        message: restriction,
+                        accent: RetroPalette.warning
+                    )
+                }
+
+                settingToggle(
+                    title: "Open remote files read-only by default",
+                    subtitle: "Useful for production hosts where inspection is safer than immediate mutation.",
+                    isOn: remoteReadOnlyBinding
+                )
+
+                settingToggle(
+                    title: "Allow remote commands",
+                    subtitle: "Permit running shell commands on connected remote hosts.",
+                    isOn: allowRemoteCommandsBinding
+                )
+
+                settingToggle(
+                    title: "Allow remote agent install",
+                    subtitle: "Permit deploying the ForgeText helper agent to remote hosts.",
+                    isOn: allowRemoteAgentInstallBinding
+                )
+            }
+        }
+    }
+
+    private var recoveryContent: some View {
+        Group {
+            WorkbenchSectionCard(
+                title: "Safe Mode",
+                subtitle: "Safe Mode is the recovery posture: smaller trust surface, fewer moving parts, and a better support/debugging starting point.",
+                systemImage: "lock.shield",
+                accent: RetroPalette.chromeGold
+            ) {
+                settingToggle(
+                    title: "Safe Mode",
+                    subtitle: "Start and run ForgeText with a much smaller trust surface for support and recovery work.",
+                    isOn: safeModeEnabledBinding
+                )
+
+                settingToggle(
+                    title: "Restore previous session in Safe Mode",
+                    subtitle: "Let Safe Mode reopen the last workspace and tabs instead of starting clean.",
+                    isOn: safeModeRestoreSessionBinding
+                )
+
+                settingToggle(
+                    title: "Allow external plugins in Safe Mode",
+                    subtitle: "Keep workspace or user-installed plugins available even while Safe Mode is active.",
+                    isOn: safeModeExternalPluginsBinding
+                )
+
+                settingToggle(
+                    title: "Allow AI in Safe Mode",
+                    subtitle: "Permit AI workbench and prompt sends even while the app is in Safe Mode.",
+                    isOn: safeModeAIBinding
+                )
+
+                settingToggle(
+                    title: "Allow remote connections in Safe Mode",
+                    subtitle: "Permit remote file open, search, and SSH-backed workflows while the app is in Safe Mode.",
+                    isOn: safeModeRemoteBinding
+                )
+            }
+
+            WorkbenchSectionCard(
+                title: "Readiness And Support",
+                subtitle: "This keeps first-run expectations and support-oriented shortcuts in one predictable place instead of hiding them behind separate one-off panels.",
+                systemImage: "checklist",
+                accent: RetroPalette.chromeBlue
+            ) {
+                checklistRow("Choose a daily-driver appearance", isDone: appState.settings.chromeStyle == .studio || appState.settings.chromeStyle == .retroPro || appState.settings.chromeStyle == .minimalPro)
+                checklistRow("Pick an editor theme", isDone: true)
+                checklistRow("Open or clone a workspace", isDone: !appState.workspaceRootURLs.isEmpty)
+                checklistRow("Configure AI providers", isDone: appState.settings.aiProviders.contains(where: \.isEnabled))
+                checklistRow("Enable trusted plugins", isDone: !appState.enabledPlugins.isEmpty)
+                checklistRow("Updater feed configured", isDone: true)
+
+                RetroRule()
+
+                Text("Use Command Palette for most actions. A full rebinding engine can sit behind this browser later without changing the workflow.")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(RetroPalette.mutedInk)
+
+                Button("Open Keyboard Shortcuts") {
+                    appState.showingKeyboardShortcuts = true
+                }
+                .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+            }
+        }
     }
 
     private func settingToggle(title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
         Toggle(isOn: isOn) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(RetroPalette.ink)
 
                 Text(subtitle)
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(RetroPalette.link)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(RetroPalette.mutedInk)
             }
         }
         .toggleStyle(.switch)
@@ -366,7 +557,7 @@ struct AppearancePreferencesView: View {
                 .foregroundStyle(isDone ? RetroPalette.success : RetroPalette.visited)
 
             Text(title)
-                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(RetroPalette.ink)
 
             Spacer(minLength: 0)

@@ -1,4 +1,5 @@
 import XCTest
+import Darwin
 @testable import ForgeText
 
 final class WorkspaceSearchServiceTests: XCTestCase {
@@ -19,6 +20,27 @@ final class WorkspaceSearchServiceTests: XCTestCase {
 
         XCTAssertEqual(summary.hits.count, 2)
         XCTAssertEqual(summary.scannedFileCount, 2)
+    }
+
+    func testWorkspaceSearchSkipsNamedPipes() throws {
+        let rootURL = temporaryDirectoryURL()
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        try "alpha beta\n".write(to: rootURL.appendingPathComponent("first.txt"), atomically: true, encoding: .utf8)
+        let fifoURL = rootURL.appendingPathComponent("events.fifo")
+        XCTAssertEqual(mkfifo(fifoURL.path, 0o644), 0)
+
+        let summary = WorkspaceSearchService.search(
+            root: rootURL,
+            query: "alpha",
+            options: SearchOptions(isCaseSensitive: false, usesRegularExpression: false),
+            includeHiddenFiles: false
+        )
+
+        XCTAssertEqual(summary.hits.count, 1)
+        XCTAssertEqual(summary.scannedFileCount, 1)
+        XCTAssertEqual(summary.skippedFileCount, 1)
     }
 
     func testDocumentComparisonMarksInsertedAndDeletedLines() {

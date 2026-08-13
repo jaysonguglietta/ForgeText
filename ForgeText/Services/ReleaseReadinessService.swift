@@ -46,6 +46,8 @@ enum ReleaseReadinessService {
             required: false
         ))
 
+        items.append(releaseSecurityItem(projectRoot: projectRoot))
+
         items.append(fileItem(
             id: "appcast",
             title: "Public Appcast",
@@ -118,6 +120,45 @@ enum ReleaseReadinessService {
         let distURL = projectRoot.appendingPathComponent("dist", isDirectory: true)
         let contents = (try? FileManager.default.contentsOfDirectory(at: distURL, includingPropertiesForKeys: nil)) ?? []
         return contents.filter { $0.pathExtension.lowercased() == "dmg" }.count
+    }
+
+    private static func releaseSecurityItem(projectRoot: URL?) -> ReleaseReadinessItem {
+        guard let projectRoot else {
+            return ReleaseReadinessItem(
+                id: "release-security",
+                title: "Release Security",
+                detail: "Open the ForgeText source workspace to verify signing and notarization controls.",
+                tone: .warning,
+                symbolName: "checkmark.shield"
+            )
+        }
+
+        let projectSpecURL = projectRoot.appendingPathComponent("project.yml")
+        let releaseScriptURL = projectRoot.appendingPathComponent("Scripts/build_release_dmg.sh")
+        let projectSpec = (try? BoundedFileReadService.read(projectSpecURL, maximumBytes: 1_024 * 1_024))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        let releaseScript = (try? BoundedFileReadService.read(releaseScriptURL, maximumBytes: 1_024 * 1_024))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        let requiredMarkers = [
+            "DEVELOPER_ID_APPLICATION",
+            "notarytool submit",
+            "stapler staple",
+            "spctl --assess",
+            "shasum -a 256",
+        ]
+        let hasHardenedRuntime = projectSpec.contains("ENABLE_HARDENED_RUNTIME: YES")
+        let hasReleaseGates = requiredMarkers.allSatisfy(releaseScript.contains)
+        let isReady = hasHardenedRuntime && hasReleaseGates
+
+        return ReleaseReadinessItem(
+            id: "release-security",
+            title: "Release Security",
+            detail: isReady
+                ? "Hardened runtime, Developer ID, notarization, stapling, Gatekeeper, and checksum gates are configured."
+                : "Release security configuration is incomplete in project.yml or Scripts/build_release_dmg.sh.",
+            tone: isReady ? .pass : .fail,
+            symbolName: isReady ? "checkmark.shield" : "exclamationmark.shield"
+        )
     }
 
     private static func probableProjectRoot(workspaceRoots: [URL]) -> URL? {

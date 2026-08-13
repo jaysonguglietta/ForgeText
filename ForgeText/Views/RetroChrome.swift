@@ -493,6 +493,143 @@ struct RetroSectionHeader: View {
     }
 }
 
+struct WorkbenchPageHeader<Trailing: View>: View {
+    @Environment(\.retroChromeStyle) private var chromeStyle
+
+    let title: String
+    let subtitle: String
+    var badgeText: String? = nil
+    var accent: Color = RetroPalette.chromeBlue
+    private let trailing: Trailing
+
+    init(
+        title: String,
+        subtitle: String,
+        badgeText: String? = nil,
+        accent: Color = RetroPalette.chromeBlue,
+        @ViewBuilder trailing: () -> Trailing
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.badgeText = badgeText
+        self.accent = accent
+        self.trailing = trailing()
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    Text(title)
+                        .font(.system(size: 22, weight: .bold, design: chromeStyle == .studio ? .default : .monospaced))
+                        .foregroundStyle(RetroPalette.ink)
+
+                    if let badgeText {
+                        RetroCapsuleLabel(text: badgeText, accent: accent)
+                    }
+                }
+
+                Text(subtitle)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(RetroPalette.mutedInk)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+
+            trailing
+        }
+        .padding(14)
+        .retroPanel(
+            fill: chromeStyle == .studio ? RetroPalette.studioPanel : RetroPalette.panelFill,
+            accent: chromeStyle == .studio ? RetroPalette.studioAccentMuted : accent
+        )
+    }
+}
+
+struct WorkbenchSectionCard<Content: View>: View {
+    @Environment(\.retroChromeStyle) private var chromeStyle
+
+    let title: String
+    let subtitle: String
+    var systemImage: String? = nil
+    var accent: Color = RetroPalette.chromeBlue
+    private let content: Content
+
+    init(
+        title: String,
+        subtitle: String,
+        systemImage: String? = nil,
+        accent: Color = RetroPalette.chromeBlue,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.systemImage = systemImage
+        self.accent = accent
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(accent)
+                        .frame(width: 18, height: 18)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 14, weight: .semibold, design: chromeStyle == .studio ? .default : .monospaced))
+                        .foregroundStyle(RetroPalette.ink)
+
+                    Text(subtitle)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(RetroPalette.mutedInk)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            content
+        }
+        .padding(14)
+        .retroPanel(
+            fill: chromeStyle == .studio ? RetroPalette.studioPanelMuted : RetroPalette.panelFillMuted,
+            accent: chromeStyle == .studio ? RetroPalette.studioAccentMuted : accent
+        )
+    }
+}
+
+struct WorkbenchInfoCallout: View {
+    @Environment(\.retroChromeStyle) private var chromeStyle
+
+    let title: String
+    let message: String
+    var accent: Color = RetroPalette.chromeTeal
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(RetroPalette.ink)
+
+            Text(message)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(RetroPalette.mutedInk)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .retroInsetPanel(
+            fill: chromeStyle == .studio ? RetroPalette.studioField : RetroPalette.fieldFill,
+            accent: accent
+        )
+    }
+}
+
 struct RetroIconButtonStyle: ButtonStyle {
     @Environment(\.retroDensity) private var density
     @Environment(\.retroChromeStyle) private var chromeStyle

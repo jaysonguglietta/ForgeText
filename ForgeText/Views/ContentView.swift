@@ -43,7 +43,7 @@ struct ContentView: View {
             AppearancePreferencesView(appState: appState)
         }
         .sheet(isPresented: $appState.showingKeyboardShortcuts) {
-            KeyboardShortcutsView()
+            KeyboardShortcutsView(appState: appState)
         }
         .sheet(isPresented: $appState.showingActivityCenter) {
             ActivityCenterView(appState: appState)
@@ -78,6 +78,9 @@ struct ContentView: View {
         .sheet(isPresented: $appState.showingPluginDiagnostics) {
             PluginDiagnosticsView(appState: appState)
         }
+        .sheet(isPresented: $appState.showingEngineeringWorkbench) {
+            EngineeringWorkbenchView(appState: appState)
+        }
         .sheet(item: $appState.aiPromptReviewState) { reviewState in
             AIPromptReviewView(appState: appState, reviewState: reviewState)
         }
@@ -99,6 +102,26 @@ struct ContentView: View {
         } message: {
             Text("Any unsaved edits in the current document will be lost.")
         }
+        .confirmationDialog(
+            "Install Task-Capable Plugin?",
+            isPresented: Binding(
+                get: { appState.pendingPluginInstall != nil },
+                set: { if !$0 { appState.cancelPendingPluginInstall() } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Install Plugin") {
+                appState.confirmPendingPluginInstall()
+            }
+            Button("Cancel", role: .cancel) {
+                appState.cancelPendingPluginInstall()
+            }
+        } message: {
+            let executables = appState.pendingPluginInstall?.tasks.map(\.executable) ?? []
+            Text(
+                "This plugin defines executable workspace tasks (\(executables.joined(separator: ", "))). Tasks remain blocked until the workspace is trusted, but installing the plugin makes these commands available."
+            )
+        }
         .alert(item: $appState.alertContext) { context in
             Alert(
                 title: Text(context.title),
@@ -111,6 +134,7 @@ struct ContentView: View {
                 WorkbenchQuickOverlay(appState: appState)
             }
         }
+        .accessibilityIdentifier("forgetext.root")
     }
 
     @ViewBuilder
@@ -126,62 +150,48 @@ struct ContentView: View {
 
 private enum SidebarPane: String, CaseIterable, Identifiable {
     case explorer
+    case search
     case sourceControl
-    case workspace
-    case jump
-    case tools
-    case extensions
+    case workbench
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .explorer:
-            return "Explorer"
+            return "Files"
+        case .search:
+            return "Search"
         case .sourceControl:
             return "Source Control"
-        case .workspace:
-            return "Workspace"
-        case .jump:
-            return "Navigate"
-        case .tools:
-            return "Tools"
-        case .extensions:
-            return "Extensions"
+        case .workbench:
+            return "Workbench"
         }
     }
 
     var subtitle: String {
         switch self {
         case .explorer:
-            return "Open files, switch documents, and browse the active folder."
+            return "Documents and workspace files"
+        case .search:
+            return "Files, symbols, text, and commands"
         case .sourceControl:
-            return "Review branch state, stage changes, and jump into Git workflows."
-        case .workspace:
-            return "Manage folders, sessions, remote files, and repository setup."
-        case .jump:
-            return "Move quickly through files, symbols, commands, and diagnostics."
-        case .tools:
-            return "Git, AI, terminal, problems, tests, and workflow utilities."
-        case .extensions:
-            return "Plugins, tasks, snippets, appearance, and setup."
+            return "Review and stage working-tree changes"
+        case .workbench:
+            return "Engineering and enterprise workflows"
         }
     }
 
     var symbolName: String {
         switch self {
         case .explorer:
-            return "doc.on.doc"
+            return "doc.on.doc.fill"
+        case .search:
+            return "magnifyingglass"
         case .sourceControl:
             return "arrow.triangle.branch"
-        case .workspace:
-            return "sidebar.left"
-        case .jump:
-            return "magnifyingglass"
-        case .tools:
-            return "hammer"
-        case .extensions:
-            return "puzzlepiece.extension"
+        case .workbench:
+            return "square.grid.2x2"
         }
     }
 }
@@ -200,12 +210,11 @@ private struct DocumentSidebarView: View {
                 .frame(width: 1)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                LazyVStack(alignment: .leading, spacing: 10) {
                     sidebarHeader
-                    quickActionBar
                     selectedPaneContent
                 }
-                .padding(14)
+                .padding(12)
             }
         }
         .frame(minWidth: 320)
@@ -233,6 +242,7 @@ private struct DocumentSidebarView: View {
                 .buttonStyle(.plain)
                 .help(pane.title)
                 .accessibilityLabel(pane.title)
+                .accessibilityIdentifier("forgetext.sidebar.\(pane.rawValue)")
             }
 
             Spacer(minLength: 0)
@@ -260,31 +270,48 @@ private struct DocumentSidebarView: View {
     }
 
     private var sidebarHeader: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
                 Text(selectedPane.title)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(RetroPalette.ink)
 
                 Spacer(minLength: 0)
+
+                Menu {
+                    Button("New File", action: appState.newDocument)
+                    Button("Open File...", action: appState.openDocument)
+                    Button("Open Folder...", action: appState.chooseWorkspaceRoot)
+                    Divider()
+                    Button("Command Palette") { appState.showingCommandPalette = true }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 24, height: 24)
+                }
+                .menuStyle(.borderlessButton)
+                .accessibilityLabel("Sidebar actions")
             }
 
-            Text(appState.activeWorkspaceURL?.lastPathComponent ?? selectedPane.subtitle)
-                .font(.system(size: 11, weight: .medium))
+            Text(selectedPane.subtitle)
+                .font(.system(size: 10, weight: .regular))
                 .foregroundStyle(RetroPalette.mutedInk)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .retroPanel(fill: chromeStyle == .studio ? RetroPalette.studioPanel : RetroPalette.railFill, accent: RetroPalette.chromeBlue)
-    }
+                .lineLimit(1)
 
-    private var quickActionBar: some View {
-        HStack(spacing: 8) {
-            compactAction("New", systemImage: "plus.square", action: appState.newDocument)
-            compactAction("Open", systemImage: "folder", action: appState.openDocument)
-            compactAction("Palette", systemImage: "command", action: { appState.showingCommandPalette = true })
+            if let activeWorkspaceURL = appState.activeWorkspaceURL {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(RetroPalette.chromeBlue)
+
+                    Text(activeWorkspaceURL.lastPathComponent)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(RetroPalette.ink)
+                        .lineLimit(1)
+                }
+            }
         }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder
@@ -292,16 +319,12 @@ private struct DocumentSidebarView: View {
         switch selectedPane {
         case .explorer:
             explorerPane
+        case .search:
+            jumpPane
         case .sourceControl:
             sourceControlPane
-        case .workspace:
-            workspacePane
-        case .jump:
-            jumpPane
-        case .tools:
-            toolsPane
-        case .extensions:
-            extensionsPane
+        case .workbench:
+            workbenchPane
         }
     }
 
@@ -323,49 +346,65 @@ private struct DocumentSidebarView: View {
             }
 
             WorkspaceExplorerView(appState: appState)
+        }
+    }
 
-            sidebarSection("Recent Files") {
-                if appState.recentFiles.isEmpty {
-                    emptySidebarMessage("Recent files will appear here after you open or save documents.")
-                } else {
-                    ForEach(appState.recentFiles, id: \.path) { url in
-                        Button {
-                            appState.openDocuments(at: [url])
-                        } label: {
-                            fileCard(
-                                title: url.lastPathComponent,
-                                subtitle: url.path(percentEncoded: false),
-                                symbolName: "clock.arrow.circlepath"
-                            )
-                        }
-                        .buttonStyle(.plain)
+    private var workbenchPane: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                appState.showEngineeringWorkbench(.overview)
+            } label: {
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .stroke(RetroPalette.chromeTeal.opacity(0.25), lineWidth: 5)
+                        Text("\(appState.engineeringWorkbenchState.health.score)")
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
                     }
+                    .frame(width: 46, height: 46)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Workspace Health")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(RetroPalette.ink)
+                        Text("\(appState.engineeringWorkbenchState.health.attentionCount) items need attention")
+                            .font(.system(size: 10))
+                            .foregroundStyle(RetroPalette.mutedInk)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(RetroPalette.mutedInk)
                 }
+                .padding(12)
+                .background(RetroPalette.studioPanelMuted, in: RoundedRectangle(cornerRadius: 9))
             }
+            .buttonStyle(.plain)
 
-            if !appState.recentRemoteLocations.isEmpty {
-                sidebarSection("Recent Remote") {
-                    ForEach(appState.recentRemoteLocations, id: \.spec) { reference in
-                        Button {
-                            appState.remoteLocationDraft = reference.spec
-                            appState.openRemoteDocument()
-                        } label: {
-                            fileCard(
-                                title: reference.displayName,
-                                subtitle: reference.pathDescription,
-                                symbolName: "network"
-                            )
-                        }
-                        .buttonStyle(.plain)
+            ForEach(EngineeringWorkbenchSection.allCases.filter { $0 != .overview }) { section in
+                Button {
+                    appState.showEngineeringWorkbench(section)
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: section.symbolName)
+                            .frame(width: 20)
+                            .foregroundStyle(RetroPalette.chromeBlue)
+                        Text(section.title)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(RetroPalette.ink)
+                        Spacer()
                     }
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 7)
                 }
+                .buttonStyle(.plain)
             }
         }
     }
 
     private var workspacePane: some View {
         Group {
-            sidebarSection("Workspace") {
+            sidebarSection("Control Plane") {
                 Button {
                     appState.showWorkspacePlatformPanel()
                 } label: {
@@ -377,6 +416,19 @@ private struct DocumentSidebarView: View {
                 }
                 .buttonStyle(.plain)
 
+                Button {
+                    appState.showWorkspaceSessionsPanel()
+                } label: {
+                    fileCard(
+                        title: "Workspace Sessions",
+                        subtitle: "Save and reopen grouped files, remotes, and workbench state.",
+                        symbolName: "square.stack.3d.up"
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+
+            sidebarSection("Workspace Setup") {
                 Button {
                     appState.chooseWorkspaceRoot()
                 } label: {
@@ -398,7 +450,9 @@ private struct DocumentSidebarView: View {
                     )
                 }
                 .buttonStyle(.plain)
+            }
 
+            sidebarSection("Remote + AI") {
                 Button {
                     appState.openRemotePanel()
                 } label: {
@@ -411,12 +465,23 @@ private struct DocumentSidebarView: View {
                 .buttonStyle(.plain)
 
                 Button {
-                    appState.showWorkspaceSessionsPanel()
+                    appState.showAIWorkbenchPanel()
                 } label: {
                     fileCard(
-                        title: "Workspace Sessions",
-                        subtitle: "Save and reopen grouped files, remotes, and workbench state.",
-                        symbolName: "square.stack.3d.up"
+                        title: "AI Workbench",
+                        subtitle: "Use configured providers for chat, editing, and commit drafts.",
+                        symbolName: "sparkles.rectangle.stack"
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    appState.showAIContextCenterPanel()
+                } label: {
+                    fileCard(
+                        title: "AI Context",
+                        subtitle: "Review workspace rules, reusable prompts, and send context before you ask a model for help.",
+                        symbolName: "brain.head.profile"
                     )
                 }
                 .buttonStyle(.plain)
@@ -511,11 +576,13 @@ private struct DocumentSidebarView: View {
 
     private var toolsPane: some View {
         Group {
-            sidebarSection("Developer Tools") {
+            sidebarSection("Execution Surfaces") {
                 actionCard("Embedded Terminal", subtitle: "Run shell commands without leaving ForgeText.", symbolName: "terminal.fill", action: appState.showTerminalConsolePanel)
+                actionCard("Task Runner", subtitle: "Run workspace build, test, and lint commands from detected project files.", symbolName: "play.square.stack", action: appState.showTaskRunnerPanel)
                 actionCard("Git Workbench", subtitle: "Commit, push, pull, stash, and inspect repository changes.", symbolName: "point.topleft.down.curvedto.point.bottomright.up", action: appState.showGitWorkbenchPanel)
-                actionCard("AI Workbench", subtitle: "Use configured providers for chat, editing, and commit drafts.", symbolName: "sparkles.rectangle.stack", action: appState.showAIWorkbenchPanel)
-                actionCard("AI Context", subtitle: "Review workspace rules and reusable prompts.", symbolName: "brain.head.profile", action: appState.showAIContextCenterPanel)
+            }
+
+            sidebarSection("Quality + Delivery") {
                 actionCard("Problems", subtitle: "Review matched build, test, lint, and terminal problems.", symbolName: "exclamationmark.bubble", action: appState.showProblemsPanelView)
                 actionCard("Test Explorer", subtitle: "Run detected workspace tests and inspect results.", symbolName: "checklist.checked", action: appState.showTestExplorerPanel)
                 actionCard("GitHub Workflow", subtitle: "Open repository pages and branch compare workflows.", symbolName: "arrow.triangle.branch", action: appState.showGitHubWorkflowPanel)
@@ -525,9 +592,8 @@ private struct DocumentSidebarView: View {
 
     private var extensionsPane: some View {
         Group {
-            sidebarSection("Extensions + Setup") {
+            sidebarSection("Configure + Extend") {
                 actionCard("Plugin Manager", subtitle: "Enable built-in IDE plugins and inspect their capabilities.", symbolName: "puzzlepiece.extension", action: appState.showPluginManagerPanel)
-                actionCard("Task Runner", subtitle: "Run workspace build, test, and lint commands from detected project files.", symbolName: "play.square.stack", action: appState.showTaskRunnerPanel)
                 actionCard("Snippet Library", subtitle: "Insert format-aware snippets into the current document.", symbolName: "text.badge.plus", action: appState.showSnippetLibraryPanel)
                 actionCard("Workbench + Advanced", subtitle: "Adjust layout, runtime, file handling, AI privacy, and editor theme.", symbolName: "slider.horizontal.3", action: appState.showAppearancePreferences)
                 actionCard("Setup Checklist", subtitle: "Review workspace, Git, AI, plugin, and update readiness.", symbolName: "checklist", action: appState.showFirstRunSetupPanel)
@@ -907,33 +973,9 @@ private struct DocumentWorkspaceView: View {
                 }
 
                 Button {
-                    appState.openRemotePanel()
-                } label: {
-                    Label("Remote", systemImage: "network")
-                }
-
-                Button {
                     appState.saveDocument()
                 } label: {
                     Label("Save", systemImage: "square.and.arrow.down")
-                }
-
-                Button {
-                    appState.showFindReplace()
-                } label: {
-                    Label("Find", systemImage: "magnifyingglass")
-                }
-
-                Button {
-                    appState.showProjectSearch()
-                } label: {
-                    Label("Search Files", systemImage: "magnifyingglass")
-                }
-
-                Button {
-                    appState.showingCommandPalette = true
-                } label: {
-                    Label("Palette", systemImage: "command")
                 }
 
                 Button {
@@ -942,34 +984,41 @@ private struct DocumentWorkspaceView: View {
                     Label("Quick Open", systemImage: "doc.text.magnifyingglass")
                 }
 
-                Button {
-                    appState.showWorkspacePlatformPanel()
+                Menu {
+                    Button("Find in File", systemImage: "magnifyingglass") {
+                        appState.showFindReplace()
+                    }
+                    Button("Search Files", systemImage: "text.magnifyingglass") {
+                        appState.showProjectSearch()
+                    }
+                    Button("Command Palette", systemImage: "command") {
+                        appState.showingCommandPalette = true
+                    }
+                    Divider()
+                    Button("Remote Open", systemImage: "network") {
+                        appState.openRemotePanel()
+                    }
+                    Button("Workspace Center", systemImage: "square.3.layers.3d") {
+                        appState.showWorkspacePlatformPanel()
+                    }
+                    Button("Engineering Workbench", systemImage: "square.grid.2x2") {
+                        appState.showEngineeringWorkbench()
+                    }
+                    Button("Tasks", systemImage: "play.square.stack") {
+                        appState.showTaskRunnerPanel()
+                    }
+                    Button("Terminal", systemImage: "terminal") {
+                        appState.showTerminalConsolePanel()
+                    }
+                    Divider()
+                    Button(appState.isSidebarVisible ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.left") {
+                        appState.toggleSidebar()
+                    }
+                    Button(appState.isBottomPanelVisible ? "Hide Bottom Panel" : "Show Bottom Panel", systemImage: "rectangle.bottomthird.inset.filled") {
+                        appState.toggleBottomPanel()
+                    }
                 } label: {
-                    Label("Workspace", systemImage: "square.3.layers.3d")
-                }
-
-                Button {
-                    appState.showTaskRunnerPanel()
-                } label: {
-                    Label("Tasks", systemImage: "play.square.stack")
-                }
-
-                Button {
-                    appState.showTerminalConsolePanel()
-                } label: {
-                    Label("Console", systemImage: "terminal.fill")
-                }
-
-                Button {
-                    appState.toggleSidebar()
-                } label: {
-                    Label(appState.isSidebarVisible ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.left")
-                }
-
-                Button {
-                    appState.toggleBottomPanel()
-                } label: {
-                    Label(appState.isBottomPanelVisible ? "Hide Panel" : "Show Panel", systemImage: "rectangle.bottomthird.inset.filled")
+                    Label("More", systemImage: "ellipsis.circle")
                 }
             }
         }
@@ -1509,6 +1558,8 @@ private struct DocumentWorkspaceView: View {
         switch mode {
         case .editor, .readOnlyPreview:
             return "Raw Text"
+        case .chunkedText:
+            return "Large File"
         case .binaryHex:
             return "Hex Preview"
         case .structuredTable:
@@ -1607,7 +1658,19 @@ private struct DocumentWorkspaceView: View {
             HTTPRequestView(
                 document: document,
                 theme: appState.settings.theme,
-                onShowRawText: appState.showRawTextView
+                onShowRawText: appState.showRawTextView,
+                onExecuteRequest: { request, allowPrivateNetwork in
+                    try await appState.executeHTTPRequest(
+                        request,
+                        allowPrivateNetwork: allowPrivateNetwork
+                    )
+                }
+            )
+        case .chunkedText:
+            ChunkedTextView(
+                document: document,
+                theme: appState.settings.theme,
+                fontSize: CGFloat(appState.settings.fontSize)
             )
         case .editor, .readOnlyPreview, .binaryHex:
             EditorContainerView(
@@ -1653,6 +1716,10 @@ private struct DocumentWorkspaceView: View {
             return "Binary Hex Preview"
         }
 
+        if document.presentationMode == .chunkedText {
+            return "Chunked Large File"
+        }
+
         if document.isPartialPreview {
             return "Read-Only Preview"
         }
@@ -1667,6 +1734,10 @@ private struct DocumentWorkspaceView: View {
 
         if document.presentationMode == .binaryHex {
             return "ForgeText opened this file as a hex preview because it doesn’t decode cleanly as text."
+        }
+
+        if document.presentationMode == .chunkedText {
+            return "ForgeText loads this large file one bounded window at a time to keep memory and layout work predictable."
         }
 
         if document.isPartialPreview {
@@ -1711,7 +1782,7 @@ private struct DocumentWorkspaceView: View {
             return ("Archive", RetroPalette.visited)
         case .httpRequest:
             return ("HTTP", RetroPalette.chromeCyan)
-        case .editor, .readOnlyPreview, .binaryHex:
+        case .editor, .readOnlyPreview, .chunkedText, .binaryHex:
             return nil
         }
     }
@@ -1850,6 +1921,7 @@ private struct EmptyWorkspaceView: View {
         .padding(28)
         .retroPanel(fill: RetroPalette.railFill, accent: RetroPalette.chromePink)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("forgetext.empty-workspace")
     }
 
     private func heroAction(
@@ -1878,6 +1950,7 @@ private struct EmptyWorkspaceView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .accessibilityIdentifier("forgetext.action.\(title.lowercased().replacingOccurrences(of: " ", with: "-"))")
         .buttonStyle(RetroActionButtonStyle(tone: tone))
     }
 }

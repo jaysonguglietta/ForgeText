@@ -27,6 +27,14 @@ enum ExternalPluginService {
             let role: PluginTaskRole
         }
 
+        struct LanguagePackRecord: Codable {
+            let id: String
+            let displayName: String
+            let baseLanguage: DocumentLanguage
+            let fileExtensions: [String]?
+            let fileNames: [String]?
+        }
+
         let id: String
         let name: String
         let version: String
@@ -37,6 +45,9 @@ enum ExternalPluginService {
         let defaultEnabled: Bool?
         let snippets: [SnippetRecord]?
         let tasks: [TaskRecord]?
+        let languagePacks: [LanguagePackRecord]?
+        let signingPublicKey: String?
+        let signature: String?
     }
 
     static func discoverPlugins(workspaceRoots: [URL]) -> [EditorPlugin] {
@@ -73,15 +84,21 @@ enum ExternalPluginService {
 
         return files
             .filter { $0.pathExtension.lowercased() == "json" }
+            .prefix(500)
             .compactMap { loadPlugin(at: $0, workspaceRoot: directory.workspaceRoot) }
     }
 
     private static func loadPlugin(at url: URL, workspaceRoot: URL?) -> EditorPlugin? {
-        guard let data = try? Data(contentsOf: url),
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
+              values.isRegularFile == true,
+              values.isSymbolicLink != true,
+              (values.fileSize ?? 0) <= 1_024 * 1_024,
+              let data = try? BoundedFileReadService.read(url, maximumBytes: 1_024 * 1_024),
               let manifestFile = try? JSONDecoder().decode(ManifestFile.self, from: data)
         else {
             return nil
         }
+        let provenance = PluginSignatureService.provenance(for: data)
 
         let tasks = (manifestFile.tasks ?? []).compactMap { task -> EditorPluginTask? in
             guard WorkspaceTaskService.isUserSuppliedExecutableAllowed(task.executable) else {
@@ -104,8 +121,26 @@ enum ExternalPluginService {
             )
         }
 
+        let languagePacks = (manifestFile.languagePacks ?? []).prefix(50).compactMap { pack -> EditorPluginLanguagePack? in
+            let extensions = safeAliases(pack.fileExtensions ?? [], removesLeadingDot: true)
+            let names = safeAliases(pack.fileNames ?? [], removesLeadingDot: false)
+            guard !extensions.isEmpty || !names.isEmpty else { return nil }
+            return EditorPluginLanguagePack(
+                id: pack.id,
+                pluginID: manifestFile.id,
+                displayName: String(pack.displayName.prefix(100)),
+                baseLanguage: pack.baseLanguage,
+                fileExtensions: extensions,
+                fileNames: names
+            )
+        }
+
         let capabilities = manifestFile.capabilities.filter { capability in
-            capability != .tasks || !tasks.isEmpty
+            switch capability {
+            case .tasks: return !tasks.isEmpty
+            case .languagePacks: return !languagePacks.isEmpty
+            default: return true
+            }
         }
 
         let manifest = EditorPluginManifest(
@@ -118,7 +153,9 @@ enum ExternalPluginService {
             capabilities: capabilities,
             isBuiltIn: false,
             sourceDescription: url.path(percentEncoded: false),
-            defaultEnabled: manifestFile.defaultEnabled ?? false
+            defaultEnabled: manifestFile.defaultEnabled ?? false,
+            canonicalSHA256: provenance?.canonicalSHA256,
+            verifiedSigningKey: provenance?.verifiedSigningKey
         )
 
         let snippets = (manifestFile.snippets ?? []).map { snippet in
@@ -137,7 +174,22 @@ enum ExternalPluginService {
             manifest: manifest,
             commands: [],
             snippets: snippets,
-            tasks: tasks
+            tasks: tasks,
+            languagePacks: languagePacks
         )
+    }
+
+    private static func safeAliases(_ values: [String], removesLeadingDot: Bool) -> [String] {
+        Array(Set(values.prefix(100).compactMap { value -> String? in
+            var normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if removesLeadingDot { normalized = normalized.trimmingCharacters(in: CharacterSet(charactersIn: ".")) }
+            guard !normalized.isEmpty,
+                  normalized.count <= 128,
+                  !normalized.contains("/"),
+                  !normalized.contains("\\"),
+                  !normalized.unicodeScalars.contains(where: CharacterSet.controlCharacters.contains)
+            else { return nil }
+            return normalized
+        })).sorted()
     }
 }

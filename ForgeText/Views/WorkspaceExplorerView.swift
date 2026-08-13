@@ -12,6 +12,20 @@ struct WorkspaceExplorerView: View {
     }
 
     var body: some View {
+        Group {
+            if chromeStyle == .studio {
+                explorerContent
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 6)
+            } else {
+                explorerContent
+                    .padding(12)
+                    .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
+            }
+        }
+    }
+
+    private var explorerContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text("Explorer")
@@ -19,25 +33,24 @@ struct WorkspaceExplorerView: View {
                     .foregroundStyle(RetroPalette.ink)
                 Spacer(minLength: 0)
 
-                Toggle(
-                    "Hidden",
-                    isOn: Binding(
+                Menu {
+                    Toggle("Show Hidden Files", isOn: Binding(
                         get: { appState.settings.showHiddenFilesInExplorer },
                         set: { newValue in
                             appState.settings.showHiddenFilesInExplorer = newValue
                             AppSettingsStore.save(appState.settings)
                             appState.refreshWorkspaceExplorer()
                         }
-                    )
-                )
-                .toggleStyle(.switch)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(RetroPalette.link)
-
-                Button("Reload") {
-                    appState.refreshWorkspaceExplorer()
+                    ))
+                    Button("Reload Files", systemImage: "arrow.clockwise") {
+                        appState.refreshWorkspaceExplorer()
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .frame(width: 24, height: 24)
                 }
-                .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+                .menuStyle(.borderlessButton)
+                .accessibilityLabel("Explorer options")
             }
 
             if appState.workspaceRootURLs.count > 1 {
@@ -56,34 +69,51 @@ struct WorkspaceExplorerView: View {
                     .foregroundStyle(RetroPalette.link)
             }
 
-            TextField("Filter files", text: $appState.workspaceExplorerState.filterQuery)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .retroTextField()
-
-            if filteredNodes.isEmpty {
+            if appState.activeWorkspaceURL == nil {
                 Button {
                     appState.chooseWorkspaceRoot()
                 } label: {
-                    Text(appState.activeWorkspaceURL == nil ? "Choose Workspace Folder" : "No files matched the explorer filter")
-                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                    Label("Open Folder", systemImage: "folder.badge.plus")
+                        .font(.system(size: 11, weight: .semibold))
                 }
-                .buttonStyle(RetroActionButtonStyle(tone: .secondary))
+                .buttonStyle(.bordered)
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        OutlineGroup(filteredNodes, children: \.childrenOrNil) { node in
-                            WorkspaceExplorerRow(appState: appState, node: node)
-                        }
-                    }
-                    .padding(.vertical, 4)
+                TextField("Filter files", text: $appState.workspaceExplorerState.filterQuery)
+                    .textFieldStyle(.roundedBorder)
+                    .font(.system(size: 11))
+
+                if filteredNodes.isEmpty {
+                    Text("No files match this filter.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 8)
+                } else {
+                    explorerTree
                 }
-                .frame(minHeight: 280, maxHeight: 520)
-                .retroInsetPanel(fill: chromeStyle == .studio ? RetroPalette.studioField : RetroPalette.fieldFill, accent: RetroPalette.chromeBlue)
             }
         }
-        .padding(12)
-        .retroPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
+    }
+
+    private var explorerTree: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                OutlineGroup(filteredNodes, children: \.childrenOrNil) { node in
+                    WorkspaceExplorerRow(appState: appState, node: node)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+        .frame(minHeight: 280, maxHeight: 520)
+        .background(
+            chromeStyle == .studio
+                ? RetroPalette.studioField.opacity(0.35)
+                : RetroPalette.fieldFill
+        )
+        .clipShape(RoundedRectangle(cornerRadius: chromeStyle == .studio ? 7 : 0))
+        .overlay {
+            RoundedRectangle(cornerRadius: chromeStyle == .studio ? 7 : 0)
+                .stroke(chromeStyle == .studio ? RetroPalette.studioBorder : RetroPalette.chromeBlue, lineWidth: 1)
+        }
     }
 }
 

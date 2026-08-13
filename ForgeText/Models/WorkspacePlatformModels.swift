@@ -239,9 +239,12 @@ struct PluginRegistryEntry: Identifiable, Codable, Hashable {
     var snippets: [PluginRegistrySnippetRecord]
     var tasks: [PluginRegistryTaskRecord]
     var installFileName: String
+    var signingPublicKey: String? = nil
+    var signature: String? = nil
 
     var manifest: EditorPluginManifest {
-        EditorPluginManifest(
+        let provenance = PluginSignatureService.provenance(for: self)
+        return EditorPluginManifest(
             id: id,
             name: name,
             version: version,
@@ -251,7 +254,9 @@ struct PluginRegistryEntry: Identifiable, Codable, Hashable {
             capabilities: capabilities,
             isBuiltIn: false,
             sourceDescription: sourceDescription,
-            defaultEnabled: defaultEnabled
+            defaultEnabled: defaultEnabled,
+            canonicalSHA256: provenance?.canonicalSHA256,
+            verifiedSigningKey: provenance?.verifiedSigningKey
         )
     }
 }

@@ -75,7 +75,7 @@ enum WorkspaceIndexService {
 
             guard let enumerator = FileManager.default.enumerator(
                 at: root,
-                includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isHiddenKey, .fileSizeKey, .contentModificationDateKey],
+                includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .isHiddenKey, .fileSizeKey, .contentModificationDateKey],
                 options: [.skipsPackageDescendants],
                 errorHandler: { _, _ in true }
             ) else {
@@ -88,8 +88,14 @@ enum WorkspaceIndexService {
                 }
 
                 let values = try? fileURL.resourceValues(
-                    forKeys: [.isDirectoryKey, .isRegularFileKey, .isHiddenKey, .fileSizeKey, .contentModificationDateKey]
+                    forKeys: [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .isHiddenKey, .fileSizeKey, .contentModificationDateKey]
                 )
+
+                if values?.isSymbolicLink == true {
+                    skippedFileCount += 1
+                    enumerator.skipDescendants()
+                    continue
+                }
 
                 if values?.isDirectory == true {
                     if shouldSkipDirectory(fileURL, includeHiddenFiles: includeHiddenFiles, isHidden: values?.isHidden == true) {
@@ -118,7 +124,9 @@ enum WorkspaceIndexService {
                     continue
                 }
 
-                guard let data = try? Data(contentsOf: fileURL, options: [.mappedIfSafe]), !looksBinary(data) else {
+                guard let data = try? BoundedFileReadService.read(fileURL, maximumBytes: maxTextBytes),
+                      !looksBinary(data)
+                else {
                     skippedFileCount += 1
                     continue
                 }

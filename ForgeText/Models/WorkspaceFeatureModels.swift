@@ -3,6 +3,7 @@ import Foundation
 enum DocumentPresentationMode: String, Codable {
     case editor
     case readOnlyPreview
+    case chunkedText
     case binaryHex
     case structuredTable
     case structuredJSON
@@ -15,7 +16,7 @@ enum DocumentPresentationMode: String, Codable {
         switch self {
         case .structuredTable, .structuredJSON, .logExplorer, .structuredConfig, .archiveBrowser, .httpRequest:
             return true
-        case .editor, .readOnlyPreview, .binaryHex:
+        case .editor, .readOnlyPreview, .chunkedText, .binaryHex:
             return false
         }
     }
@@ -26,6 +27,8 @@ enum DocumentPresentationMode: String, Codable {
             return "Editor"
         case .readOnlyPreview:
             return "Preview"
+        case .chunkedText:
+            return "Chunked Text"
         case .binaryHex:
             return "Hex Preview"
         case .structuredTable:
@@ -45,7 +48,7 @@ enum DocumentPresentationMode: String, Codable {
 
     var symbolName: String {
         switch self {
-        case .editor, .readOnlyPreview:
+        case .editor, .readOnlyPreview, .chunkedText:
             return "doc.text"
         case .binaryHex:
             return "square.grid.3x2"
@@ -123,6 +126,7 @@ enum LogGroupingMode: String, CaseIterable, Codable, Identifiable {
     case none
     case severity
     case source
+    case timeline
 
     var id: String { rawValue }
 
@@ -134,6 +138,8 @@ enum LogGroupingMode: String, CaseIterable, Codable, Identifiable {
             return "By Severity"
         case .source:
             return "By Source"
+        case .timeline:
+            return "Timeline Clusters"
         }
     }
 }
@@ -198,7 +204,7 @@ struct RemoteFileReference: Identifiable, Codable, Hashable {
         let connection = String(trimmed[..<separatorIndex]).trimmingCharacters(in: .whitespacesAndNewlines)
         let path = String(trimmed[trimmed.index(after: separatorIndex)...]).trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard isValidConnection(connection), !path.isEmpty else {
+        guard isValidConnection(connection), isValidAbsolutePath(path) else {
             return nil
         }
 
@@ -218,6 +224,15 @@ struct RemoteFileReference: Identifiable, Codable, Hashable {
             .union(.controlCharacters)
             .union(CharacterSet(charactersIn: ":/\\"))
         return trimmed.rangeOfCharacter(from: unsafeCharacters) == nil
+    }
+
+    static func isValidAbsolutePath(_ path: String) -> Bool {
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty
+            && trimmed == path
+            && trimmed.hasPrefix("/")
+            && trimmed.count <= 4_096
+            && trimmed.rangeOfCharacter(from: .controlCharacters) == nil
     }
 }
 
@@ -481,6 +496,20 @@ struct RemoteSearchHit: Identifiable, Hashable {
     let lineText: String
 }
 
+struct RemoteDirectoryEntry: Identifiable, Hashable {
+    enum Kind: String, Hashable {
+        case file
+        case directory
+        case symbolicLink
+    }
+
+    var id: String { path }
+    let name: String
+    let path: String
+    let kind: Kind
+    let size: Int64?
+}
+
 struct RemoteWorkspaceState {
     var searchRootPath = ""
     var searchQuery = ""
@@ -493,6 +522,8 @@ struct RemoteWorkspaceState {
     var statusMessage: String?
     var executionMode: RemoteExecutionMode = .directShell
     var agentStatus: RemoteAgentStatus?
+    var directoryEntries: [RemoteDirectoryEntry] = []
+    var isBrowsingDirectory = false
 }
 
 struct CloneRepositoryState {

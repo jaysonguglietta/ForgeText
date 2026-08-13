@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct LogExplorerView: View {
@@ -15,8 +16,19 @@ struct LogExplorerView: View {
     @State private var startTimestamp = ""
     @State private var endTimestamp = ""
     @State private var filterName = ""
+    @State private var sessionSources: [(name: String, document: LogDocument)] = []
+    @State private var isLoadingSession = false
+    @State private var sessionStatus: String?
 
     private let logDocument: LogDocument?
+
+    private var activeLogDocument: LogDocument? {
+        guard let logDocument else { return nil }
+        guard !sessionSources.isEmpty else { return logDocument }
+        return LogExplorerService.mergedSession(
+            [(name: document.displayName, document: logDocument)] + sessionSources
+        )
+    }
 
     init(
         document: EditorDocument,
@@ -38,7 +50,7 @@ struct LogExplorerView: View {
     }
 
     private var filteredEntries: [LogEntry] {
-        guard let logDocument else {
+        guard let logDocument = activeLogDocument else {
             return []
         }
 
@@ -95,12 +107,14 @@ struct LogExplorerView: View {
         case .source:
             let grouped = Dictionary(grouping: filteredEntries, by: { $0.source ?? "Unknown Source" })
             return grouped.keys.sorted().map { ($0, grouped[$0] ?? []) }
+        case .timeline:
+            return LogExplorerService.timelineClusters(entries: filteredEntries).map { ($0.displayName, $0.entries) }
         }
     }
 
     var body: some View {
         Group {
-            if let logDocument {
+            if let logDocument = activeLogDocument {
                 VStack(spacing: 0) {
                     summaryBar(logDocument)
                     Divider()
@@ -216,6 +230,29 @@ struct LogExplorerView: View {
 
             Spacer(minLength: 0)
 
+            if isLoadingSession {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Loading additional log files")
+            }
+
+            if !sessionSources.isEmpty {
+                summaryPill("\(sessionSources.count + 1) files")
+                Button("Clear Session") {
+                    sessionSources = []
+                    sessionStatus = nil
+                }
+                .buttonStyle(.bordered)
+                .accessibilityLabel("Clear additional log files")
+            }
+
+            Button("Add Logs") {
+                chooseAdditionalLogs()
+            }
+            .buttonStyle(.bordered)
+            .disabled(isLoadingSession)
+            .accessibilityLabel("Add files to log session")
+
             Button(document.followModeEnabled ? "Pause Tail" : "Follow Tail") {
                 onToggleFollowMode()
             }
@@ -238,6 +275,15 @@ struct LogExplorerView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
         .background(Color(nsColor: theme.gutterBackgroundColor))
+        .overlay(alignment: .bottomLeading) {
+            if let sessionStatus {
+                Text(sessionStatus)
+                    .font(.caption)
+                    .foregroundStyle(Color(nsColor: theme.secondaryTextColor))
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 3)
+            }
+        }
     }
 
     private var filterBar: some View {
@@ -482,6 +528,35 @@ struct LogExplorerView: View {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "MMM d HH:mm:ss"
         return formatter.date(from: trimmed)
+    }
+
+    private func chooseAdditionalLogs() {
+        let panel = NSOpenPanel()
+        panel.message = "Choose up to 15 additional text log files for this local session."
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        guard panel.runModal() == .OK else { return }
+        let urls = Array(panel.urls.prefix(15))
+        guard !urls.isEmpty else { return }
+
+        isLoadingSession = true
+        sessionStatus = "Loading \(urls.count) log file\(urls.count == 1 ? "" : "s")..."
+        Task {
+            let loaded = await Task.detached(priority: .utility) {
+                urls.compactMap { url -> (name: String, document: LogDocument)? in
+                    guard let text = TextFileCodec.searchableText(from: url, maxBytes: 8 * 1_024 * 1_024),
+                          let parsed = LogExplorerService.parse(text)
+                    else { return nil }
+                    return (url.lastPathComponent, parsed)
+                }
+            }.value
+            sessionSources = loaded
+            isLoadingSession = false
+            sessionStatus = loaded.count == urls.count
+                ? "Merged \(loaded.count) additional log file\(loaded.count == 1 ? "" : "s")."
+                : "Merged \(loaded.count) of \(urls.count) files; unsupported, binary, or files over 8 MB were skipped."
+        }
     }
 }
 

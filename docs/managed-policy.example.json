@@ -4,7 +4,17 @@
   "notes": "Local AI only. Workspace plugins and remote commands are blocked on managed laptops.",
   "features": {
     "allowEmbeddedTerminal": true,
-    "allowWorkspaceTasks": true
+    "allowWorkspaceTasks": true,
+    "allowExternalFormatters": false,
+    "allowHTTPRequestRunner": true,
+    "allowPrivateNetworkRequests": false,
+    "allowLanguageServers": true,
+    "allowDebugAdapters": false,
+    "allowDevContainers": false,
+    "allowGitHubIntegration": true,
+    "allowedHTTPRequestHosts": [
+      "api.acme.example"
+    ]
   },
   "ai": {
     "isEnabled": true,
@@ -21,6 +31,22 @@
       "qwen",
       "llama",
       "deepseek"
+    ],
+    "allowedEndpointHosts": [
+      "127.0.0.1",
+      "ai.acme.internal"
+    ],
+    "enforceApprovedProviders": true,
+    "approvedProviders": [
+      {
+        "id": "9d43a540-2158-4a31-89e0-3ea8107adb41",
+        "name": "Managed Local Model",
+        "kind": "ollama",
+        "connectionMode": "localModel",
+        "baseURLString": "http://127.0.0.1:11434",
+        "model": "qwen2.5-coder:7b",
+        "temperature": 0.2
+      }
     ]
   },
   "plugins": {
@@ -35,6 +61,25 @@
     "allowedPluginAuthors": [
       "ForgeText",
       "Acme Platform"
+    ],
+    "requireSignedPlugins": true,
+    "allowedPluginSigningKeys": [
+      "BASE64_ED25519_PUBLIC_KEY"
+    ],
+    "allowedTaskExecutables": [
+      "git",
+      "swift",
+      "npm"
+    ],
+    "managedCatalogs": [
+      {
+        "name": "Acme Approved Plugins",
+        "source": "https://plugins.acme.example/catalog.json",
+        "trustedSigningKeys": [
+          "BASE64_ED25519_PUBLIC_KEY"
+        ],
+        "allowsTaskPlugins": false
+      }
     ]
   },
   "remote": {
@@ -44,10 +89,18 @@
     "allowRemoteAgentInstall": false
   },
   "updates": {
-    "allowUpdateChecks": false
+    "allowUpdateChecks": true,
+    "ring": "stable",
+    "feedURL": "https://updates.acme.example/stable/appcast.xml",
+    "allowedFeedHosts": [
+      "updates.acme.example"
+    ]
   },
   "support": {
     "allowDiagnosticBundles": true,
-    "includePolicySummaryInDiagnostics": true
+    "includePolicySummaryInDiagnostics": true,
+    "allowAuditExport": true,
+    "auditRetentionDays": 30,
+    "includeActivityDetailsInAudit": false
   }
 }

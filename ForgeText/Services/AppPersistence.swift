@@ -32,8 +32,8 @@ enum AppSettingsStore {
     }
 
     static func `import`(from url: URL) throws -> AppSettings {
-        let data = try Data(contentsOf: url)
-        return try JSONDecoder().decode(AppSettings.self, from: data)
+        let data = try BoundedFileReadService.read(url, maximumBytes: 8 * 1_024 * 1_024)
+        return try ForgeTextJSONDecoder.make(trustLevel: .externalImport).decode(AppSettings.self, from: data)
     }
 }
 
@@ -203,7 +203,7 @@ enum RecoveryService {
             return []
         }
 
-        return files.compactMap { fileURL in
+        return files.prefix(500).compactMap { fileURL in
             guard let snapshot = SensitiveDataStore.load(RecoverySnapshot.self, from: fileURL) else {
                 return nil
             }

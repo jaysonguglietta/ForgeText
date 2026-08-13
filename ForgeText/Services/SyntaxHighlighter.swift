@@ -5,6 +5,8 @@ import Foundation
 enum SyntaxHighlighter {
     private static let regexCache = NSCache<NSString, NSRegularExpression>()
     private static let reducedHighlightingCharacterThreshold = 120_000
+    private static let incrementalContextCharacters = 4_096
+    private static var activeHighlightRange: NSRange?
 
     private enum HighlightingMode {
         case plain
@@ -32,6 +34,50 @@ enum SyntaxHighlighter {
         largeFileMode: Bool,
         lineDecorations: [EditorLineDecoration] = []
     ) {
+        apply(
+            to: textView,
+            theme: theme,
+            language: language,
+            fontSize: fontSize,
+            findState: findState,
+            largeFileMode: largeFileMode,
+            lineDecorations: lineDecorations,
+            editedRange: nil
+        )
+    }
+
+    static func applyIncremental(
+        to textView: NSTextView,
+        theme: EditorTheme,
+        language: DocumentLanguage,
+        fontSize: CGFloat,
+        findState: FindState,
+        largeFileMode: Bool,
+        lineDecorations: [EditorLineDecoration] = [],
+        editedRange: NSRange
+    ) {
+        apply(
+            to: textView,
+            theme: theme,
+            language: language,
+            fontSize: fontSize,
+            findState: findState,
+            largeFileMode: largeFileMode,
+            lineDecorations: lineDecorations,
+            editedRange: editedRange
+        )
+    }
+
+    private static func apply(
+        to textView: NSTextView,
+        theme: EditorTheme,
+        language: DocumentLanguage,
+        fontSize: CGFloat,
+        findState: FindState,
+        largeFileMode: Bool,
+        lineDecorations: [EditorLineDecoration],
+        editedRange: NSRange?
+    ) {
         guard let textStorage = textView.textStorage else {
             return
         }
@@ -40,11 +86,17 @@ enum SyntaxHighlighter {
         let text = textStorage.string
         let textLength = (text as NSString).length
         let preservedSelection = clamped(textView.selectedRange(), upperBound: textLength)
-        let highlightingMode = highlightingMode(for: text, largeFileMode: largeFileMode)
+        let highlightingMode = highlightingMode(forUTF16Length: textLength, largeFileMode: largeFileMode)
+        let targetRange = editedRange.map {
+            incrementalHighlightRange(for: $0, selectedRange: preservedSelection, in: text as NSString)
+        } ?? NSRange(location: 0, length: textLength)
         let startedAt = DispatchTime.now().uptimeNanoseconds
 
+        activeHighlightRange = targetRange
+        defer { activeHighlightRange = nil }
+
         textStorage.beginEditing()
-        textStorage.setAttributes(palette.base, range: NSRange(location: 0, length: textLength))
+        textStorage.setAttributes(palette.base, range: targetRange)
 
         switch highlightingMode {
         case .plain:
@@ -63,11 +115,12 @@ enum SyntaxHighlighter {
             }
         }
 
-        for range in findState.matchRanges {
+        for range in findState.matchRanges where NSIntersectionRange(range, targetRange).length > 0 {
             textStorage.addAttributes(palette.searchMatch, range: range)
         }
 
-        if let currentMatchRange = findState.currentMatchRange {
+        if let currentMatchRange = findState.currentMatchRange,
+           NSIntersectionRange(currentMatchRange, targetRange).length > 0 {
             textStorage.addAttributes(palette.currentSearchMatch, range: currentMatchRange)
         }
 
@@ -93,9 +146,29 @@ enum SyntaxHighlighter {
         EditorPerformanceMonitor.shared.record(
             .syntaxHighlighting,
             durationMS: elapsedMS,
-            detail: "\(language.displayName) · \(highlightingMode.label)",
-            payload: "\(textLength) chars"
+            detail: "\(language.displayName) · \(highlightingMode.label)\(editedRange == nil ? "" : " · incremental")",
+            payload: "\(targetRange.length) of \(textLength) chars"
         )
+    }
+
+    private static func incrementalHighlightRange(
+        for editedRange: NSRange,
+        selectedRange: NSRange,
+        in text: NSString
+    ) -> NSRange {
+        guard text.length > 0 else {
+            return NSRange(location: 0, length: 0)
+        }
+
+        let safeEditedRange = clamped(editedRange, upperBound: text.length)
+        let safeSelection = clamped(selectedRange, upperBound: text.length)
+        let lower = max(0, min(safeEditedRange.location, safeSelection.location) - incrementalContextCharacters)
+        let upper = min(
+            text.length,
+            max(NSMaxRange(safeEditedRange), NSMaxRange(safeSelection)) + incrementalContextCharacters
+        )
+        let candidate = NSRange(location: lower, length: max(0, upper - lower))
+        return text.lineRange(for: candidate)
     }
 
     private static func clamped(_ range: NSRange, upperBound: Int) -> NSRange {
@@ -277,12 +350,12 @@ enum SyntaxHighlighter {
         }
     }
 
-    private static func highlightingMode(for text: String, largeFileMode: Bool) -> HighlightingMode {
+    private static func highlightingMode(forUTF16Length textLength: Int, largeFileMode: Bool) -> HighlightingMode {
         if largeFileMode {
             return .plain
         }
 
-        if text.utf16.count > reducedHighlightingCharacterThreshold {
+        if textLength > reducedHighlightingCharacterThreshold {
             return .reduced
         }
 
@@ -319,7 +392,8 @@ enum SyntaxHighlighter {
             return
         }
 
-        let range = NSRange(location: 0, length: (text as NSString).length)
+        let fullRange = NSRange(location: 0, length: (text as NSString).length)
+        let range = activeHighlightRange.map { NSIntersectionRange($0, fullRange) } ?? fullRange
         for match in regex.matches(in: text, range: range) {
             textStorage.addAttributes(attributes, range: match.range)
         }
@@ -339,6 +413,10 @@ enum SyntaxHighlighter {
         for decoration in decorations {
             let lineRange = lineRange(for: decoration.lineNumber, in: nsText)
             guard lineRange.location != NSNotFound else {
+                continue
+            }
+
+            if let activeHighlightRange, NSIntersectionRange(lineRange, activeHighlightRange).length == 0 {
                 continue
             }
 

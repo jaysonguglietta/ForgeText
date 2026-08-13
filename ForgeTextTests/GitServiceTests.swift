@@ -73,4 +73,102 @@ final class GitServiceTests: XCTestCase {
             XCTAssertEqual(error as? GitService.GitError, .fileOutsideRepository)
         }
     }
+
+    func testReadOnlyGitInspectionDisablesRepositoryFSMonitor() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: ["init", root.path])
+        let markerURL = root.appendingPathComponent("fsmonitor-executed")
+        let hookURL = root.appendingPathComponent("malicious-fsmonitor.sh")
+        try "#!/bin/sh\ntouch \"\(markerURL.path)\"\nexit 0\n".write(to: hookURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: hookURL.path)
+        _ = try CommandExecutionService.runString(
+            "/usr/bin/git",
+            arguments: ["-C", root.path, "config", "core.fsmonitor", hookURL.path]
+        )
+
+        _ = GitService.changedFiles(for: root)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: markerURL.path))
+    }
+
+    func testReviewedPatchCanBeAppliedAndReverted() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: ["init", root.path])
+        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: ["-C", root.path, "config", "user.email", "forge@example.com"])
+        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: ["-C", root.path, "config", "user.name", "ForgeText"])
+        let fileURL = root.appendingPathComponent("README.md")
+        try "Old\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: ["-C", root.path, "add", "README.md"])
+        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: ["-C", root.path, "commit", "-m", "Initial"])
+
+        let patch = """
+        diff --git a/README.md b/README.md
+        --- a/README.md
+        +++ b/README.md
+        @@ -1 +1 @@
+        -Old
+        +New
+
+        """
+
+        try GitService.applyReviewedPatch(patch, at: root)
+        XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8), "New\n")
+
+        try GitService.applyReviewedPatch(patch, at: root, reverse: true)
+        XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8), "Old\n")
+    }
+
+    func testReviewedHunksCanBeStagedWithoutChangingWorkingFile() throws {
+        let root = try makeRepository()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fileURL = root.appendingPathComponent("README.md")
+        try "One\nTwo changed\nThree\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let patch = try GitService.workingTreePatch(for: fileURL, workspaceRoot: root)
+        XCTAssertTrue(patch.contains("Two changed"))
+
+        try GitService.stageReviewedPatch(patch, at: root)
+        let staged = try CommandExecutionService.runString(
+            "/usr/bin/git",
+            arguments: ["-C", root.path, "diff", "--cached"]
+        )
+        XCTAssertTrue(staged.contains("Two changed"))
+        XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8), "One\nTwo changed\nThree\n")
+    }
+
+    func testFileHistoryAndWorktreeInventoryAreBounded() throws {
+        let root = try makeRepository()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let fileURL = root.appendingPathComponent("README.md")
+
+        let history = try GitService.fileHistory(for: fileURL, workspaceRoot: root, limit: 5)
+        let worktrees = GitService.worktrees(for: root)
+
+        XCTAssertEqual(history.count, 1)
+        XCTAssertEqual(history.first?.summary, "Initial")
+        XCTAssertEqual(worktrees.count, 1)
+        XCTAssertEqual(
+            URL(fileURLWithPath: worktrees.first?.path ?? "").resolvingSymlinksInPath().path,
+            root.resolvingSymlinksInPath().path
+        )
+    }
+
+    private func makeRepository() throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: ["init", root.path])
+        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: ["-C", root.path, "config", "user.email", "forge@example.com"])
+        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: ["-C", root.path, "config", "user.name", "ForgeText"])
+        let fileURL = root.appendingPathComponent("README.md")
+        try "One\nTwo\nThree\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: ["-C", root.path, "add", "README.md"])
+        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: ["-C", root.path, "commit", "-m", "Initial"])
+        return root
+    }
 }

@@ -4,7 +4,7 @@ options:
 packages:
   Sparkle:
     url: https://github.com/sparkle-project/Sparkle
-    from: 2.8.0
+    exactVersion: 2.9.4
 settings:
   base:
     SWIFT_VERSION: 6.0
@@ -25,6 +25,7 @@ targets:
         INFOPLIST_FILE: ForgeText/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: YES
         SWIFT_EMIT_LOC_STRINGS: NO
     scheme:
       gatherCoverageData: true
@@ -43,3 +44,19 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.jaysonguglietta.ForgeTextTests
         GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_STYLE: Automatic
+
+  ForgeTextUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: ForgeTextUITests
+    dependencies:
+      - target: ForgeText
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.jaysonguglietta.ForgeTextUITests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+    scheme:
+      testTargets:
+        - ForgeTextUITests

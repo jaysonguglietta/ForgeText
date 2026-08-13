@@ -58,7 +58,7 @@ ForgeText 1.2.1 hardens the trust and local-data model:
 ## Current Main-Branch Workbench Refresh
 
 - `Studio` workbench style becomes the default for daily use, while retro presets remain available.
-- The sidebar shifts to an activity-rail + pane model so navigation feels more like a real editor workbench.
+- The sidebar is reduced to four focused panes: Files, Search, Source Control, and Workbench.
 - Source control moves closer to the main editing flow with a dedicated sidebar pane.
 - Quick Open and Command Palette become tighter overlays instead of larger dashboard-style panels.
 - Persistent `Quiet UI`, `Balanced`, and `Full Retro` workbench presets preserve custom layout state.
@@ -74,6 +74,39 @@ ForgeText 1.2.1 hardens the trust and local-data model:
 - Local Safe Mode can suppress external plugins, AI, remote connections, and prior-session restore for recovery or support workflows.
 - Workspace profiles now carry advanced behavior settings so teams can reuse more than just visual preferences.
 
+## Current Main-Branch Engineering Workbench
+
+- Workspace Health combines local trust, policy, index, diagnostic, Git, test, language-tool, and plugin signals.
+- Indexed definitions/references and trusted language-tool discovery establish a safe language-intelligence foundation.
+- Git review adds side-by-side comparison, selected-hunk staging, file history, worktree context, and existing conflict resolution.
+- XCTest, Pytest, and JavaScript discovery plus targeted execution and LCOV ingestion create a native test foundation.
+- Saved remote sessions and protected investigation records make operational contexts resumable.
+- Typed CSV columns, filter, sort, copy/export, and frozen-first-column controls deepen structured data work.
+- AI unified diffs become inert, reviewable change sets with per-hunk approval and checked application.
+- Forced MDM policy, local fleet checks, and Profile Packs strengthen managed rollout and team configuration.
+- Trusted language servers now have a bounded persistent JSON-RPC initialization lifecycle, while debug adapters support an explicit DAP capability probe.
+- GitHub review can list open pull requests and post confirmed comments through existing `gh` authentication without storing a token.
+- Development-container configuration is inspected safely and started only after trust, policy, and lifecycle-command confirmation.
+- AI review exposes an exact context-source manifest before send.
+
+## Current Main-Branch Performance Pass
+
+- Incremental, debounced highlighting replaces whole-document highlighting on every keystroke.
+- Document metrics, diagnostics, and outline/structured insights use revisioned background snapshots rather than main-thread full-text validation.
+- Rolling P95 performance metrics expose responsiveness-budget regressions locally.
+- Adaptive large-file editing now extends to 32 MB, with reduced processing from 2 MB and bounded previews above the edit limit.
+
+## Current Main-Branch Security Hardening Pass
+
+- Subprocess execution now has bounded input/output, timeouts, concurrent pipe draining, and exact trusted tool resolution.
+- Restricted workspaces suppress automatic Git execution; trusted Git inspection disables repository hooks, fsmonitor, external diff/text conversion, editors, pagers, prompts, and ext transports.
+- AI, HTTP, update, and plugin registry traffic now shares exact-host, private-address, redirect, timeout, and response-size controls.
+- Managed policy validates ownership, permissions, file type, size, and version, and fails closed on invalid policy.
+- External plugins now carry canonical SHA-256 provenance and optional verified Ed25519 signatures enforceable by policy.
+- Sensitive state and AI keys use device-bound Keychain protection; portable storage is explicit and permission checked; diagnostics redact paths.
+- Sparkle is upgraded to 2.9.4, hardened runtime is enabled, and public release tooling enforces Developer ID signing, notarization, stapling, Gatekeeper, and checksums.
+- Security CI adds pinned GitHub Actions, Swift CodeQL, dependency review, and Dependabot.
+
 ## Current Strengths
 
 - ForgeText is now credible as a local developer text workbench, not just a raw text editor.
@@ -83,23 +116,42 @@ ForgeText 1.2.1 hardens the trust and local-data model:
 - ForgeText now has a stronger default UI direction: Studio-first for production work, retro as an optional expression layer.
 - ForgeText now has the start of a real enterprise control plane through managed local policy enforcement for AI, plugins, remote flows, updates, and support export.
 
-## Next Priorities
+## Completed Roadmap Batch
 
-- Add parser-backed language intelligence and broader symbol extraction.
-- Add direct GitHub PR creation, issue context, review comments, and release drafting.
-- Expand managed policy into a fuller enterprise layer: signed policy bundles, policy diagnostics, policy-controlled updates, private plugin catalogs, and org-approved AI provider packs.
-- Add real shortcut rebinding beyond the current shortcut reference.
-- Deepen table tooling: sorting, filtering, frozen columns, typed columns, and export/copy helpers.
-- Deepen log tooling: timestamp parsing, saved filters, field extraction, timeline clustering, and multi-file sessions.
-- Improve remote editing with richer SSH/SFTP operations and safer credential handling.
-- Add schema-aware config support for common infrastructure files.
-- Add accessibility and UI regression coverage for the Studio shell and the remaining retro variants.
-- Add public distribution hardening: Developer ID signing, hardened runtime, notarization, and release automation.
+The former 1.3, 1.4, and app-side 2.0 roadmap items are now implemented on the current main-branch worktree:
 
-## Longer-Term Bets
+- The Studio shell has stable accessibility identifiers and a dedicated macOS UI smoke-test target. The normal app scheme remains fast, while shell automation runs explicitly through `ForgeTextUITests`.
+- Files above the 32 MB editable limit open in a secure chunked reader. It uses bounded `pread` windows, rejects symlinks and non-regular files, and performs capped streaming search without loading the entire file.
+- Delimited data supports schema overrides, stable multi-column sort, aggregations, frozen columns, visible-row export, and lazy row rendering.
+- Logs support parsed timestamps, field extraction, saved filters, timeline clusters, and bounded multi-file sessions.
+- Infrastructure configuration diagnostics understand Kubernetes, GitHub Actions, Docker Compose, and Dev Container schemas while preserving raw-first editing.
+- The supervised LSP runtime now handles document open/change/save/close synchronization, cancellation, completion, definitions, references, diagnostics, code actions, and rename with bounded JSON-RPC messages and controlled shutdown.
+- GitHub Workflow now covers pull-request creation, issue context, checks, paginated review threads, confirmed comments, and draft release creation through existing `gh` authentication.
+- Shortcuts are persistently rebindable with conflict detection and reset-to-default behavior.
+- Remote workflows add validated SFTP directory browsing, bounded reads, atomic writes, strict host/reference parsing, saved sessions, remote-agent operations, and explicit local-versus-remote labels.
+- Managed policy supports verified Ed25519 policy artifacts, trusted administrator keys, approved AI provider packs, managed private plugin catalogs, update rings/feed controls, policy digests, and fail-closed validation.
+- Enterprise activity events are serialized off the main thread, encrypted at rest, retained for a policy-bounded period, privacy-redacted, capped, and exportable as permission-restricted JSONL when policy allows.
+- Release builds generate provenance metadata alongside notarization, signature, Gatekeeper, checksum, and dependency/security-CI gates.
+- Declarative plugin language packs can safely map filename/extension aliases onto ForgeText's existing native language modes without loading executable code into the app process.
+- Workspace AI scopes in `.forgetext/ai-scopes.json` can apply bounded instructions by folder, file type, and quick-action task; the final context remains visible in the pre-send manifest and subject to trust, policy, redaction, and size limits.
+- The Engineering Workbench repository overview combines Git, GitHub, tests, problems, release readiness, policy, and saved investigation context without adding permanent editor chrome.
 
-- LSP-style language packs while preserving ForgeText's native editing core.
-- User-defined plugin bundles for snippet packs, tasks, diagnostics, and formatter/linter integrations.
-- Saved investigation dashboards for common ops workflows.
-- AI context scopes per workspace, folder, file type, and task.
-- Repository dashboards that combine Git status, GitHub PRs, tests, problems, and release readiness.
+## Remaining Product Boundary
+
+The following items are intentionally not presented as local-editor features because they require a separately operated service and organizational controls:
+
+- tenant identity, SSO, server-side roles, and multi-tenant authorization
+- centralized policy assignment, audit ingestion, fleet dashboards, and remote attestation
+- hosted collaborative editing, shared cloud investigations, and offline review queues
+- organization-wide certificate issuance, signing-key rotation, artifact promotion, and revocation services
+- a hosted extension marketplace or remote execution plane
+
+ForgeText continues to integrate with MDM, endpoint security, artifact signing, GitHub CLI, and organization-owned services rather than pretending those control planes exist inside one desktop process.
+
+## Next Validation Cycle
+
+- Establish reproducible performance fixtures for multi-gigabyte logs, large delimited datasets, and monorepo indexing.
+- Expand UI automation from the shell smoke test to tab lifecycle, raw/structured switching, Git hunk review, and keyboard-only workflows.
+- Add full debugger launch configurations, breakpoints, variables, watches, and debug-console UX on top of the existing bounded DAP probe.
+- Validate managed policy, private catalogs, update rings, and audit export with representative MDM and air-gapped deployment environments.
+- Continue accessibility review across every optional workbench and retro preset, including VoiceOver announcements and high-contrast behavior.

@@ -12,11 +12,19 @@ The app uses `NSTextView` under SwiftUI for mature macOS editing behavior. The d
 
 ForgeText 1.2.1 tightened the trust model and local data handling: restricted workspaces now block external workspace plugins and unsafe tasks, sync bundles transfer safe preferences only, sensitive local state is protected at rest, Gemini keys stay out of URLs, and large gzip files fall back to bounded previews instead of full-memory expansion.
 
-The current `main` branch also includes a Studio workbench refresh that is not yet separately version-tagged: calmer default chrome, a cleaner activity-rail sidebar, a dedicated source control pane, tighter Quick Open and Command Palette overlays, persistent workbench presets, a first-run style chooser, and less decorative rendering in the main editor shell.
+The current `main` branch also includes a Studio workbench refresh that is not yet separately version-tagged: calmer default chrome, a focused four-pane sidebar, tighter Quick Open and Command Palette overlays, persistent workbench presets, a first-run style chooser, and less decorative rendering in the main editor shell.
 
 The current `main` branch also adds an enterprise-managed policy layer for IT and platform teams. ForgeText can now load a local `managed-policy.json` file and enforce admin rules around AI providers, plugin sources, workspace tasks, embedded terminal access, remote workflows, update checks, and diagnostic bundle export.
 
 The current `main` branch also adds a new `Workbench + Advanced` control surface for day-to-day operators and power users. It introduces runtime performance controls, raw-view defaults, session and autosave tuning, AI privacy review controls, plugin/remote safety toggles, and a local Safe Mode for recovery or locked-down workflows.
+
+The current `main` branch now completes the calmer shell pass. The sidebar has four focused destinations - `Files`, `Search`, `Source Control`, and `Workbench` - while advanced workflows move into a dedicated Engineering Workbench instead of competing with the editor.
+
+The current `main` branch includes a comprehensive security-hardening pass: bounded subprocesses and file reads, inert Git inspection, exact outbound host controls, private-network request protection, endpoint-pinned AI credentials, fail-closed managed policy, signed plugin provenance, safer portable storage, redacted diagnostics, hardened-runtime release settings, notarization checks, Sparkle 2.9.4, and security CI.
+
+The current `main` branch also adds the Engineering Workbench: local workspace health, indexed definitions/references, trusted language-tool discovery, reviewable Git hunks, targeted tests and LCOV coverage, saved remote sessions, investigation capture, stronger delimited-data tools, controlled AI change sets, enterprise fleet checks, and shareable profile packs.
+
+The latest enterprise-editor pass completes the app-side roadmap: editor-connected supervised LSP operations, deeper GitHub PR/issue/check/review/release workflows, secure chunked large-file reading, advanced table/log/config tools, SFTP browsing and atomic remote saves, editable shortcut bindings, signed policy artifacts, managed private catalogs, approved AI profiles, update rings, encrypted local audit retention/export, scoped AI rules, declarative language packs, release provenance, and a macOS UI smoke-test target.
 
 ## What's New In 1.2.1
 
@@ -30,12 +38,12 @@ The current `main` branch also adds a new `Workbench + Advanced` control surface
 ## Current Main-Branch Workbench Refresh
 
 1. `Studio` is now the default workbench style for `Quiet UI` and `Balanced`.
-2. The left sidebar now behaves more like an editor workbench, with an activity rail and focused panes.
+2. The left sidebar now uses four focused panes: Files, Search, Source Control, and Workbench.
 3. Source control has a first-class sidebar pane for branch state, changed files, and stage/unstage actions.
 4. Quick Open and Command Palette are lighter, tighter overlays instead of dashboard-like dialogs.
 5. Persistent workbench presets let you switch between `Quiet UI`, `Balanced`, and `Full Retro` without losing your custom layout state.
 6. A first-run chooser helps brand-new installs start in a calmer workbench while keeping the retro shell available.
-7. The main workbench renders less decorative chrome so editing feels calmer and more responsive.
+7. Permanent quick-action rows, dense status pills, recent-file walls, and decorative cards have been removed from the main editing path.
 
 ## Current Main-Branch Advanced Controls
 
@@ -47,16 +55,34 @@ The current `main` branch also adds a new `Workbench + Advanced` control surface
 6. Workspace plugins, task-capable plugins, custom registries, remote commands, and remote agent install can be limited locally even without an enterprise policy.
 7. `Safe Mode` can suppress external plugins, AI, remote access, and prior-session restore during support or recovery sessions.
 
+## Current Main-Branch Workbench Control Surfaces
+
+1. The left workbench is organized around `Files`, `Search`, `Source Control`, and `Workbench`.
+2. `Workspace Center` is now oriented around `Overview`, `Trust + Policy`, `Profiles + Sync`, and `Catalogs`.
+3. `Workbench + Advanced` is being grouped into `Experience`, `Performance`, `Files`, `AI`, `Security`, and `Recovery`.
+4. `Tools > Engineering Workbench` or `Command-Shift-E` provides deeper workflows without adding permanent editor chrome.
+
+## Current Main-Branch Engineering Workbench
+
+1. Workspace Health combines trust, policy, index, diagnostics, Git, tests, language tools, and plugin signals locally.
+2. Code Intelligence finds indexed definitions and references and can explicitly use trusted language-server completion, navigation, diagnostics, code actions, and rename through a bounded, supervised JSON-RPC runtime.
+3. Review Changes supports side-by-side comparison, explicit hunk staging, file history, worktree context, and the existing conflict tools.
+4. Tests + Coverage discovers XCTest, Pytest, and JavaScript tests without execution and runs only an explicitly selected test after trust and policy checks.
+5. Remote Workspaces add strict SSH references, SFTP browsing, bounded reads, atomic saves, explicit development-container startup, and protected reconnectable investigation context.
+6. Data Tools add schema-mapped delimited columns, multi-column sorting, aggregations, lazy rows, log timeline/multi-file sessions, and infrastructure-aware config diagnostics while raw text remains authoritative.
+7. Controlled AI Change Sets require per-hunk approval, safe existing-file paths, size limits, and `git apply --check` before changing files.
+8. Enterprise and Profile Packs provide local fleet diagnostics, forced MDM policy support, and role-oriented settings transfer without secrets or trust state.
+
 ## Highlights
 
 - Native multi-document editing with tabs, sidebar navigation, split panes, line numbers, undo, status metrics, and raw text editing.
 - Safe file handling with encoding, BOM, line-ending preservation, crash recovery, autosave recovery, session restore, external-change detection, and protected local persistence for sensitive state.
-- File-aware structured views for CSV/delimited files, JSON, logs, HTTP request files, config formats, archives, large-file previews, and binary hex fallback.
-- Developer workbench features: activity-rail sidebar, workspace explorer, source control pane, project search, Quick Open, command palette, embedded terminal, task runner, problems panel, test explorer, Git workbench, and plugin manager.
+- File-aware structured views for CSV/delimited files, JSON, logs, HTTP request files, config formats, archives, secure chunked large-file reading/search, and binary hex fallback.
+- Developer workbench features: calm four-pane sidebar, workspace explorer, source control, project search, Quick Open, command palette, optional Engineering Workbench, embedded terminal, task runner, problems, tests, Git, and plugins.
 - Workspace indexing for fast file and symbol navigation, TODO/FIXME discovery, and lightweight warning counts.
-- Provider-neutral AI workbench with model profiles, workspace rules, reusable prompt files, chat sessions, AI privacy review, and editor quick actions.
-- Git and GitHub helpers for clone, branch/status flows, compare-with-HEAD, diff markers, blame context, GitHub remote detection, and compare-page launch.
-- Production helpers for release readiness, Sparkle update configuration, performance snapshots, managed policy enforcement, safe mode, and safe diagnostic bundle export.
+- Provider-neutral AI workbench with BYOK/local modes, managed profiles, scoped workspace rules, reusable prompts, chat sessions, exact context review, and controlled change sets.
+- Git and GitHub helpers for local review plus pull requests, issues, checks, review threads, comments, and draft releases through existing `gh` authentication.
+- Production helpers for release readiness, Sparkle 2.9.4 update rings, performance snapshots, signed managed policy, encrypted local audit export, safe mode, redacted diagnostics, notarized release validation, and provenance generation.
 
 ## ForgeText 1.1 Productivity Layer
 
@@ -84,6 +110,7 @@ Useful feature paths:
 
 - `Search > Quick Open...` or `Command-P`
 - `Search > Command Palette...` or `Command-Shift-P`
+- `Tools > Engineering Workbench` or `Command-Shift-E`
 - `View > Workbench + Advanced...` or `Command-,`
 - `Tools > Activity Center`
 - `Tools > First-Run Setup`
@@ -115,7 +142,7 @@ Command palette prefixes:
 - File-handling controls for raw-view-first opens, autosave delay, external change polling interval, session restore, and default line endings for new files.
 - AI privacy controls for local-model-only mode, review-before-send, likely-secret redaction, and max context size.
 - Local hardening controls for workspace plugins, task-capable plugins, custom registries, remote read-only behavior, remote commands, and remote agent installation.
-- Safe Mode controls for recovery-oriented launches that keep the editor usable while reducing trust surface.
+- Safe Mode controls for recovery-oriented launches that keep the editor usable while blocking terminal/task execution and reducing plugin, AI, remote, and restore trust surfaces.
 
 ### File Reliability
 
@@ -142,7 +169,7 @@ Command palette prefixes:
 - Workspace Trust / Restricted Mode so tasks, AI actions, remote commands, and external plugins can be gated in safer folders, with external workspace plugins and tasks blocked by default in restricted mode.
 - Workspace explorer with favorites, filtering, and a calmer editor-style tree presentation.
 - Workspace index for Quick Open, symbol search, TODO counts, and warning counts.
-- Portable mode through a sibling `ForgeTextData` directory or `FORGETEXT_PORTABLE_DATA_DIR`.
+- Opt-in portable mode through a secure sibling `ForgeTextData` directory with a `.forgetext-portable` marker, or an explicit `FORGETEXT_PORTABLE_DATA_DIR`.
 - Sync bundle export/import for safe preferences while keeping trust decisions, plugin registries, workspace sessions, and AI chats local.
 - Managed policy support for org-level control of AI, plugins, tasks, terminal, remote access, updates, and support export.
 
@@ -160,26 +187,28 @@ Command palette prefixes:
 
 ### Managed Enterprise Controls
 
-- `managed-policy.json` support with discovery through `FORGETEXT_MANAGED_POLICY_FILE`, `/Library/Application Support/ForgeText/managed-policy.json`, or the local ForgeText app-data directory.
-- Admin controls for cloud AI vs local models, allowed provider kinds, allowed model prefixes, and AI context sources.
-- Admin controls for workspace-local plugins, user-installed plugins, custom registries, file registries, task-capable plugins, approved registry hosts, and approved plugin authors.
-- Admin controls for embedded terminal commands, workspace task execution, remote files/search/commands/agent install, manual update checks, and diagnostic bundle export.
-- Managed Policy status surfaced in Workspace Center, the status bar, Activity Center, and diagnostic bundles.
+- Forced MDM `ManagedPolicyJSON` plus `managed-policy.json` discovery through `FORGETEXT_MANAGED_POLICY_FILE`, `/Library/Application Support/ForgeText/managed-policy.json`, or the local ForgeText app-data directory.
+- Admin controls for cloud AI vs local models, exact endpoint hosts, allowed provider/model sets, approved provider packs, and AI context sources.
+- Admin controls for workspace/user plugins, managed private catalogs, task capabilities, signed manifests, signing keys, canonical digests, authors, and task executables.
+- Admin controls for terminal/tasks, external formatters, HTTP/private destinations, remote operations, update rings/feeds, diagnostic export, and local audit retention/export.
+- Optional Ed25519 policy verification with MDM trust roots, fail-closed validation, canonical digest reporting, and unsigned-policy update-redirect protection.
+- Managed Policy status surfaced in Workspace Center, Enterprise Workbench, the status bar, Activity Center, and diagnostic bundles.
 
 See [Managed Policy](docs/MANAGED_POLICY.md) for the file format and a sample policy.
+See [Enterprise Deployment](docs/ENTERPRISE_DEPLOYMENT.md) for MDM, private catalog, update-channel, and fleet validation guidance.
 
 ### Git And GitHub
 
 - Clone GitHub or other Git repositories directly into a local workspace folder.
 - Sidebar source control pane plus full Git workbench with fetch, pull, push, commit, branch, stash, stage, unstage, graph, and remote flows.
-- Compare-with-HEAD, diff-gutter markers, current-line Git blame context, and merge-conflict helpers.
-- GitHub Workflow panel that detects GitHub remotes and opens repository or compare pages for PR preparation.
+- Compare-with-HEAD, explicit hunk staging, file history, worktree inventory, diff-gutter markers, current-line Git blame context, and merge-conflict helpers.
+- GitHub Workflow panel that detects GitHub remotes and supports pull-request creation, issues, checks, paginated review threads, confirmed comments, and draft releases through existing GitHub CLI authentication.
 
 ### AI Workbench
 
-- Provider-neutral AI profiles for OpenAI, Anthropic, Gemini, Ollama, and OpenAI-compatible endpoints.
+- Provider-neutral AI profiles for OpenAI, Anthropic, Gemini, Ollama, and OpenAI-compatible endpoints, with an exact pre-send context manifest.
 - Explicit setup modes for `Bring Your Own Key` and `Local Model` workflows.
-- Workspace rule ingestion from `.forgetext/rules.md`, `.forgetext/ai-rules.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `CODEX.md`, `.github/copilot-instructions.md`, and `.cursorrules`.
+- Workspace rule ingestion from `.forgetext/rules.md`, `.forgetext/ai-rules.md`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `CODEX.md`, `.github/copilot-instructions.md`, and `.cursorrules`, plus bounded path/file/task scopes from `.forgetext/ai-scopes.json`.
 - Reusable prompt files from `.forgetext/prompts/*.md`, `.txt`, or `.prompt`.
 - Chat sessions with reusable prompts, provider/model switching, response history, prompt review-before-send when enabled, and local-only persistence for sensitive conversation state.
 - Quick AI actions for explain, improve, generate tests, summarize file, and draft commit message.
@@ -291,9 +320,11 @@ FORGETEXT_APP=/path/to/ForgeText.app ./Scripts/forgetext --help
 
 ## Public GitHub Download Flow
 
-Build a GitHub Release-ready DMG:
+Build a Developer ID signed and notarized GitHub Release DMG:
 
 ```bash
+DEVELOPER_ID_APPLICATION="Developer ID Application: Example Corp (TEAMID)" \
+NOTARYTOOL_PROFILE="forgetext-notary" \
 ./Scripts/build_release_dmg.sh
 ```
 
@@ -314,7 +345,7 @@ Recommended distribution flow:
 Notes:
 
 - Use GitHub Releases for downloadable binaries; do not commit generated DMGs to `main`.
-- For public distribution, the app and DMG should eventually be Developer ID signed and notarized.
+- The public release script refuses unsigned, non-hardened, or unnotarized output and writes a SHA-256 checksum beside the DMG.
 - The updater feed lives at `https://jaysonguglietta.github.io/ForgeText/appcast.xml`.
 - ForgeText now includes `Tools > Release Readiness` to check the local release setup from inside the app.
 
@@ -323,6 +354,7 @@ Notes:
 - `project.yml`: XcodeGen project definition.
 - `ForgeText/`: application source.
 - `ForgeTextTests/`: unit tests.
+- `ForgeTextUITests/`: explicit macOS shell/accessibility smoke tests.
 - `Scripts/`: helper scripts for icons, icon candidates, local release builds, DMG packaging, the `forgetext` CLI launcher, and utility tasks.
 - `docs/`: help, roadmap, icon candidate previews, update, and UI planning docs.
 
@@ -333,3 +365,5 @@ Notes:
 - [Roadmap](docs/ROADMAP.md): shipped scope and future priorities.
 - [UI Workbench Plan](docs/UI_WORKBENCH_PLAN.md): Studio-first workbench direction and UI principles.
 - [Updates](docs/UPDATES.md): GitHub Pages and Sparkle update setup.
+- [Security Hardening](docs/SECURITY_HARDENING.md): trust boundaries, capability matrix, implementation controls, release security, and residual risks.
+- [Security Policy](SECURITY.md): private vulnerability reporting and supported-version guidance.

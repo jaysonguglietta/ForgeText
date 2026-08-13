@@ -6,6 +6,7 @@ enum AIProviderService {
         case missingAPIKey(String)
         case invalidBaseURL(String)
         case insecureBaseURL(String)
+        case endpointNotAllowed(String)
         case emptyResponse
 
         var errorDescription: String? {
@@ -18,6 +19,8 @@ enum AIProviderService {
                 return "ForgeText couldn’t build a provider URL from \(urlString)."
             case let .insecureBaseURL(urlString):
                 return "ForgeText blocked the AI provider URL \(urlString) because remote AI providers must use HTTPS. Localhost model servers can still use HTTP."
+            case let .endpointNotAllowed(message):
+                return message
             case .emptyResponse:
                 return "The AI provider returned an empty response."
             }
@@ -27,6 +30,13 @@ enum AIProviderService {
     struct PreparedPrompt {
         let systemPrompt: String
         let userPrompt: String
+        let manifest: AIContextManifest
+
+        init(systemPrompt: String, userPrompt: String, manifest: AIContextManifest = .empty) {
+            self.systemPrompt = systemPrompt
+            self.userPrompt = userPrompt
+            self.manifest = manifest
+        }
     }
 
     static func send(
@@ -60,28 +70,51 @@ enum AIProviderService {
             "You are ForgeText Assistant, a precise software-development helper inside a native macOS editor.",
             "Prefer concise, actionable answers. When suggesting code, optimize for direct insertion into the active file."
         ]
+        let trimmedUserPrompt = userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        var manifestEntries = [
+            AIContextManifestEntry(
+                kind: .instruction,
+                label: "ForgeText assistant instructions",
+                characterCount: systemSections.joined(separator: "\n\n").count
+            ),
+            AIContextManifestEntry(kind: .userPrompt, label: "User prompt", characterCount: trimmedUserPrompt.count),
+        ]
 
         if let quickAction {
-            systemSections.append(quickActionSystemInstruction(for: quickAction))
+            let instruction = quickActionSystemInstruction(for: quickAction)
+            systemSections.append(instruction)
+            manifestEntries.append(AIContextManifestEntry(kind: .instruction, label: quickAction.displayName, characterCount: instruction.count))
         }
 
         if includeWorkspaceRules, let workspaceRules {
             systemSections.append(workspaceRules)
+            manifestEntries.append(AIContextManifestEntry(kind: .workspaceRules, label: "Workspace rules", characterCount: workspaceRules.count))
         }
 
-        var userSections: [String] = [userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)]
+        var userSections: [String] = [trimmedUserPrompt]
 
         if includeSelectedText, let selectedText, !selectedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             userSections.append("Selected text:\n\(selectedText)")
+            manifestEntries.append(AIContextManifestEntry(kind: .selection, label: "Editor selection", characterCount: selectedText.count))
         }
 
         if includeCurrentDocument, let currentDocument {
             userSections.append("Current document (\(currentDocument.displayName), language: \(currentDocument.language.displayName)):\n\(currentDocument.text)")
+            manifestEntries.append(AIContextManifestEntry(kind: .currentDocument, label: currentDocument.displayName, characterCount: currentDocument.text.count))
         }
 
+        let systemPrompt = systemSections.joined(separator: "\n\n")
+        let preparedUserPrompt = userSections.joined(separator: "\n\n")
         return PreparedPrompt(
-            systemPrompt: systemSections.joined(separator: "\n\n"),
-            userPrompt: userSections.joined(separator: "\n\n")
+            systemPrompt: systemPrompt,
+            userPrompt: preparedUserPrompt,
+            manifest: AIContextManifest(
+                entries: manifestEntries,
+                originalCharacterCount: systemPrompt.count + preparedUserPrompt.count,
+                preparedCharacterCount: systemPrompt.count + preparedUserPrompt.count,
+                redactionApplied: false,
+                truncationApplied: false
+            )
         )
     }
 
@@ -126,7 +159,7 @@ enum AIProviderService {
         ]
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (data, _) = try await SecureNetworkService.data(for: request, policy: networkPolicy(for: provider, baseURL: baseURL))
 
         guard
             let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -169,7 +202,7 @@ enum AIProviderService {
         ]
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (data, _) = try await SecureNetworkService.data(for: request, policy: networkPolicy(for: provider, baseURL: baseURL))
 
         guard
             let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -225,7 +258,7 @@ enum AIProviderService {
         ]
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (data, _) = try await SecureNetworkService.data(for: request, policy: networkPolicy(for: provider, baseURL: baseURL))
 
         guard
             let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -272,7 +305,7 @@ enum AIProviderService {
         ]
 
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (data, _) = try await SecureNetworkService.data(for: request, policy: networkPolicy(for: provider, baseURL: baseURL))
 
         guard
             let root = try JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -298,9 +331,30 @@ enum AIProviderService {
         guard let baseURL = URL(string: provider.baseURLString),
               let scheme = baseURL.scheme?.lowercased(),
               let host = baseURL.host?.lowercased(),
-              !host.isEmpty
+              !host.isEmpty,
+              baseURL.user == nil,
+              baseURL.password == nil,
+              baseURL.query == nil,
+              baseURL.fragment == nil
         else {
             throw AIProviderError.invalidBaseURL(provider.baseURLString)
+        }
+
+        let requiredHost: String?
+        switch provider.kind {
+        case .openAI:
+            requiredHost = "api.openai.com"
+        case .anthropic:
+            requiredHost = "api.anthropic.com"
+        case .googleGemini:
+            requiredHost = "generativelanguage.googleapis.com"
+        case .ollama, .openAICompatible:
+            requiredHost = nil
+        }
+        if let requiredHost, host != requiredHost {
+            throw AIProviderError.endpointNotAllowed(
+                "\(provider.kind.displayName) credentials may only be sent to \(requiredHost). Use OpenAI Compatible for a custom endpoint."
+            )
         }
 
         if scheme == "https" {
@@ -314,6 +368,16 @@ enum AIProviderService {
         }
 
         return baseURL
+    }
+
+    private static func networkPolicy(for provider: AIProviderConfiguration, baseURL: URL) -> SecureNetworkPolicy {
+        let hostAllowlist = baseURL.host.map { [$0] } ?? []
+        switch provider.effectiveConnectionMode {
+        case .bringYourOwnKey:
+            return .publicInternet(allowedHosts: hostAllowlist)
+        case .localModel:
+            return .localService(allowedHosts: hostAllowlist)
+        }
     }
 
     private static func allowsLocalHTTP(for kind: AIProviderKind, host: String) -> Bool {

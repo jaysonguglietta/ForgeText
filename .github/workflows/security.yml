@@ -1,0 +1,50 @@
+name: Security and Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 9 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  test-and-codeql:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: github/codeql-action/init@02c5e83432fe5497fd85b873b6c9f16a8578e1d9 # v3.37.0
+        with:
+          languages: swift
+          build-mode: manual
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate --spec project.yml
+      - name: Resolve dependencies
+        run: xcodebuild -resolvePackageDependencies -project ForgeText.xcodeproj -scheme ForgeText
+      - name: Build and test
+        run: >-
+          xcodebuild test
+          -project ForgeText.xcodeproj
+          -scheme ForgeText
+          -derivedDataPath DerivedData
+          CODE_SIGNING_ALLOWED=NO
+      - name: Capture dependency inventory
+        run: swift package --package-path DerivedData/SourcePackages/checkouts/Sparkle show-dependencies --format json > dependency-inventory.json
+      - uses: github/codeql-action/analyze@02c5e83432fe5497fd85b873b6c9f16a8578e1d9 # v3.37.0
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          fail-on-severity: moderate

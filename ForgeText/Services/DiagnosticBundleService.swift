@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 enum DiagnosticBundleService {
@@ -29,12 +30,15 @@ enum DiagnosticBundleService {
 
         let activity = activityRecords
             .prefix(80)
-            .map { "\($0.createdAt.formatted(date: .abbreviated, time: .standard)) [\($0.status.displayName)] \($0.title) - \($0.detail)" }
+            .map {
+                let detail = redactedText($0.detail, workspaceRoots: workspaceRoots)
+                return "\($0.createdAt.formatted(date: .abbreviated, time: .standard)) [\($0.status.displayName)] \($0.title) - \(detail)"
+            }
             .joined(separator: "\n")
         try activity.write(to: bundleURL.appendingPathComponent("activity.txt"), atomically: true, encoding: .utf8)
 
         let index = workspaceIndex.entries.prefix(300).map {
-            "\($0.relativePath)\t\($0.language.displayName)\tlines:\($0.lineCount)\tsymbols:\($0.symbolCount)\ttodos:\($0.todoCount)\twarnings:\($0.warningCount)"
+            "\(redactedPathLabel($0.relativePath))\t\($0.language.displayName)\tlines:\($0.lineCount)\tsymbols:\($0.symbolCount)\ttodos:\($0.todoCount)\twarnings:\($0.warningCount)"
         }.joined(separator: "\n")
         try index.write(to: bundleURL.appendingPathComponent("workspace-index.txt"), atomically: true, encoding: .utf8)
 
@@ -56,15 +60,16 @@ enum DiagnosticBundleService {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
         let openDocs = documents.map { document in
-            "- \(document.displayName) | \(document.language.displayName) | dirty:\(document.isDirty) | \(document.pathDescription)"
+            let sourceKind = document.isRemote ? "remote" : (document.fileURL == nil ? "untitled" : "local")
+            return "- \(redactedPathLabel(document.displayName)) | \(document.language.displayName) | dirty:\(document.isDirty) | \(sourceKind)"
         }.joined(separator: "\n")
-        let roots = workspaceRoots.map { "- \($0.path)" }.joined(separator: "\n")
+        let roots = workspaceRoots.map { "- \(redactedURLLabel($0))" }.joined(separator: "\n")
         let enabledProviderNames = settings.aiProviders
             .filter(\.isEnabled)
             .map(\.name)
             .joined(separator: ", ")
         let git = gitSummary.map {
-            "Git: \($0.rootURL.path) branch:\($0.branchName) staged:\($0.stagedCount) modified:\($0.modifiedCount) untracked:\($0.untrackedCount) conflicts:\($0.conflictedCount)"
+            "Git: \(redactedURLLabel($0.rootURL)) branch:\($0.branchName) staged:\($0.stagedCount) modified:\($0.modifiedCount) untracked:\($0.untrackedCount) conflicts:\($0.conflictedCount)"
         } ?? "Git: no active repository summary"
 
         return """
@@ -87,7 +92,7 @@ enum DiagnosticBundleService {
         Inspector: \(settings.showsInspector)
         AI Providers Enabled: \(enabledProviderNames.isEmpty ? "none" : enabledProviderNames)
         Managed Policy: \(managedPolicyState.isManaged ? "active" : "none")
-        Managed Policy Source: \(managedPolicyState.sourcePath ?? "not configured")
+        Managed Policy Source: \(managedPolicyState.sourcePath.map(redactedPathLabel) ?? "not configured")
 
         Workspace Index
         Files: \(workspaceIndex.entries.count)
@@ -104,13 +109,13 @@ enum DiagnosticBundleService {
         \(git)
 
         Privacy Note
-        This bundle intentionally excludes document contents and AI provider keys. It lists paths, settings names, and local status only.
+        This bundle intentionally excludes document contents, AI provider keys, and absolute paths. File and workspace labels use short, non-reversible hashes for correlation.
         """
     }
 
     private static func managedPolicySummary(state: ManagedPolicyState) -> String {
         let lines = EnterprisePolicyService.summaryLines(for: state)
-        let source = state.sourcePath ?? "not configured"
+        let source = state.sourcePath.map(redactedPathLabel) ?? "not configured"
 
         return """
         ForgeText Managed Policy
@@ -119,5 +124,34 @@ enum DiagnosticBundleService {
 
         \(lines.joined(separator: "\n"))
         """
+    }
+
+    private static func redactedURLLabel(_ url: URL) -> String {
+        redactedPathLabel(url.path)
+    }
+
+    private static func redactedPathLabel(_ path: String) -> String {
+        let name = URL(fileURLWithPath: path).lastPathComponent
+        let digest = SHA256.hash(data: Data(path.utf8)).prefix(4).map { String(format: "%02x", $0) }.joined()
+        return "\(name.isEmpty ? "item" : name) [\(digest)]"
+    }
+
+    private static func redactedText(_ text: String, workspaceRoots: [URL]) -> String {
+        var redacted = text
+        for root in workspaceRoots {
+            redacted = redacted.replacingOccurrences(of: root.path, with: "<workspace:\(redactedURLLabel(root))>")
+        }
+        redacted = redacted.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
+
+        let sensitivePatterns = [
+            #"(?i)(authorization\s*[:=]\s*(?:bearer|basic)\s+)[^\s,;]+"#,
+            #"(?i)((?:api[_-]?key|token|secret|password)\s*[:=]\s*)[^\s,;]+"#,
+        ]
+        for pattern in sensitivePatterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(redacted.startIndex..<redacted.endIndex, in: redacted)
+            redacted = regex.stringByReplacingMatches(in: redacted, range: range, withTemplate: "$1<redacted>")
+        }
+        return redacted
     }
 }

@@ -43,6 +43,11 @@ struct ConfigInspectorView: View {
                     filterBar
                     Divider()
 
+                    if !configDocument.diagnostics.isEmpty {
+                        schemaDiagnostics(configDocument)
+                        Divider()
+                    }
+
                     if filteredNodes.isEmpty {
                         ContentUnavailableView(
                             "No Matching Config Keys",
@@ -105,6 +110,10 @@ struct ConfigInspectorView: View {
             summaryPill(configDocument.format.displayName)
             summaryPill("\(configDocument.topLevelCount) top-level")
             summaryPill("\(configDocument.itemCount) items")
+            if let schema = configDocument.schema {
+                summaryPill(schema.displayName)
+                summaryPill(configDocument.diagnostics.isEmpty ? "Schema valid" : "\(configDocument.diagnostics.count) schema issues")
+            }
 
             Spacer(minLength: 0)
 
@@ -117,6 +126,26 @@ struct ConfigInspectorView: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
         .background(Color(nsColor: theme.gutterBackgroundColor))
+    }
+
+    private func schemaDiagnostics(_ configDocument: StructuredConfigDocument) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            ForEach(configDocument.diagnostics) { diagnostic in
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: diagnostic.severity == .error ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(diagnostic.severity == .error ? .red : .orange)
+                    Text(diagnostic.message)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Color(nsColor: theme.textColor))
+                    Spacer()
+                }
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .background(Color(nsColor: theme.gutterBackgroundColor).opacity(0.58))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Configuration schema diagnostics")
     }
 
     private var filterBar: some View {

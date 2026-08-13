@@ -90,7 +90,7 @@ enum GitCloneService {
 
         let directoryName = try validatedDirectoryName(directoryName)
 
-        guard let gitPath = ToolchainService.executablePath(named: "git")
+        guard let gitPath = ToolchainService.trustedExecutablePath(named: "git")
         else {
             throw GitCloneError.gitUnavailable
         }
@@ -100,7 +100,12 @@ enum GitCloneService {
             throw GitCloneError.destinationAlreadyExists(destinationURL)
         }
 
-        var arguments = ["clone"]
+        var arguments = [
+            "-c", "core.hooksPath=/dev/null",
+            "-c", "init.templateDir=/dev/null",
+            "-c", "protocol.ext.allow=never",
+            "clone",
+        ]
         if usesShallowClone {
             arguments += ["--depth", "1"]
         }
@@ -111,7 +116,15 @@ enum GitCloneService {
         }
 
         arguments += ["--", repositorySpecifier, destinationURL.path]
-        _ = try CommandExecutionService.runString(gitPath, arguments: arguments)
+        _ = try CommandExecutionService.runString(
+            gitPath,
+            arguments: arguments,
+            environment: [
+                "GIT_PAGER": "cat",
+                "GIT_TERMINAL_PROMPT": "0",
+            ],
+            limits: .interactiveTask
+        )
 
         return destinationURL
     }

@@ -13,6 +13,7 @@ struct ForgeTextApp: App {
                     applicationDelegate.appState.processLaunchArgumentsIfNeeded()
                 }
                 .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                    LanguageProtocolRuntimeService.terminateAllImmediately()
                     CrashRecoveryMonitor.markCleanExit()
                 }
         }

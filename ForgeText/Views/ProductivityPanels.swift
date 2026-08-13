@@ -453,7 +453,10 @@ struct PerformanceHUDView: View {
             VStack(alignment: .trailing, spacing: 4) {
                 Text("Last \(formatMilliseconds(metric.lastDurationMS))")
                 Text("Avg \(formatMilliseconds(metric.averageDurationMS))")
+                Text("P95 \(formatMilliseconds(metric.p95DurationMS))")
                 Text("Max \(formatMilliseconds(metric.maxDurationMS))")
+                Text(metric.isWithinBudget ? "Within budget" : "Over budget")
+                    .foregroundStyle(metric.isWithinBudget ? RetroPalette.success : RetroPalette.warning)
             }
             .font(.system(size: 11, weight: .bold, design: .monospaced))
             .foregroundStyle(RetroPalette.ink)
@@ -536,107 +539,258 @@ struct AIContextCenterView: View {
     }
 }
 
+private enum GitHubWorkflowMode: String, CaseIterable, Identifiable {
+    case pullRequests = "Pull Requests"
+    case issues = "Issues"
+    case create = "Create PR"
+    case release = "Draft Release"
+    var id: String { rawValue }
+}
+
 struct GitHubWorkflowView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var appState: AppState
+    @State private var mode: GitHubWorkflowMode = .pullRequests
+    @State private var selectedPullRequestNumber: Int?
+    @State private var selectedIssueNumber: Int?
+    @State private var commentDraft = ""
+    @State private var showingCommentConfirmation = false
+    @State private var showingPRConfirmation = false
+    @State private var showingReleaseConfirmation = false
+    @State private var prTitle = ""
+    @State private var prBody = ""
+    @State private var prBase = "main"
+    @State private var prHead = ""
+    @State private var prIsDraft = true
+    @State private var releaseTag = ""
+    @State private var releaseTitle = ""
+    @State private var releaseNotes = ""
+    @State private var releaseTarget = ""
+
+    private var selectedPullRequest: GitHubPullRequestSummary? {
+        appState.githubWorkflowState.pullRequests.first { $0.number == selectedPullRequestNumber }
+    }
+
+    private var selectedIssue: GitHubIssueSummary? {
+        appState.githubWorkflowState.issues.first { $0.number == selectedIssueNumber }
+    }
 
     var body: some View {
-        ZStack {
-            RetroBackdropView()
-
-            VStack(alignment: .leading, spacing: 14) {
-                ProductivityHeader(
-                    title: "GitHub Workflow",
-                    systemImage: "arrow.triangle.branch",
-                    subtitle: appState.githubWorkflowState.statusMessage ?? "Connect local Git work to GitHub repository and PR flow."
-                ) {
-                    Button("Refresh") {
-                        appState.refreshGitHubWorkflow()
-                    }
-                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
-
-                    Button("Git Workbench") {
-                        appState.showGitWorkbenchPanel()
-                    }
-                    .buttonStyle(RetroActionButtonStyle(tone: .secondary))
-
-                    Button("Close") {
-                        dismiss()
-                    }
-                    .buttonStyle(RetroActionButtonStyle(tone: .primary))
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Image(systemName: "arrow.triangle.branch")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.tint)
+                    .frame(width: 38, height: 38)
+                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("GitHub Team Workflow").font(.system(size: 19, weight: .semibold))
+                    Text(appState.githubWorkflowState.statusMessage ?? "PRs, issues, checks, review threads, and releases use your existing gh authentication.")
+                        .font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 }
-
-                HStack(spacing: 10) {
-                    statCard("Branch", appState.githubWorkflowState.branchName ?? "none", "Current")
-                    statCard("Changes", "\(appState.githubWorkflowState.changedFileCount)", "Working Tree")
+                Spacer()
+                Picker("Workflow", selection: $mode) {
+                    ForEach(GitHubWorkflowMode.allCases) { Text($0.rawValue).tag($0) }
                 }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    workflowCard(
-                        title: "Repository",
-                        detail: appState.githubWorkflowState.repositoryURL?.absoluteString ?? "No GitHub remote detected.",
-                        systemImage: "globe"
-                    )
-
-                    workflowCard(
-                        title: "Pull Request Compare",
-                        detail: appState.githubWorkflowState.compareURL?.absoluteString ?? "Create or switch to a branch first.",
-                        systemImage: "arrow.left.arrow.right"
-                    )
-
-                    HStack(spacing: 10) {
-                        Button("Open Repository") {
-                            appState.openGitHubRepositoryPage()
-                        }
-                        .buttonStyle(RetroActionButtonStyle(tone: .accent))
-                        .disabled(appState.githubWorkflowState.repositoryURL == nil)
-
-                        Button("Open Compare") {
-                            appState.openGitHubComparePage()
-                        }
-                        .buttonStyle(RetroActionButtonStyle(tone: .secondary))
-                        .disabled(appState.githubWorkflowState.compareURL == nil)
-
-                        Button("Refresh Git Status") {
-                            appState.refreshGitStatus()
-                            appState.refreshGitHubWorkflow()
-                        }
-                        .buttonStyle(RetroActionButtonStyle(tone: .secondary))
-                    }
+                .pickerStyle(.segmented)
+                .frame(width: 430)
+                Button("Refresh") { refreshCurrentMode() }
+                    .buttonStyle(.bordered)
+                    .disabled(appState.githubWorkflowState.repositoryURL == nil)
+                Menu("More") {
+                    Button("Open Repository") { appState.openGitHubRepositoryPage() }
+                    Button("Open Compare") { appState.openGitHubComparePage() }
+                    Divider()
+                    Button("Git Workbench") { appState.showGitWorkbenchPanel() }
                 }
-                .padding(12)
-                .retroInsetPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
+                Button("Close") { dismiss() }.buttonStyle(.borderedProminent)
             }
-            .padding(18)
-            .frame(minWidth: 720, minHeight: 480)
-            .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
-            .padding(18)
+            .padding(16)
+            .background(.bar)
+            Divider()
+
+            if mode == .create {
+                createPullRequestForm
+            } else if mode == .release {
+                draftReleaseForm
+            } else {
+                HSplitView {
+                    navigationPane.frame(minWidth: 360)
+                    detailPane.padding(18).frame(minWidth: 480)
+                }
+            }
         }
-        .onAppear {
-            appState.refreshGitHubWorkflow()
+        .frame(minWidth: 980, minHeight: 650)
+        .onAppear { appState.refreshGitHubWorkflow() }
+        .onChange(of: selectedPullRequestNumber) { _, _ in
+            if let selectedPullRequest { appState.refreshGitHubReviewContext(for: selectedPullRequest) }
+        }
+        .confirmationDialog("Post comment to PR #\(selectedPullRequest?.number ?? 0)?", isPresented: $showingCommentConfirmation) {
+            Button("Post Comment") {
+                guard let selectedPullRequest else { return }
+                appState.postGitHubPullRequestComment(commentDraft, pullRequest: selectedPullRequest)
+                commentDraft = ""
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("This sends the comment through the authenticated GitHub CLI.") }
+        .confirmationDialog("Create this pull request?", isPresented: $showingPRConfirmation) {
+            Button(prIsDraft ? "Create Draft PR" : "Create Pull Request") {
+                appState.createGitHubPullRequest(
+                    title: prTitle, body: prBody, baseBranch: prBase,
+                    headBranch: prHead.isEmpty ? nil : prHead, isDraft: prIsDraft
+                )
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("The branch and description will be sent to GitHub using gh.") }
+        .confirmationDialog("Create draft release \(releaseTag)?", isPresented: $showingReleaseConfirmation) {
+            Button("Create Draft Release") {
+                appState.draftGitHubRelease(
+                    tag: releaseTag, title: releaseTitle, notes: releaseNotes,
+                    target: releaseTarget.isEmpty ? nil : releaseTarget
+                )
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("The release remains a draft until it is published on GitHub.") }
+    }
+
+    @ViewBuilder private var navigationPane: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Label(appState.githubWorkflowState.branchName ?? "No branch", systemImage: "arrow.triangle.branch")
+                Spacer()
+                Text("\(appState.githubWorkflowState.changedFileCount) local changes").foregroundStyle(.secondary)
+            }
+            .font(.system(size: 11, weight: .medium)).padding(12)
+            Divider()
+            if mode == .issues {
+                if appState.githubWorkflowState.issues.isEmpty {
+                    ContentUnavailableView("No issues loaded", systemImage: "smallcircle.filled.circle", description: Text("Select Refresh to load open issues."))
+                } else {
+                    List(appState.githubWorkflowState.issues, selection: $selectedIssueNumber) { issue in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("#\(issue.number) \(issue.title)").font(.system(size: 12, weight: .semibold)).lineLimit(2)
+                            Text(issue.labels.joined(separator: " • ")).font(.system(size: 10)).foregroundStyle(.secondary)
+                        }
+                        .tag(issue.number).padding(.vertical, 4)
+                    }
+                    .listStyle(.inset)
+                }
+            } else if appState.githubWorkflowState.pullRequests.isEmpty {
+                ContentUnavailableView("No pull requests loaded", systemImage: "arrow.triangle.branch", description: Text("Select Refresh to load open pull requests."))
+            } else {
+                List(appState.githubWorkflowState.pullRequests, selection: $selectedPullRequestNumber) { pullRequest in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("#\(pullRequest.number) \(pullRequest.title)").font(.system(size: 12, weight: .semibold)).lineLimit(2)
+                        Text("\(pullRequest.headBranch) into \(pullRequest.baseBranch) • @\(pullRequest.authorLogin)")
+                            .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    .tag(pullRequest.number).padding(.vertical, 4)
+                }
+                .listStyle(.inset)
+            }
         }
     }
 
-    private func workflowCard(title: String, detail: String, systemImage: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: systemImage)
-                .foregroundStyle(RetroPalette.chromeBlue)
-                .frame(width: 22)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 13, weight: .black, design: .monospaced))
-                    .foregroundStyle(RetroPalette.ink)
-                Text(detail)
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(RetroPalette.link)
-                    .textSelection(.enabled)
+    @ViewBuilder private var detailPane: some View {
+        if mode == .issues, let issue = selectedIssue {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("#\(issue.number) \(issue.title)").font(.system(size: 17, weight: .semibold))
+                Text(issue.labels.isEmpty ? "No labels" : issue.labels.joined(separator: ", ")).foregroundStyle(.secondary)
+                Text(issue.assignees.isEmpty ? "Unassigned" : "Assigned to \(issue.assignees.joined(separator: ", "))")
+                Button("Open Issue on GitHub") { NSWorkspace.shared.open(issue.url) }.buttonStyle(.borderedProminent)
+                Spacer()
             }
-
-            Spacer(minLength: 0)
+        } else if let pullRequest = selectedPullRequest {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text("#\(pullRequest.number) \(pullRequest.title)").font(.system(size: 17, weight: .semibold))
+                            Text("\(pullRequest.headBranch) into \(pullRequest.baseBranch)").font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Open on GitHub") { appState.openGitHubPullRequest(pullRequest) }.buttonStyle(.bordered)
+                    }
+                    reviewContext
+                    Text("Repository comment").font(.system(size: 12, weight: .semibold))
+                    TextEditor(text: $commentDraft).frame(minHeight: 110)
+                        .overlay(RoundedRectangle(cornerRadius: 7).stroke(Color.secondary.opacity(0.25)))
+                    HStack {
+                        Spacer()
+                        Button("Post Comment") { showingCommentConfirmation = true }.buttonStyle(.borderedProminent)
+                            .disabled(commentDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+            }
+        } else {
+            ContentUnavailableView("Select an item", systemImage: "text.bubble")
         }
-        .padding(10)
-        .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromeBlue)
+    }
+
+    private var reviewContext: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            GroupBox("Checks") {
+                if appState.githubWorkflowState.checks.isEmpty {
+                    Text("No checks reported.").foregroundStyle(.secondary)
+                } else {
+                    ForEach(appState.githubWorkflowState.checks) { check in
+                        HStack {
+                            Image(systemName: check.conclusion == "SUCCESS" ? "checkmark.circle.fill" : "circle.dotted")
+                            Text(check.name)
+                            Spacer()
+                            Text(check.conclusion ?? check.state).font(.system(size: 10)).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            GroupBox("Review Threads") {
+                if appState.githubWorkflowState.reviewThreads.isEmpty {
+                    Text("No inline review comments reported.").foregroundStyle(.secondary)
+                } else {
+                    ForEach(appState.githubWorkflowState.reviewThreads.prefix(100)) { thread in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("\(thread.path)\(thread.line.map { ":\($0)" } ?? "") • @\(thread.author)")
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            Text(thread.body).font(.system(size: 11)).textSelection(.enabled)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+        }
+    }
+
+    private var createPullRequestForm: some View {
+        Form {
+            Section("Pull Request") {
+                TextField("Title", text: $prTitle)
+                HStack { TextField("Base branch", text: $prBase); TextField("Head branch (current if blank)", text: $prHead) }
+                Toggle("Create as draft", isOn: $prIsDraft)
+                TextEditor(text: $prBody).frame(minHeight: 220).accessibilityLabel("Pull request description")
+                HStack { Spacer(); Button("Review and Create") { showingPRConfirmation = true }.buttonStyle(.borderedProminent).disabled(prTitle.isEmpty || prBase.isEmpty) }
+            }
+        }
+        .formStyle(.grouped).padding(18)
+    }
+
+    private var draftReleaseForm: some View {
+        Form {
+            Section("Draft Release") {
+                HStack { TextField("Tag", text: $releaseTag); TextField("Target branch or SHA (optional)", text: $releaseTarget) }
+                TextField("Release title", text: $releaseTitle)
+                TextEditor(text: $releaseNotes).frame(minHeight: 240).accessibilityLabel("Release notes")
+                HStack { Spacer(); Button("Review Draft Release") { showingReleaseConfirmation = true }.buttonStyle(.borderedProminent).disabled(releaseTag.isEmpty || releaseTitle.isEmpty) }
+            }
+        }
+        .formStyle(.grouped).padding(18)
+    }
+
+    private func refreshCurrentMode() {
+        switch mode {
+        case .pullRequests: appState.refreshGitHubPullRequests()
+        case .issues: appState.refreshGitHubIssues()
+        case .create, .release: appState.refreshGitHubWorkflow()
+        }
     }
 }
 
@@ -656,39 +810,63 @@ struct FirstRunSetupView: View {
     }
 
     var body: some View {
-        ZStack {
-            RetroBackdropView()
+        VStack(spacing: 0) {
+            HStack(spacing: 13) {
+                Image(systemName: "checklist")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(.tint)
+                    .frame(width: 38, height: 38)
+                    .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
 
-            VStack(alignment: .leading, spacing: 14) {
-                ProductivityHeader(
-                    title: "First-Run Setup",
-                    systemImage: "checklist",
-                    subtitle: "Set up your workspace, indexing, AI, plugins, updates, and workbench defaults."
-                ) {
-                    Button("Close") {
-                        appState.completeFirstRunExperienceIfNeeded()
-                        dismiss()
-                    }
-                    .buttonStyle(RetroActionButtonStyle(tone: .primary))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Set Up ForgeText")
+                        .font(.system(size: 19, weight: .semibold))
+                    Text("Choose a comfortable layout, then connect only the tools you need.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                 }
 
-                ScrollView {
-                    VStack(spacing: 10) {
-                        presetChooserCard
+                Spacer()
 
+                Button("Close") {
+                    appState.completeFirstRunExperienceIfNeeded()
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding(.horizontal, 22)
+            .padding(.vertical, 16)
+
+            Divider()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    presetChooserCard
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Optional setup")
+                            .font(.system(size: 15, weight: .semibold))
+                        Text("Editing works immediately. These steps enable workspace and engineering features.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    VStack(spacing: 0) {
                         ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
                             setupRow(index: index + 1, title: step.0, detail: step.1, isComplete: step.2, action: step.3)
+                            if index < steps.count - 1 {
+                                Divider().padding(.leading, 48)
+                            }
                         }
                     }
-                    .padding(12)
+                    .background(.background, in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.18)))
                 }
-                .retroInsetPanel(fill: RetroPalette.panelFillMuted, accent: RetroPalette.chromeBlue)
+                .padding(22)
             }
-            .padding(18)
-            .frame(minWidth: 760, minHeight: 520)
-            .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
-            .padding(18)
+            .background(Color(nsColor: .windowBackgroundColor))
         }
+        .frame(minWidth: 720, idealWidth: 780, minHeight: 560, idealHeight: 680)
         .onAppear {
             appState.refreshAIContextState()
             appState.refreshReleaseReadiness()
@@ -699,77 +877,48 @@ struct FirstRunSetupView: View {
     }
 
     private var presetChooserCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            RetroSectionHeader(title: "Choose A Starting Layout", systemImage: "switch.2", accent: RetroPalette.chromePink)
-
-            Text("ForgeText starts in Quiet UI by default. Choose a calmer Studio workbench or keep Full Retro if you want the more expressive shell.")
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(RetroPalette.link)
-
-            HStack(spacing: 10) {
-                presetButton(.quiet, tone: .accent)
-                presetButton(.fullRetro, tone: .secondary)
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Starting layout")
+                    .font(.system(size: 15, weight: .semibold))
+                Text("Quiet UI is recommended for daily editing. You can change this later without losing custom settings.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
 
-            HStack(spacing: 8) {
-                Button("Use Balanced") {
-                    appState.applyWorkbenchPreset(.balanced, markFirstRunComplete: true)
-                }
-                .buttonStyle(RetroActionButtonStyle(tone: .secondary))
-
-                if let preset = appState.selectedWorkbenchPreset {
-                    Text("Current: \(preset.displayName)")
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                        .foregroundStyle(RetroPalette.mutedInk)
+            Picker("Starting layout", selection: Binding(
+                get: { appState.selectedWorkbenchPreset ?? .quiet },
+                set: { appState.applyWorkbenchPreset($0, markFirstRunComplete: true) }
+            )) {
+                ForEach(WorkbenchPreset.allCases) { preset in
+                    Text(preset.displayName).tag(preset)
                 }
             }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+
+            Text((appState.selectedWorkbenchPreset ?? .quiet).summary)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
         }
-        .padding(12)
-        .retroPanel(fill: RetroPalette.panelFill, accent: RetroPalette.chromePink)
-    }
-
-    private func presetButton(_ preset: WorkbenchPreset, tone: RetroActionButtonStyle.Tone) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(preset.displayName)
-                .font(.system(size: 13, weight: .black, design: .monospaced))
-                .foregroundStyle(RetroPalette.ink)
-
-            Text(preset.summary)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(RetroPalette.link)
-                .fixedSize(horizontal: false, vertical: true)
-
-            Button("Choose \(preset.displayName)") {
-                appState.applyWorkbenchPreset(preset, markFirstRunComplete: true)
-            }
-            .buttonStyle(RetroActionButtonStyle(tone: tone))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .retroInsetPanel(
-            fill: appState.selectedWorkbenchPreset == preset ? RetroPalette.chromeCyan.opacity(0.15) : RetroPalette.fieldFill,
-            accent: appState.selectedWorkbenchPreset == preset ? RetroPalette.chromeCyan : RetroPalette.chromeBlue
-        )
+        .padding(16)
+        .background(.background, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.18)))
     }
 
     private func setupRow(index: Int, title: String, detail: String, isComplete: Bool, action: @escaping () -> Void) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text("\(index)")
-                .font(.system(size: 13, weight: .black, design: .monospaced))
-                .foregroundStyle(RetroPalette.ink)
-                .frame(width: 24, height: 24)
-                .retroInsetPanel(fill: RetroPalette.fieldFill, accent: isComplete ? RetroPalette.success : RetroPalette.chromeGold)
+        HStack(alignment: .center, spacing: 12) {
+            Image(systemName: isComplete ? "checkmark.circle.fill" : "\(index).circle")
+                .font(.system(size: 18, weight: .medium))
+                .foregroundStyle(isComplete ? Color.green : Color.secondary)
+                .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 5) {
-                HStack {
-                    Text(title)
-                        .font(.system(size: 14, weight: .black, design: .monospaced))
-                        .foregroundStyle(RetroPalette.ink)
-                    RetroCapsuleLabel(text: isComplete ? "ready" : "todo", accent: isComplete ? RetroPalette.success : RetroPalette.warning)
-                }
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
                 Text(detail)
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(RetroPalette.link)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
             }
 
             Spacer(minLength: 0)
@@ -777,10 +926,11 @@ struct FirstRunSetupView: View {
             Button(isComplete ? "Open" : "Start") {
                 action()
             }
-            .buttonStyle(RetroActionButtonStyle(tone: isComplete ? .secondary : .accent))
+            .buttonStyle(.bordered)
+            .controlSize(.small)
         }
-        .padding(12)
-        .retroPanel(fill: RetroPalette.panelFill, accent: isComplete ? RetroPalette.success : RetroPalette.chromeGold)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
     }
 }
 

@@ -64,6 +64,8 @@ struct EditorPluginManifest: Identifiable, Codable, Hashable {
     let isBuiltIn: Bool
     let sourceDescription: String?
     let defaultEnabled: Bool
+    var canonicalSHA256: String? = nil
+    var verifiedSigningKey: String? = nil
 }
 
 enum EditorPluginCommandAction: Hashable {
@@ -97,6 +99,21 @@ struct EditorPluginSnippet: Identifiable, Hashable {
         body
             .replacingOccurrences(of: "$SELECTION", with: "…")
             .replacingOccurrences(of: "$0", with: "")
+    }
+}
+
+struct EditorPluginLanguagePack: Identifiable, Hashable {
+    let id: String
+    let pluginID: String
+    let displayName: String
+    let baseLanguage: DocumentLanguage
+    let fileExtensions: [String]
+    let fileNames: [String]
+
+    func matches(_ url: URL) -> Bool {
+        let name = url.lastPathComponent.lowercased()
+        let pathExtension = url.pathExtension.lowercased()
+        return fileNames.contains(name) || fileExtensions.contains(pathExtension)
     }
 }
 
@@ -301,6 +318,7 @@ struct EditorPlugin: Identifiable, Hashable {
     let commands: [EditorPluginCommand]
     let snippets: [EditorPluginSnippet]
     let tasks: [EditorPluginTask]
+    var languagePacks: [EditorPluginLanguagePack] = []
 
     var id: String { manifest.id }
 }

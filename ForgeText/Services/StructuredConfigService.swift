@@ -62,10 +62,42 @@ struct StructuredConfigDocument {
     let format: ConfigFormatKind
     let nodes: [StructuredConfigNode]
     let itemCount: Int
+    let schema: InfrastructureConfigSchema?
+    let diagnostics: [ConfigSchemaDiagnostic]
 
     var topLevelCount: Int {
         nodes.count
     }
+}
+
+enum InfrastructureConfigSchema: String, Codable, Hashable, Identifiable {
+    case kubernetes
+    case githubActions
+    case dockerCompose
+    case devContainer
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .kubernetes: return "Kubernetes"
+        case .githubActions: return "GitHub Actions"
+        case .dockerCompose: return "Docker Compose"
+        case .devContainer: return "Dev Container"
+        }
+    }
+}
+
+struct ConfigSchemaDiagnostic: Identifiable, Hashable {
+    enum Severity: String, Hashable {
+        case warning
+        case error
+    }
+
+    let id: String
+    let severity: Severity
+    let message: String
+    let lineNumber: Int?
 }
 
 enum StructuredConfigService {
@@ -91,7 +123,14 @@ enum StructuredConfigService {
         }
 
         let nodes = buildTree(from: flatNodes)
-        return StructuredConfigDocument(format: format, nodes: nodes, itemCount: flatNodes.count)
+        let schema = detectSchema(text: text, url: url, nodes: nodes)
+        return StructuredConfigDocument(
+            format: format,
+            nodes: nodes,
+            itemCount: flatNodes.count,
+            schema: schema,
+            diagnostics: validate(schema: schema, nodes: nodes)
+        )
     }
 
     static func filteredNodes(in document: StructuredConfigDocument, matching query: String) -> [StructuredConfigNode] {
@@ -145,6 +184,82 @@ enum StructuredConfigService {
         }
 
         return .generic
+    }
+
+    private static func detectSchema(
+        text: String,
+        url: URL?,
+        nodes: [StructuredConfigNode]
+    ) -> InfrastructureConfigSchema? {
+        let path = url?.path.lowercased() ?? ""
+        let filename = url?.lastPathComponent.lowercased() ?? ""
+        let keys = Set(nodes.map { normalizedSchemaKey($0.key) })
+        if path.contains("/.github/workflows/") && ["yml", "yaml"].contains(url?.pathExtension.lowercased() ?? "") {
+            return .githubActions
+        }
+        if filename == "docker-compose.yml" || filename == "docker-compose.yaml" || filename == "compose.yml" || filename == "compose.yaml" {
+            return .dockerCompose
+        }
+        if filename == "devcontainer.json" {
+            return .devContainer
+        }
+        if keys.contains("apiversion") && keys.contains("kind") {
+            return .kubernetes
+        }
+        if keys.contains("jobs") && keys.contains("on") {
+            return .githubActions
+        }
+        if keys.contains("services") && text.localizedCaseInsensitiveContains("image:") {
+            return .dockerCompose
+        }
+        return nil
+    }
+
+    private static func validate(
+        schema: InfrastructureConfigSchema?,
+        nodes: [StructuredConfigNode]
+    ) -> [ConfigSchemaDiagnostic] {
+        guard let schema else { return [] }
+        let byKey = Dictionary(grouping: nodes, by: { normalizedSchemaKey($0.key) })
+        let requirements: [(String, String)]
+        switch schema {
+        case .kubernetes:
+            requirements = [
+                ("apiversion", "Kubernetes resources require apiVersion."),
+                ("kind", "Kubernetes resources require kind."),
+                ("metadata", "Kubernetes resources should declare metadata."),
+            ]
+        case .githubActions:
+            requirements = [
+                ("on", "GitHub Actions workflows require an on trigger."),
+                ("jobs", "GitHub Actions workflows require at least one jobs entry."),
+            ]
+        case .dockerCompose:
+            requirements = [("services", "Docker Compose files require a services mapping.")]
+        case .devContainer:
+            let hasRuntime = byKey["image"] != nil || byKey["build"] != nil || byKey["dockercomposefile"] != nil
+            return hasRuntime ? [] : [
+                ConfigSchemaDiagnostic(
+                    id: "devcontainer-runtime",
+                    severity: .error,
+                    message: "Dev Container configuration requires image, build, or dockerComposeFile.",
+                    lineNumber: nil
+                ),
+            ]
+        }
+        return requirements.compactMap { key, message in
+            guard byKey[key] == nil else { return nil }
+            return ConfigSchemaDiagnostic(
+                id: "\(schema.rawValue)-\(key)",
+                severity: key == "metadata" ? .warning : .error,
+                message: message,
+                lineNumber: nil
+            )
+        }
+    }
+
+    private static func normalizedSchemaKey(_ value: String) -> String {
+        value.trimmingCharacters(in: CharacterSet(charactersIn: " \t\"'{}[]," )).lowercased()
     }
 
     private static func parseEnv(_ text: String) -> [FlatNode] {

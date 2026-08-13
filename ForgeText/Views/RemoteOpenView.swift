@@ -2,6 +2,7 @@ import SwiftUI
 
 private enum RemotePanelMode: String, CaseIterable, Identifiable {
     case open
+    case browse
     case grep
     case command
 
@@ -11,6 +12,8 @@ private enum RemotePanelMode: String, CaseIterable, Identifiable {
         switch self {
         case .open:
             return "Open File"
+        case .browse:
+            return "Browse"
         case .grep:
             return "Remote Grep"
         case .command:
@@ -115,6 +118,8 @@ struct RemoteOpenView: View {
                 switch mode {
                 case .open:
                     openRemoteSection
+                case .browse:
+                    remoteBrowseSection
                 case .grep:
                     remoteSearchSection
                 case .command:
@@ -159,6 +164,45 @@ struct RemoteOpenView: View {
             if appState.remoteWorkspaceState.executionMode == .remoteAgent {
                 appState.checkRemoteAgent()
             }
+        }
+    }
+
+    private var remoteBrowseSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                TextField("/var/log", text: $appState.remoteWorkspaceState.searchRootPath)
+                    .textFieldStyle(.plain)
+                    .retroTextField()
+                    .accessibilityLabel("SFTP directory path")
+                Button(appState.remoteWorkspaceState.isBrowsingDirectory ? "Loading..." : "Browse with SFTP") {
+                    appState.browseRemoteDirectory()
+                }
+                .buttonStyle(RetroActionButtonStyle(tone: .accent))
+                .disabled(appState.remoteWorkspaceState.isBrowsingDirectory || selectedConnection == nil)
+            }
+
+            List(appState.remoteWorkspaceState.directoryEntries) { entry in
+                Button {
+                    appState.openRemoteDirectoryEntry(entry)
+                    if entry.kind == .file { dismiss() }
+                } label: {
+                    HStack {
+                        Image(systemName: entry.kind == .directory ? "folder" : (entry.kind == .symbolicLink ? "link" : "doc"))
+                        Text(entry.name)
+                            .font(.system(size: 11, design: .monospaced))
+                        Spacer()
+                        if let size = entry.size, entry.kind == .file {
+                            Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(entry.kind == .symbolicLink)
+            }
+            .listStyle(.plain)
+            .frame(maxHeight: 280)
         }
     }
 

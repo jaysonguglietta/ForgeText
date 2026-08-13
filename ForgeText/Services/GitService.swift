@@ -26,6 +26,8 @@ enum GitService {
         case branchSwitchFailed(String)
         case commitMessageRequired
         case branchNameRequired
+        case patchTooLarge
+        case patchApplyFailed(String)
 
         var errorDescription: String? {
             switch self {
@@ -41,6 +43,10 @@ enum GitService {
                 return "Enter a commit message before committing changes."
             case .branchNameRequired:
                 return "Enter a branch name before creating a branch."
+            case .patchTooLarge:
+                return "The reviewed patch exceeds ForgeText's 1 MB apply limit."
+            case let .patchApplyFailed(message):
+                return "ForgeText could not apply the reviewed patch. \(message)"
             }
         }
     }
@@ -61,9 +67,8 @@ enum GitService {
         let relativePath = try relativePath(for: fileURL, repositoryRoot: repositoryRoot)
 
         do {
-            return try CommandExecutionService.runString(
-                "/usr/bin/git",
-                arguments: ["-C", repositoryRoot.path, "show", "HEAD:\(relativePath)"]
+            return try runGitString(
+                ["-C", repositoryRoot.path, "show", "HEAD:\(relativePath)"]
             )
         } catch {
             throw GitError.noCommittedVersion(relativePath)
@@ -80,12 +85,12 @@ enum GitService {
         var decorations: [Int: EditorLineDecoration] = [:]
 
         let diffVariants: [[String]] = [
-            ["-C", repositoryRoot.path, "diff", "--unified=0", "--", relativePath],
-            ["-C", repositoryRoot.path, "diff", "--cached", "--unified=0", "--", relativePath],
+            ["-C", repositoryRoot.path, "diff", "--no-ext-diff", "--no-textconv", "--unified=0", "--", relativePath],
+            ["-C", repositoryRoot.path, "diff", "--cached", "--no-ext-diff", "--no-textconv", "--unified=0", "--", relativePath],
         ]
 
         for arguments in diffVariants {
-            guard let output = try? CommandExecutionService.runString("/usr/bin/git", arguments: arguments) else {
+            guard let output = try? runGitString(arguments) else {
                 continue
             }
 
@@ -101,9 +106,8 @@ enum GitService {
         guard lineNumber > 0,
               let repositoryRoot = repositoryRoot(containing: workspaceRoot ?? fileURL.deletingLastPathComponent()),
               let relativePath = try? relativePath(for: fileURL, repositoryRoot: repositoryRoot),
-              let output = try? CommandExecutionService.runString(
-                  "/usr/bin/git",
-                  arguments: ["-C", repositoryRoot.path, "blame", "--porcelain", "-L", "\(lineNumber),\(lineNumber)", "--", relativePath]
+              let output = try? runGitString(
+                  ["-C", repositoryRoot.path, "blame", "--porcelain", "-L", "\(lineNumber),\(lineNumber)", "--", relativePath]
               )
         else {
             return nil
@@ -150,9 +154,9 @@ enum GitService {
         }
 
         do {
-            _ = try CommandExecutionService.runString(
-                "/usr/bin/git",
-                arguments: ["-C", repositoryRoot.path, "checkout", branch]
+            _ = try runGitString(
+                ["-C", repositoryRoot.path, "checkout", branch],
+                limits: .default
             )
         } catch {
             throw GitError.branchSwitchFailed(branch)
@@ -165,9 +169,9 @@ enum GitService {
         }
 
         let relativePath = try relativePath(for: fileURL, repositoryRoot: repositoryRoot)
-        _ = try CommandExecutionService.runString(
-            "/usr/bin/git",
-            arguments: ["-C", repositoryRoot.path, "add", "--", relativePath]
+        _ = try runGitString(
+            ["-C", repositoryRoot.path, "add", "--", relativePath],
+            limits: .default
         )
     }
 
@@ -177,9 +181,9 @@ enum GitService {
         }
 
         let relativePath = try relativePath(for: fileURL, repositoryRoot: repositoryRoot)
-        _ = try CommandExecutionService.runString(
-            "/usr/bin/git",
-            arguments: ["-C", repositoryRoot.path, "restore", "--staged", "--", relativePath]
+        _ = try runGitString(
+            ["-C", repositoryRoot.path, "restore", "--staged", "--", relativePath],
+            limits: .default
         )
     }
 
@@ -219,9 +223,9 @@ enum GitService {
             throw GitError.repositoryNotFound
         }
 
-        _ = try CommandExecutionService.runString(
-            "/usr/bin/git",
-            arguments: ["-C", repositoryRoot.path, "fetch", "--all", "--prune"]
+        _ = try runGitString(
+            ["-C", repositoryRoot.path, "fetch", "--all", "--prune"],
+            limits: .default
         )
     }
 
@@ -230,9 +234,9 @@ enum GitService {
             throw GitError.repositoryNotFound
         }
 
-        _ = try CommandExecutionService.runString(
-            "/usr/bin/git",
-            arguments: ["-C", repositoryRoot.path, "pull", "--ff-only"]
+        _ = try runGitString(
+            ["-C", repositoryRoot.path, "pull", "--ff-only"],
+            limits: .default
         )
     }
 
@@ -241,9 +245,9 @@ enum GitService {
             throw GitError.repositoryNotFound
         }
 
-        _ = try CommandExecutionService.runString(
-            "/usr/bin/git",
-            arguments: ["-C", repositoryRoot.path, "push"]
+        _ = try runGitString(
+            ["-C", repositoryRoot.path, "push"],
+            limits: .default
         )
     }
 
@@ -256,9 +260,9 @@ enum GitService {
             throw GitError.repositoryNotFound
         }
 
-        _ = try CommandExecutionService.runString(
-            "/usr/bin/git",
-            arguments: ["-C", repositoryRoot.path, "commit", "-m", trimmedMessage]
+        _ = try runGitString(
+            ["-C", repositoryRoot.path, "commit", "-m", trimmedMessage],
+            limits: .default
         )
     }
 
@@ -271,9 +275,9 @@ enum GitService {
             throw GitError.repositoryNotFound
         }
 
-        _ = try CommandExecutionService.runString(
-            "/usr/bin/git",
-            arguments: ["-C", repositoryRoot.path, "checkout", "-b", trimmedBranch]
+        _ = try runGitString(
+            ["-C", repositoryRoot.path, "checkout", "-b", trimmedBranch],
+            limits: .default
         )
     }
 
@@ -288,7 +292,7 @@ enum GitService {
             arguments += ["-m", trimmedMessage]
         }
 
-        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: arguments)
+        _ = try runGitString(arguments, limits: .default)
     }
 
     static func stashPop(_ stashID: String?, at location: URL?) throws {
@@ -301,7 +305,7 @@ enum GitService {
             arguments.append(stashID)
         }
 
-        _ = try CommandExecutionService.runString("/usr/bin/git", arguments: arguments)
+        _ = try runGitString(arguments, limits: .default)
     }
 
     static func diffForWorkingTree(at location: URL?) throws -> String {
@@ -309,10 +313,98 @@ enum GitService {
             throw GitError.repositoryNotFound
         }
 
-        return try CommandExecutionService.runString(
-            "/usr/bin/git",
-            arguments: ["-C", repositoryRoot.path, "diff", "--cached", "--stat", "--patch"]
+        return try runGitString(
+            ["-C", repositoryRoot.path, "diff", "--cached", "--no-ext-diff", "--no-textconv", "--stat", "--patch"]
         )
+    }
+
+    static func workingTreePatch(for fileURL: URL, workspaceRoot: URL?) throws -> String {
+        guard let repositoryRoot = repositoryRoot(containing: workspaceRoot ?? fileURL.deletingLastPathComponent()) else {
+            throw GitError.repositoryNotFound
+        }
+
+        let relativePath = try relativePath(for: fileURL, repositoryRoot: repositoryRoot)
+        return try runGitString(
+            ["-C", repositoryRoot.path, "diff", "--no-ext-diff", "--no-textconv", "--", relativePath]
+        )
+    }
+
+    static func stageReviewedPatch(_ patch: String, at location: URL?) throws {
+        guard patch.utf8.count <= 1_024 * 1_024 else {
+            throw GitError.patchTooLarge
+        }
+        guard let repositoryRoot = repositoryRoot(containing: location) else {
+            throw GitError.repositoryNotFound
+        }
+
+        let patchData = Data(patch.utf8)
+        do {
+            _ = try runGitString(
+                ["-C", repositoryRoot.path, "apply", "--cached", "--check", "--whitespace=nowarn", "-"],
+                input: patchData,
+                limits: .default
+            )
+            _ = try runGitString(
+                ["-C", repositoryRoot.path, "apply", "--cached", "--whitespace=nowarn", "-"],
+                input: patchData,
+                limits: .default
+            )
+        } catch {
+            throw GitError.patchApplyFailed(error.localizedDescription)
+        }
+    }
+
+    static func fileHistory(for fileURL: URL, workspaceRoot: URL?, limit: Int = 40) throws -> [GitGraphEntry] {
+        guard let repositoryRoot = repositoryRoot(containing: workspaceRoot ?? fileURL.deletingLastPathComponent()) else {
+            throw GitError.repositoryNotFound
+        }
+
+        let relativePath = try relativePath(for: fileURL, repositoryRoot: repositoryRoot)
+        let boundedLimit = min(max(limit, 1), 100)
+        let output = try runGitString(
+            [
+                "-C", repositoryRoot.path,
+                "log", "--follow", "--date=relative",
+                "--format=%x01%H%x01%an%x01%ar%x01%d%x01%s",
+                "-n", String(boundedLimit), "--", relativePath,
+            ]
+        )
+        return parseGraphEntries(output)
+    }
+
+    static func worktrees(for location: URL?) -> [GitWorktreeRecord] {
+        guard let repositoryRoot = repositoryRoot(containing: location),
+              let output = try? runGitString(["-C", repositoryRoot.path, "worktree", "list", "--porcelain"])
+        else {
+            return []
+        }
+
+        return parseWorktrees(output)
+    }
+
+    static func applyReviewedPatch(_ patch: String, at location: URL?, reverse: Bool = false) throws {
+        guard patch.utf8.count <= 1_024 * 1_024 else {
+            throw GitError.patchTooLarge
+        }
+        guard let repositoryRoot = repositoryRoot(containing: location) else {
+            throw GitError.repositoryNotFound
+        }
+
+        let patchData = Data(patch.utf8)
+        var checkArguments = ["-C", repositoryRoot.path, "apply", "--check", "--whitespace=nowarn"]
+        if reverse { checkArguments.append("--reverse") }
+        checkArguments.append("-")
+
+        do {
+            _ = try runGitString(checkArguments, input: patchData, limits: .default)
+
+            var applyArguments = ["-C", repositoryRoot.path, "apply", "--whitespace=nowarn"]
+            if reverse { applyArguments.append("--reverse") }
+            applyArguments.append("-")
+            _ = try runGitString(applyArguments, input: patchData, limits: .default)
+        } catch {
+            throw GitError.patchApplyFailed(error.localizedDescription)
+        }
     }
 
     private static func repositoryRoot(containing location: URL?) -> URL? {
@@ -322,9 +414,8 @@ enum GitService {
 
         let directory = location.hasDirectoryPath ? location : location.deletingLastPathComponent()
 
-        guard let output = try? CommandExecutionService.runString(
-            "/usr/bin/git",
-            arguments: ["-C", directory.path, "rev-parse", "--show-toplevel"]
+        guard let output = try? runGitString(
+            ["-C", directory.path, "rev-parse", "--show-toplevel"]
         ) else {
             return nil
         }
@@ -338,9 +429,8 @@ enum GitService {
     }
 
     private static func summary(repositoryRoot: URL) -> GitRepositorySummary? {
-        guard let output = try? CommandExecutionService.runString(
-            "/usr/bin/git",
-            arguments: ["-C", repositoryRoot.path, "status", "--short", "--branch"]
+        guard let output = try? runGitString(
+            ["-C", repositoryRoot.path, "status", "--short", "--branch"]
         ) else {
             return nil
         }
@@ -349,9 +439,8 @@ enum GitService {
     }
 
     private static func branches(repositoryRoot: URL) -> [String] {
-        guard let output = try? CommandExecutionService.runString(
-            "/usr/bin/git",
-            arguments: ["-C", repositoryRoot.path, "branch", "--format=%(refname:short)"]
+        guard let output = try? runGitString(
+            ["-C", repositoryRoot.path, "branch", "--format=%(refname:short)"]
         ) else {
             return []
         }
@@ -364,9 +453,8 @@ enum GitService {
     }
 
     private static func changedFiles(repositoryRoot: URL) -> [GitChangedFile] {
-        guard let output = try? CommandExecutionService.runString(
-            "/usr/bin/git",
-            arguments: ["-C", repositoryRoot.path, "status", "--porcelain=v1"]
+        guard let output = try? runGitString(
+            ["-C", repositoryRoot.path, "status", "--porcelain=v1"]
         ) else {
             return []
         }
@@ -399,9 +487,8 @@ enum GitService {
     }
 
     private static func stashes(repositoryRoot: URL) -> [GitStashEntry] {
-        guard let output = try? CommandExecutionService.runString(
-            "/usr/bin/git",
-            arguments: ["-C", repositoryRoot.path, "stash", "list"]
+        guard let output = try? runGitString(
+            ["-C", repositoryRoot.path, "stash", "list"]
         ) else {
             return []
         }
@@ -423,9 +510,8 @@ enum GitService {
     }
 
     private static func graphEntries(repositoryRoot: URL) -> [GitGraphEntry] {
-        guard let output = try? CommandExecutionService.runString(
-            "/usr/bin/git",
-            arguments: [
+        guard let output = try? runGitString(
+            [
                 "-C",
                 repositoryRoot.path,
                 "log",
@@ -440,7 +526,11 @@ enum GitService {
             return []
         }
 
-        return output
+        return parseGraphEntries(output)
+    }
+
+    private static func parseGraphEntries(_ output: String) -> [GitGraphEntry] {
+        output
             .split(whereSeparator: \.isNewline)
             .compactMap { line in
                 let raw = String(line)
@@ -471,10 +561,53 @@ enum GitService {
             }
     }
 
+    private static func parseWorktrees(_ output: String) -> [GitWorktreeRecord] {
+        var records: [GitWorktreeRecord] = []
+        var fields: [String: String] = [:]
+        var flags = Set<String>()
+
+        func appendRecord() {
+            guard let path = fields["worktree"], let head = fields["HEAD"] else { return }
+            let rawBranch = fields["branch"]
+            let branch = rawBranch.map { value in
+                value.hasPrefix("refs/heads/") ? String(value.dropFirst("refs/heads/".count)) : value
+            }
+            records.append(
+                GitWorktreeRecord(
+                    id: path,
+                    path: path,
+                    head: head,
+                    branch: branch,
+                    isBare: flags.contains("bare"),
+                    isDetached: flags.contains("detached"),
+                    isLocked: flags.contains("locked") || fields["locked"] != nil
+                )
+            )
+        }
+
+        for line in output.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
+            if line.isEmpty {
+                appendRecord()
+                fields = [:]
+                flags = []
+                continue
+            }
+
+            let parts = line.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false)
+            let key = String(parts[0])
+            if parts.count == 2 {
+                fields[key] = String(parts[1])
+            } else {
+                flags.insert(key)
+            }
+        }
+        appendRecord()
+        return records
+    }
+
     private static func remotes(repositoryRoot: URL) -> [GitRemote] {
-        guard let output = try? CommandExecutionService.runString(
-            "/usr/bin/git",
-            arguments: ["-C", repositoryRoot.path, "remote", "-v"]
+        guard let output = try? runGitString(
+            ["-C", repositoryRoot.path, "remote", "-v"]
         ) else {
             return []
         }
@@ -521,6 +654,31 @@ enum GitService {
         }
 
         return relativePath
+    }
+
+    private static func runGitString(
+        _ arguments: [String],
+        input: Data? = nil,
+        limits: CommandExecutionService.ExecutionLimits = .gitRead
+    ) throws -> String {
+        let inertConfiguration = [
+            "-c", "core.fsmonitor=false",
+            "-c", "core.hooksPath=/dev/null",
+            "-c", "protocol.ext.allow=never",
+        ]
+        return try CommandExecutionService.runString(
+            "/usr/bin/git",
+            arguments: inertConfiguration + arguments,
+            input: input,
+            environment: [
+                "GIT_EDITOR": "/usr/bin/true",
+                "GIT_EXTERNAL_DIFF": "",
+                "GIT_PAGER": "cat",
+                "GIT_SEQUENCE_EDITOR": "/usr/bin/true",
+                "GIT_TERMINAL_PROMPT": "0",
+            ],
+            limits: limits
+        )
     }
 
     private static func parseStatusOutput(_ output: String, rootURL: URL) -> GitRepositorySummary {

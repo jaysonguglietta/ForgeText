@@ -3,26 +3,26 @@ import Foundation
 import Sparkle
 
 @MainActor
-final class AppUpdateController: NSObject, ObservableObject {
+final class AppUpdateController: NSObject, ObservableObject, SPUUpdaterDelegate {
     private static let defaultFeedURL = "https://jaysonguglietta.github.io/ForgeText/appcast.xml"
 
-    private let updaterController: SPUStandardUpdaterController?
     private let configuration: Configuration
+    private let managedPolicyState: ManagedPolicyState
+    private lazy var updaterController: SPUStandardUpdaterController? = {
+        guard configuration.isReady else { return nil }
+        return SPUStandardUpdaterController(
+            startingUpdater: true,
+            updaterDelegate: self,
+            userDriverDelegate: nil
+        )
+    }()
 
     override init() {
-        configuration = Configuration.fromBundle()
-
-        if configuration.isReady {
-            updaterController = SPUStandardUpdaterController(
-                startingUpdater: true,
-                updaterDelegate: nil,
-                userDriverDelegate: nil
-            )
-        } else {
-            updaterController = nil
-        }
-
+        let policyState = EnterprisePolicyService.loadState()
+        managedPolicyState = policyState
+        configuration = Configuration.fromBundle(managedPolicyState: policyState)
         super.init()
+        _ = updaterController
     }
 
     var isFullyConfigured: Bool {
@@ -50,6 +50,21 @@ final class AppUpdateController: NSObject, ObservableObject {
             case .unavailable(let details):
                 presentFeedUnavailableAlert(details: details)
             }
+        }
+    }
+
+    func feedURLString(for updater: SPUUpdater) -> String? {
+        configuration.feedURLString
+    }
+
+    func allowedChannels(for updater: SPUUpdater) -> Set<String> {
+        switch managedPolicyState.policy?.updates.ring ?? .stable {
+        case .stable:
+            return []
+        case .beta:
+            return ["beta"]
+        case .internalRing:
+            return ["beta", "internal"]
         }
     }
 
@@ -119,7 +134,13 @@ final class AppUpdateController: NSObject, ObservableObject {
         request.cachePolicy = .reloadIgnoringLocalCacheData
 
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (_, response) = try await SecureNetworkService.data(
+                for: request,
+                policy: .publicInternet(
+                    allowedHosts: feedURL.host.map { [$0] } ?? [],
+                    maximumResponseBytes: 256 * 1_024
+                )
+            )
 
             if let httpResponse = response as? HTTPURLResponse,
                !(200..<300).contains(httpResponse.statusCode) {
@@ -174,8 +195,15 @@ extension AppUpdateController {
             missingRequirements.isEmpty
         }
 
-        static func fromBundle(_ bundle: Bundle = .main) -> Self {
-            let feedURLString = bundle.object(forInfoDictionaryKey: "SUFeedURL") as? String
+        static func fromBundle(
+            _ bundle: Bundle = .main,
+            managedPolicyState: ManagedPolicyState = EnterprisePolicyService.loadState()
+        ) -> Self {
+            let bundleFeedURLString = bundle.object(forInfoDictionaryKey: "SUFeedURL") as? String
+            let feedURLString = EnterprisePolicyService.managedUpdateFeedURL(
+                state: managedPolicyState,
+                fallback: bundleFeedURLString
+            )
             let publicEDKey = bundle.object(forInfoDictionaryKey: "SUPublicEDKey") as? String
             return Self(feedURLString: feedURLString, publicEDKey: publicEDKey)
         }

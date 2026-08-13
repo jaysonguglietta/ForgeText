@@ -73,6 +73,18 @@ enum PluginHostService {
             .filter { $0.languages.isEmpty || $0.languages.contains(language) }
     }
 
+    static func language(
+        for url: URL,
+        using settings: AppSettings,
+        workspaceRoots: [URL],
+        trustMode: WorkspaceTrustMode
+    ) -> DocumentLanguage? {
+        enabledPlugins(using: settings, workspaceRoots: workspaceRoots, trustMode: trustMode)
+            .flatMap(\.languagePacks)
+            .first(where: { $0.matches(url) })?
+            .baseLanguage
+    }
+
     static func snippets(
         for language: DocumentLanguage,
         using settings: AppSettings,

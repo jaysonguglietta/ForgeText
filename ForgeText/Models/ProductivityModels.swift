@@ -89,7 +89,7 @@ enum CommandPaletteItemKind: String {
     case theme
 }
 
-enum ActivityStatus: String, Codable, Hashable {
+enum ActivityStatus: String, Codable, Hashable, Sendable {
     case info
     case running
     case success
@@ -127,7 +127,7 @@ enum ActivityStatus: String, Codable, Hashable {
     }
 }
 
-struct ActivityRecord: Identifiable, Hashable {
+struct ActivityRecord: Identifiable, Codable, Hashable {
     let id: UUID
     let title: String
     let detail: String
@@ -257,6 +257,7 @@ struct PerformanceSnapshot: Hashable {
 }
 
 enum PerformanceMetricKind: String, CaseIterable, Identifiable, Hashable {
+    case editorInput
     case syntaxHighlighting
     case structuredViewSwitch
     case gitWorkbenchRefresh
@@ -270,6 +271,8 @@ enum PerformanceMetricKind: String, CaseIterable, Identifiable, Hashable {
 
     var displayName: String {
         switch self {
+        case .editorInput:
+            return "Editor Input"
         case .syntaxHighlighting:
             return "Syntax Highlighting"
         case .structuredViewSwitch:
@@ -288,6 +291,23 @@ enum PerformanceMetricKind: String, CaseIterable, Identifiable, Hashable {
             return "Session Persistence"
         }
     }
+
+    var responsivenessBudgetMS: Double {
+        switch self {
+        case .editorInput:
+            return 16
+        case .syntaxHighlighting:
+            return 32
+        case .structuredViewSwitch:
+            return 250
+        case .gitWorkbenchRefresh, .gitLineDecorations, .gitBlamePrefetch:
+            return 500
+        case .documentInsights, .documentDiagnostics:
+            return 250
+        case .sessionPersistence:
+            return 100
+        }
+    }
 }
 
 struct PerformanceMetricSnapshot: Hashable {
@@ -295,10 +315,15 @@ struct PerformanceMetricSnapshot: Hashable {
     let sampleCount: Int
     let lastDurationMS: Double
     let averageDurationMS: Double
+    let p95DurationMS: Double
     let maxDurationMS: Double
     let lastDetail: String?
     let lastPayload: String?
     let lastRecordedAt: Date?
+
+    var isWithinBudget: Bool {
+        p95DurationMS <= kind.responsivenessBudgetMS
+    }
 }
 
 struct DiagnosticBundleSummary: Hashable {
@@ -340,4 +365,54 @@ struct GitHubWorkflowState: Hashable {
     var changedFileCount = 0
     var statusMessage: String?
     var refreshedAt: Date?
+    var pullRequests: [GitHubPullRequestSummary] = []
+    var isLoadingPullRequests = false
+    var collaborationError: String?
+    var issues: [GitHubIssueSummary] = []
+    var checks: [GitHubCheckSummary] = []
+    var reviewThreads: [GitHubReviewThreadSummary] = []
+}
+
+struct GitHubPullRequestSummary: Identifiable, Hashable {
+    var id: Int { number }
+    let number: Int
+    let title: String
+    let state: String
+    let isDraft: Bool
+    let headBranch: String
+    let baseBranch: String
+    let url: URL
+    let authorLogin: String
+    let reviewDecision: String?
+    let updatedAt: String
+}
+
+struct GitHubIssueSummary: Identifiable, Hashable {
+    var id: Int { number }
+    let number: Int
+    let title: String
+    let state: String
+    let labels: [String]
+    let assignees: [String]
+    let url: URL
+    let updatedAt: String
+}
+
+struct GitHubCheckSummary: Identifiable, Hashable {
+    var id: String { "\(name)-\(workflow ?? "")" }
+    let name: String
+    let state: String
+    let conclusion: String?
+    let workflow: String?
+    let url: URL?
+}
+
+struct GitHubReviewThreadSummary: Identifiable, Hashable {
+    let id: Int
+    let path: String
+    let line: Int?
+    let author: String
+    let body: String
+    let createdAt: String
+    let url: URL?
 }

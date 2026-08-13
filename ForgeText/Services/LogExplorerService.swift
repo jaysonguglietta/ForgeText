@@ -1,6 +1,6 @@
 import Foundation
 
-enum LogSeverity: String, CaseIterable, Codable, Identifiable {
+enum LogSeverity: String, CaseIterable, Codable, Identifiable, Sendable {
     case trace
     case debug
     case info
@@ -76,13 +76,13 @@ enum LogSeverity: String, CaseIterable, Codable, Identifiable {
     }
 }
 
-struct LogMetadataField: Identifiable, Hashable {
+struct LogMetadataField: Identifiable, Hashable, Sendable {
     let id: String
     let key: String
     let value: String
 }
 
-struct LogEntry: Identifiable, Hashable {
+struct LogEntry: Identifiable, Hashable, Sendable {
     let id: String
     let lineNumber: Int
     let timestamp: String?
@@ -95,7 +95,7 @@ struct LogEntry: Identifiable, Hashable {
     let rawText: String
 }
 
-struct LogDocument {
+struct LogDocument: Sendable {
     let entries: [LogEntry]
     let severityCounts: [LogSeverity: Int]
     let timestampedEntryCount: Int
@@ -113,7 +113,113 @@ struct LogDocument {
     }
 }
 
+struct LogTimelineCluster: Identifiable, Hashable {
+    let id: String
+    let startDate: Date?
+    let endDate: Date?
+    let entries: [LogEntry]
+
+    var displayName: String {
+        guard let startDate else { return "Entries without timestamps" }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .none
+        formatter.timeStyle = .medium
+        if let endDate, endDate != startDate {
+            return "\(formatter.string(from: startDate)) - \(formatter.string(from: endDate))"
+        }
+        return formatter.string(from: startDate)
+    }
+}
+
 enum LogExplorerService {
+    static func mergedSession(
+        _ sources: [(name: String, document: LogDocument)]
+    ) -> LogDocument? {
+        guard !sources.isEmpty else { return nil }
+        let entries = sources.prefix(16).enumerated().flatMap { sourceOffset, source in
+            source.document.entries.prefix(250_000).map { entry in
+                LogEntry(
+                    id: "session-\(sourceOffset)-\(entry.id)",
+                    lineNumber: entry.lineNumber,
+                    timestamp: entry.timestamp,
+                    timestampDate: entry.timestampDate,
+                    severity: entry.severity,
+                    source: entry.source.map { "\(source.name) · \($0)" } ?? source.name,
+                    message: entry.message,
+                    details: entry.details,
+                    metadata: entry.metadata,
+                    rawText: entry.rawText
+                )
+            }
+        }
+        .enumerated()
+        .sorted { lhs, rhs in
+            switch (lhs.element.timestampDate, rhs.element.timestampDate) {
+            case let (left?, right?) where left != right:
+                return left < right
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            default:
+                return lhs.offset < rhs.offset
+            }
+        }
+        .map(\.element)
+        let severityCounts = Dictionary(grouping: entries, by: \.severity).mapValues(\.count)
+        return LogDocument(
+            entries: entries,
+            severityCounts: severityCounts,
+            timestampedEntryCount: entries.filter { $0.timestampDate != nil }.count
+        )
+    }
+
+    static func timelineClusters(
+        entries: [LogEntry],
+        maximumGap: TimeInterval = 60
+    ) -> [LogTimelineCluster] {
+        guard !entries.isEmpty else { return [] }
+        var result: [LogTimelineCluster] = []
+        var current: [LogEntry] = []
+        var clusterStart: Date?
+        var previousDate: Date?
+
+        func appendCurrent() {
+            guard !current.isEmpty else { return }
+            result.append(
+                LogTimelineCluster(
+                    id: "cluster-\(result.count)-\(current.first?.id ?? "unknown")",
+                    startDate: clusterStart,
+                    endDate: previousDate,
+                    entries: current
+                )
+            )
+            current = []
+        }
+
+        for entry in entries {
+            if let date = entry.timestampDate {
+                if let previousDate, date.timeIntervalSince(previousDate) > maximumGap {
+                    appendCurrent()
+                    clusterStart = date
+                } else if current.isEmpty {
+                    clusterStart = date
+                }
+                current.append(entry)
+                previousDate = date
+            } else {
+                if current.first?.timestampDate != nil {
+                    appendCurrent()
+                    clusterStart = nil
+                    previousDate = nil
+                }
+                current.append(entry)
+            }
+        }
+        appendCurrent()
+        return result
+    }
+
     static func parse(_ text: String, requireLogSignals: Bool = false) -> LogDocument? {
         let lines = normalizedLines(in: text)
         guard lines.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {

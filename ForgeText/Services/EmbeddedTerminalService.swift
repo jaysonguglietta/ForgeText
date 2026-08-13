@@ -17,14 +17,18 @@ enum EmbeddedTerminalService {
             let result = try CommandExecutionService.execute(
                 "/bin/zsh",
                 arguments: ["-lc", command],
-                currentDirectoryURL: currentDirectoryURL
+                currentDirectoryURL: currentDirectoryURL,
+                limits: .interactiveTask
             )
 
             let stdout = String(data: result.stdout, encoding: .utf8) ?? ""
             let stderr = String(data: result.stderr, encoding: .utf8) ?? ""
-            let output = [stdout, stderr]
+            var output = [stdout, stderr]
                 .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
                 .joined(separator: stdout.isEmpty || stderr.isEmpty ? "" : "\n\n")
+            if result.stdoutWasTruncated || result.stderrWasTruncated {
+                output += "\n\n[ForgeText stopped capturing output after the configured safety limit.]"
+            }
 
             return TerminalCommandRun(
                 command: command,
